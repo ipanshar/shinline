@@ -9,7 +9,8 @@ use Illuminate\Http\Request;
 
 class WarehouseCotroller extends Controller
 {
-    public function getWarehouses(Request $request){
+    public function getWarehouses(Request $request)
+    {
         $warehouses = Warehouse::all();
         $warehouses->leftJoin('yards', 'warehouses.yard_id', '=', 'yards.id')
             ->select('warehouses.*', 'yards.name as yard_name')
@@ -20,49 +21,66 @@ class WarehouseCotroller extends Controller
             'data' => $warehouses,
         ], 200);
     }
-    public function addWarehouse(Request $request){
-        $validate = $request->validate([
-            'name' => 'required|string|max:255',
-            'address' => 'string|max:255',
-            'phone' => 'string|max:255',
-            'email' => 'string|max:255',
-            'coordinates' => 'string|max:255',
-            'yard_id' => 'required|integer',
-        ]);
-        $warehouse = Warehouse::create($validate);
-        $warehouse->save();
+    public function addWarehouse(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'name' => 'required|string|max:255',
+                'address' => 'string|max:255',
+                'phone' => 'string|max:255',
+                'email' => 'string|max:255',
+                'coordinates' => 'string|max:255',
+                'yard_id' => 'required|integer',
+            ]);
+            $warehouse = Warehouse::create($validate);
+            $warehouse->save();
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Warehouse created successfully',
-            'data' => $validate
-        ], 200);
-    }
-    public function updateWarehouse(Request $request){
-        $validate = $request->validate([
-            'id' => 'required|integer',
-            'name' => 'string|max:255',
-            'address' => 'string|max:255',
-            'phone' => 'string|max:255',
-            'email' => 'string|max:255',
-            'coordinates' => 'string|max:255',
-            'yard_id' => 'required|integer',
-        ]);
-        $warehouse = Warehouse::find($validate['id']);
-        if (!$warehouse) {
+            return response()->json([
+                'status' => true,
+                'message' => 'Warehouse created successfully',
+                'data' => $validate
+            ], 200);
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
-                'message' => 'Warehouse not found'
-            ], 404);
+                'message' => 'Error Creating Warehouse: ' . $e->getMessage(),
+            ], 500);
         }
-        $warehouse->update($validate);
-        return response()->json([
-            'status' => true,
-            'message' => 'Warehouse updated successfully',
-            'data' => $validate
-        ], 200);
     }
-    public function deleteWarehouse(Request $request){
+    public function updateWarehouse(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'id' => 'required|integer',
+                'name' => 'string|max:255',
+                'address' => 'string|max:255',
+                'phone' => 'string|max:255',
+                'email' => 'string|max:255',
+                'coordinates' => 'string|max:255',
+                'yard_id' => 'required|integer',
+            ]);
+            $warehouse = Warehouse::find($validate['id']);
+            if (!$warehouse) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Warehouse not found'
+                ], 404);
+            }
+            $warehouse->update($validate);
+            return response()->json([
+                'status' => true,
+                'message' => 'Warehouse updated successfully',
+                'data' => $validate
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error Updating Warehouse: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+    public function deleteWarehouse(Request $request)
+    {
         $user = Auth::user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
@@ -88,3 +106,4 @@ class WarehouseCotroller extends Controller
         ], 200);
     }
 }
+ 
