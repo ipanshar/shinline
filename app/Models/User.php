@@ -51,4 +51,8 @@ class User extends Authenticatable
     public function roles() {
         return $this->belongsToMany(Role::class);
     }
+
+    public function trucks() {
+        return $this->belongsToMany(Truck::class, 'track_users', 'truck_id', 'user_id');
+    }
 }

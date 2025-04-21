@@ -25,8 +25,8 @@ class Truck extends Model
 
     ];
 
-    public function trailerType()
+    public function user()
     {
-        return $this->belongsTo(TrailerType::class);
+        return $this->belongsToMany(User::class, 'track_users', 'truck_id', 'user_id')->withPivot('assigned_date');
     }
 }

@@ -3,80 +3,90 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Status;
 use App\Models\Task;
 use App\Models\TaskLoading;
 use App\Models\TaskWeighing;
+use App\Models\TrailerType;
+use App\Models\Truck;
+use App\Models\TruckCategory;
+use App\Models\TruckModel;
+use App\Models\User;
+use App\Models\Warehouse;
+use App\Models\Yard;
 use Illuminate\Http\Request;
+use PHPUnit\Framework\Constraint\Count;
 
 class TaskCotroller extends Controller
 {
-    public function getTasks(Request $request){
-        try{
-        $tasks = Task::query();
-        if ($request->has('status_id')) {
-            $tasks->where('status_id', $request->status_id);
-        }
-        if ($request->has('yard_id')) {
-            $tasks->where('yard_id', $request->yard_id);
-        }
-        if ($request->has('user_id')) {
-            $tasks->where('user_id', $request->user_id);
-        }
-        if ($request->has('truck_id')) {
-            $tasks->where('truck_id', $request->truck_id);
-        }
-        if ($request->has('avtor')) {
-            $tasks->where('avtor', $request->avtor);
-        }
-        if ($request->has('address')) {
-            $tasks->where('address', 'like', '%' . $request->address . '%');
-        }
-        if ($request->has('phone')) {
-            $tasks->where('phone', 'like', '%' . $request->phone . '%');
-        }
-        if ($request->has('plan_date')) {
-            $tasks->where('plan_date', '>=', $request->plan_date);
-        }
-        if ($request->has('begin_date')) {
-            $tasks->where('begin_date', '>=', $request->begin_date);
-        }
-        if ($request->has('end_date')) {
-            $tasks->where('end_date', '<=', $request->end_date);
-        }
-        if ($request->has('search')) {
-            $tasks->where(function($query) use ($request) {
-                $query->where('name', 'like', '%' . $request->search . '%')
-                      ->orWhere('description', 'like', '%' . $request->search . '%');
-            });
-        }
-        $tasks->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
-            ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
-            ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
-            ->leftJoin('yards', 'tasks.yard_id', '=', 'yards.id')
-            ->select('tasks.*', 'statuses.name as status_name','users.name as user_name', 'users.phone as user_phone','trucks.plate_number as truck_plate_number', 'yards.name as yard_name')
-            ->orderBy('tasks.created_at', 'desc')
-            ->get();
-        if ($tasks->isEmpty()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'No tasks found',
-                'data' => []
-            ], 404);
-        }
-        $data = [];
-        foreach ($tasks as $task) {
-            $taskLoading = TaskLoading::query()
-                ->where('task_id', $task->id)
-              ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
-              ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_plan_id', '=', 'warehouse_gates.id')
-              ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_fact_id', '=', 'warehouse_gates.id')
-              ->select('task_loadings.*', 'warehouses.name as warehouse_name', 'warehouse_gates.name as warehouse_gate_name')
+    public function getTasks(Request $request)
+    {
+        try {
+            $tasks = Task::query();
+            if ($request->has('status_id')) {
+                $tasks->where('status_id', $request->status_id);
+            }
+            if ($request->has('yard_id')) {
+                $tasks->where('yard_id', $request->yard_id);
+            }
+            if ($request->has('user_id')) {
+                $tasks->where('user_id', $request->user_id);
+            }
+            if ($request->has('truck_id')) {
+                $tasks->where('truck_id', $request->truck_id);
+            }
+            if ($request->has('avtor')) {
+                $tasks->where('avtor', $request->avtor);
+            }
+            if ($request->has('address')) {
+                $tasks->where('address', 'like', '%' . $request->address . '%');
+            }
+            if ($request->has('phone')) {
+                $tasks->where('phone', 'like', '%' . $request->phone . '%');
+            }
+            if ($request->has('plan_date')) {
+                $tasks->where('plan_date', '>=', $request->plan_date);
+            }
+            if ($request->has('begin_date')) {
+                $tasks->where('begin_date', '>=', $request->begin_date);
+            }
+            if ($request->has('end_date')) {
+                $tasks->where('end_date', '<=', $request->end_date);
+            }
+            if ($request->has('search')) {
+                $tasks->where(function ($query) use ($request) {
+                    $query->where('name', 'like', '%' . $request->search . '%')
+                        ->orWhere('description', 'like', '%' . $request->search . '%');
+                });
+            }
+            $tasks->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
+                ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+                ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+                ->leftJoin('yards', 'tasks.yard_id', '=', 'yards.id')
+                ->select('tasks.*', 'statuses.name as status_name', 'users.name as user_name', 'users.phone as user_phone', 'trucks.plate_number as truck_plate_number', 'yards.name as yard_name')
+                ->orderBy('tasks.created_at', 'desc')
                 ->get();
-            $taskWeighing = TaskWeighing::query()
-                ->where('task_id', $task->id)
-                ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
-                ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
-                ->get();
+            if ($tasks->isEmpty()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No tasks found',
+                    'data' => []
+                ], 404);
+            }
+            $data = [];
+            foreach ($tasks as $task) {
+                $taskLoading = TaskLoading::query()
+                    ->where('task_id', $task->id)
+                    ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+                    ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_plan_id', '=', 'warehouse_gates.id')
+                    ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_fact_id', '=', 'warehouse_gates.id')
+                    ->select('task_loadings.*', 'warehouses.name as warehouse_name', 'warehouse_gates.name as warehouse_gate_name')
+                    ->get();
+                $taskWeighing = TaskWeighing::query()
+                    ->where('task_id', $task->id)
+                    ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
+                    ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
+                    ->get();
 
                 array_push($data, [
                     'id' => $task->id,
@@ -101,18 +111,15 @@ class TaskCotroller extends Controller
                     'created_at' => $task->created_at,
                     'task_loadings' => $taskLoading,
                     'task_weighings' => $taskWeighing,
-                    
-            ]);
-        
-            
-        }
-        return response()->json([
-            'status' => true,
-            'message' => 'Tasks retrieved successfully',
-            'data' => $data,
-        ], 200);
-        }
-        catch(\Exception $e){
+
+                ]);
+            }
+            return response()->json([
+                'status' => true,
+                'message' => 'Tasks retrieved successfully',
+                'data' => $data,
+            ], 200);
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Error Retrieving Tasks: ' . $e->getMessage(),
@@ -120,8 +127,9 @@ class TaskCotroller extends Controller
         }
     }
 
-    public function addTask(Request $request){
-        try{
+    public function addTask(Request $request)
+    {
+        try {
             $validate = $request->validate([
                 'name' => 'required|string|max:255',
                 'description' => 'string|max:255',
@@ -136,7 +144,7 @@ class TaskCotroller extends Controller
                 'status_id' => 'required|integer',
             ]);
             $task = Task::create($validate);
-            
+
             $task->save();
             $taskLoading = TaskLoading::create([
                 'task_id' => $task->id,
@@ -154,8 +162,161 @@ class TaskCotroller extends Controller
                 'message' => 'Task created successfully',
                 'data' => $validate
             ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error Creating Task: ' . $e->getMessage(),
+            ], 500);
         }
-        catch(\Exception $e){
+    }
+
+    public function addApiTask(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'name' => 'required|string|max:255',
+                'user_name' => 'string|max:255',
+                'user_phone' => 'string|max:255',
+                'company' => 'string|max:255',
+                'plate_number' => 'string|max:50',
+                'trailer_plate_number' => "string|max:50",
+                'truck_model' => 'string|max:255',
+                'truck_category' => 'string|max:255',
+                'trailer_type' => 'string|max:255',
+                'trailer_model' => 'string|max:255',
+                'color' => 'string|max:100',
+                'vin' => 'string|max:100',
+                'avtor' => 'required|string|max:255',
+                'phone' => 'string|max:50',
+                'Yard' => 'required|string|max:255',
+                'description' => 'nullable|string|max:500',
+                'plan_date' => 'date_format:Y-m-d H:i:s',
+                'weighing' => 'required|boolean',
+                'warehouse' => 'required|array',
+                'warehouse.*.name' => 'required|string|max:255',
+                'warehouse.*.sorting_order' => 'required|integer|min:1',
+                'warehouse.*.gates' => 'required|array|min:1',
+                'warehouse.*.gates.*' => 'required|integer|min:1',
+                'warehouse.*.plan_gate' => 'nullable|integer',
+                'warehouse.*.description' => 'nullable|string|max:500',
+            ]);
+            $truck = Truck::where('plate_number', $validate['plate_number'])->first();
+            if (!$truck && $validate['plate_number']) {
+                $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truc_categories'] . '%')->first();
+                if (!$truckCategory && $validate['truck_category']) {
+                    $truckCategory = TruckCategory::create([
+                        'name' => $validate['truck_category'],
+                        'ru_name' => $validate['truck_category'],
+                    ]);
+                    $truckCategory->save();
+                }
+                $truckModel = TruckModel::where('name', 'like', '%' . $validate['truck_model'] . '%')->first();
+                if (!$truckModel && $validate['truck_model']) {
+                    $truckModel = TruckModel::create([
+                        'name' => $validate['truck_model'],
+                        'truck_category_id' => $truckCategory->id,
+                    ]);
+                    $truckModel->save();
+                }
+                $trailerModel = TruckModel::where('name', 'like', '%' . $validate['trailer_model'] . '%')->first();
+                if (!$trailerModel && $validate['trailer_model']) {
+                    $trailerModel = TruckModel::create([
+                        'name' => $validate['trailer_model'],
+                        'trailer_type_id' => $truckCategory->id,
+                    ]);
+                    $trailerModel->save();
+                }
+                $trailerType = TrailerType::where('name', 'like', '%' . $validate['trailer_type'] . '%')->first();
+                if (!$trailerType && $validate['trailer_type']) {
+                    $trailerType = TrailerType::create([
+                        'name' => $validate['trailer_type'],
+                    ]);
+                    $trailerType->save();
+                }
+                $truck = Truck::create([
+                    'user_id' => 1,
+                    'vin' => $validate['vin'],
+                    'plate_number' => $validate['plate_number'],
+                    'trailer_plate_number' => $validate['trailer_plate_number'],
+                    'truck_model_id' => $truckModel ? $truckModel->id : null,
+                    'trailer_model_id' => $trailerModel ? $trailerModel->id : null,
+                    'trailer_type_id' => $trailerType ? $trailerType->id : null,
+                    'truck_category_id' => $truckCategory ? $truckCategory->id : null,
+                    'trailer_model_id' => $trailerModel ? $trailerModel->id : null,
+                    'trailer_type_id' => $trailerType ? $trailerType->id : null,
+                    'color' => $validate['color'],
+                ]);
+                $truck->save();
+            }
+            $user = User::where('name', 'like', '%' . $validate['user_name'] . '%')
+                ->orWhere('phone', 'like', '%' . $validate['user_phone'] . '%')
+                ->orWhere('login', 'like', '%' . $validate['user_phone'] . '%')
+                ->first();
+            if (!$user && $validate['user_name'] && $validate['user_phone']) {
+                $user = User::create([
+                    'name' => $validate['user_name'],
+                    'login' => $validate['user_phone'],
+                    'password' => bcrypt($validate['user_phone']),
+                    'company' => $validate['company'],
+                    'phone' => $validate['user_phone'],
+                ]);
+                $user->save();
+                $user->truck()->syncWithoutDetaching([$truck->id]);
+            }
+            $yard = Yard::where('name', 'like', '%' . $validate['Yard'] . '%')->first();
+            if (!$yard) {
+                $yard = Yard::create([
+                    'name' => $validate['Yard'],
+                ]);
+            }
+            $status = Status::where('key', 'new')->first();
+            $task = Task::create([
+                'name' => $validate['name'],
+                'user_id' => $user ? $user->id : null,
+                'truck_id' => $truck ? $truck->id : null,
+                'avtor' => $validate['avtor'],
+                'phone' => $validate['phone'],
+                'description' => $validate['description'],
+                'plan_date' => $validate['plan_date'],
+                'yard_id' => $yard ? $yard->id : null,
+                'status_id' => $status ? $status->id : null,
+            ]);
+            $task->save();
+            $CountRow = Count($validate['warehouse']);
+            if( $validate['weighing']){
+                
+            }
+            foreach ($validate['warehouse'] as $warehouse) {
+                $warehouse = Warehouse::where('name', $warehouse['name'])->first();
+                if (!$warehouse) {
+                    $warehouse = Warehouse::create([
+                        'name' => $warehouse['name'],
+                        'yard_id' => $yard ? $yard->id : null,
+                    ]);
+                }
+                $taskLoading = TaskLoading::create([
+                    'task_id' => $task->id,
+                    'warehouse_id' => $warehouse['name'],
+                    'sorting_order' => $warehouse['sorting_order'],
+                    'plan_gate' => $warehouse['plan_gate'],
+                    'description' => $warehouse['description'],
+                ]);
+                $taskLoading->save();
+                foreach ($warehouse['gates'] as $gate) {
+                    TaskLoading::create([
+                        'task_id' => $task->id,
+                        'warehouse_gate_plan_id' => $gate,
+                        'sorting_order' => $warehouse['sorting_order'],
+                        'description' => $warehouse['description'],
+                    ]);
+                }
+            }
+            return response()->json([
+                'status' => true,
+                'message' => 'Task created successfully',
+                'data' => $validate
+            ], 200);
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Error Creating Task: ' . $e->getMessage(),

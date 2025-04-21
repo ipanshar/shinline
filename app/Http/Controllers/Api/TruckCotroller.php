@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Truck;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -183,6 +184,85 @@ class TruckCotroller extends Controller
             return response()->json([
                 'status' => false,
                 'message' => "Truck not found"
+            ], 404);
+        }
+    }
+
+    public function attachTruckUser(Request $request)
+    {
+        $validate = $request->validate([
+            'user_id' => 'required|integer',
+            'truck_id' => 'required|integer'
+        ]);
+        $truck = Truck::find($validate['truck_id']);
+        $user = User::find($validate['user_id']);
+        if ($truck && $user) {
+            $user->trucks()->syncWithoutDetaching([$truck->id]);
+            return response()->json([
+                'status' => true,
+                'message' => "Truck attached to user successfully"
+            ], 200);
+        } else {
+            return response()->json([
+                'status' => false,
+                'message' => "Truck or user not found"
+            ], 404);
+        }
+    }
+    public function detachTruckUser(Request $request)
+    {
+        $validate = $request->validate([
+            'user_id' => 'required|integer',
+            'truck_id' => 'required|integer'
+        ]);
+        $truck = Truck::find($validate['truck_id']);
+        $user = User::find($validate['user_id']);
+        if ($truck && $user) {
+            $user->trucks()->detach([$truck->id]);
+            return response()->json([
+                'status' => true,
+                'message' => "Truck detached from user successfully"
+            ], 200);
+        } else {
+            return response()->json([
+                'status' => false,
+                'message' => "Truck or user not found"
+            ], 404);
+        }
+    }
+    public function getTruckByUser(Request $request)
+    {
+        $validate = $request->validate([
+            'user_id' => 'required|integer'
+        ]);
+        $user = User::find($validate['user_id']);
+        if ($user) {
+            $trucks = $user->trucks()
+            ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+            ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
+            ->leftJoin('trailer_types', 'trucks.trailer_type_id', '=', 'trailer_types.id')
+            ->leftJoin('trailer_models', 'trucks.trailer_model_id', '=', 'trailer_models.id')
+            ->select(
+                'trucks.*',
+                'truck_brands.name as truck_brand_name',
+                'truck_models.name as truck_model_name',
+                'truck_categories.ru_name as truck_categories_name',
+                'trailer_types.name as trailer_type_name',
+                'trailer_models.name as trailer_model_name'
+            )
+            ->orderBy('trucks.created_at', 'desc')
+            ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => "Trucks found",
+                "data" => $trucks
+            ], 200);
+        } else {
+            return response()->json([
+                'status' => false,
+                'message' => "User not found"
             ], 404);
         }
     }

@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('trucks', function (Blueprint $table) {
             $table->id();
             $table->string('name')->nullable();
-            $table->integer('user_id');
+            $table->integer('user_id')->nullable();
             $table->string('plate_number');
             $table->string('vin')->nullable();
             $table->integer('truck_brand_id')->nullable();
