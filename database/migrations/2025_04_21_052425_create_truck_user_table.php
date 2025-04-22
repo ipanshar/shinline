@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->foreignId('truck_id')->constrained()->onDelete('cascade');
-            $table->date('assigned_date');
+            $table->date('assigned_date')->nullable();
             $table->timestamps();
         });
     }

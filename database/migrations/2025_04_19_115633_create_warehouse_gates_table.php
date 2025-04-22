@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('warehouse_gates', function (Blueprint $table) {
             $table->id();
             $table->foreignId('warehouse_id')->constrained('warehouses')->onDelete('cascade');
-            $table->string('name')->unique();
+            $table->string('name');
             $table->string('address')->nullable();
             $table->string('phone')->nullable();
             $table->string('email')->nullable();

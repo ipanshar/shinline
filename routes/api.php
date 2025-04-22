@@ -19,9 +19,6 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-Route::post('/login', function (Request $request) {
-    return "json";
-});
 
 // Authification routes
 
@@ -100,3 +97,4 @@ Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class,'deleteGate'
 // Task routes
 Route::post('/task/gettasks', [TaskCotroller::class,'getTasks'])->middleware('auth:sanctum'); //Получить все задачи
 Route::post('/task/addtask', [TaskCotroller::class,'addTask'])->middleware('auth:sanctum'); //Добавить задачу
+Route::post('/task/addapitask', [TaskCotroller::class,'addApiTask']); //Добавить задачу через API

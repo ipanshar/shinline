@@ -53,6 +53,6 @@ class User extends Authenticatable
     }
 
     public function trucks() {
-        return $this->belongsToMany(Truck::class, 'track_users', 'truck_id', 'user_id');
+        return $this->belongsToMany(Truck::class, 'truck_user','user_id', 'truck_id' )->withPivot('assigned_date');;
     }
 }

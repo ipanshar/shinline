@@ -7,12 +7,14 @@ use App\Models\Status;
 use App\Models\Task;
 use App\Models\TaskLoading;
 use App\Models\TaskWeighing;
+use App\Models\TrailerModel;
 use App\Models\TrailerType;
 use App\Models\Truck;
 use App\Models\TruckCategory;
 use App\Models\TruckModel;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Models\WarehouseGates;
 use App\Models\Yard;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Constraint\Count;
@@ -202,7 +204,7 @@ class TaskCotroller extends Controller
             ]);
             $truck = Truck::where('plate_number', $validate['plate_number'])->first();
             if (!$truck && $validate['plate_number']) {
-                $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truc_categories'] . '%')->first();
+                $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truck_category'] . '%')->first();
                 if (!$truckCategory && $validate['truck_category']) {
                     $truckCategory = TruckCategory::create([
                         'name' => $validate['truck_category'],
@@ -218,9 +220,9 @@ class TaskCotroller extends Controller
                     ]);
                     $truckModel->save();
                 }
-                $trailerModel = TruckModel::where('name', 'like', '%' . $validate['trailer_model'] . '%')->first();
+                $trailerModel = TrailerModel::where('name', 'like', '%' . $validate['trailer_model'] . '%')->first();
                 if (!$trailerModel && $validate['trailer_model']) {
-                    $trailerModel = TruckModel::create([
+                    $trailerModel = TrailerModel::create([
                         'name' => $validate['trailer_model'],
                         'trailer_type_id' => $truckCategory->id,
                     ]);
@@ -248,9 +250,8 @@ class TaskCotroller extends Controller
                 ]);
                 $truck->save();
             }
-            $user = User::where('name', 'like', '%' . $validate['user_name'] . '%')
-                ->orWhere('phone', 'like', '%' . $validate['user_phone'] . '%')
-                ->orWhere('login', 'like', '%' . $validate['user_phone'] . '%')
+            $user = User::where('phone', '=', $validate['user_phone'] )
+                ->orWhere('login', '=',  $validate['user_phone'] )
                 ->first();
             if (!$user && $validate['user_name'] && $validate['user_phone']) {
                 $user = User::create([
@@ -261,7 +262,7 @@ class TaskCotroller extends Controller
                     'phone' => $validate['user_phone'],
                 ]);
                 $user->save();
-                $user->truck()->syncWithoutDetaching([$truck->id]);
+                $user->trucks()->syncWithoutDetaching([$truck->id]);
             }
             $yard = Yard::where('name', 'like', '%' . $validate['Yard'] . '%')->first();
             if (!$yard) {
@@ -282,39 +283,60 @@ class TaskCotroller extends Controller
                 'status_id' => $status ? $status->id : null,
             ]);
             $task->save();
-            $CountRow = Count($validate['warehouse']);
+            $weighing = 0;
             if( $validate['weighing']){
-                
+                $weighing = 1;
+               TaskWeighing::create([
+                    'task_id' => $task->id,
+                    'sort_order' =>  1,
+                    'statuse_weighing_id' => 1,
+                    'yard_id' => $yard ? $yard->id : 1,
+                ]);
+                TaskWeighing::create([
+                    'task_id' => $task->id,
+                    'sorting_order' => Count($validate['warehouse']) + 1,
+                    'statuse_weighing_id' => 2,
+                    'yard_id' => $yard ? $yard->id : 1,
+                ]);
             }
-            foreach ($validate['warehouse'] as $warehouse) {
-                $warehouse = Warehouse::where('name', $warehouse['name'])->first();
+            foreach ($validate['warehouse'] as $warehouse_d) {
+                $weighing++;
+                $warehouse = Warehouse::where('name', $warehouse_d['name'])->first();
                 if (!$warehouse) {
                     $warehouse = Warehouse::create([
-                        'name' => $warehouse['name'],
+                        'name' => $warehouse_d['name'],
                         'yard_id' => $yard ? $yard->id : null,
                     ]);
                 }
+                $warehouse->save();
+                foreach ($warehouse_d['gates'] as $gate_name) {
+                    $gate = WarehouseGates::where('name', $gate_name)
+                    ->where('warehouse_id', $warehouse->id)
+                    ->first();
+                    if (!$gate) {
+                         WarehouseGates::create([
+                            'warehouse_id' => $warehouse->id,
+                            'name' => $gate_name,
+                        ]);
+                    }  
+                }
+                $plan_gate = WarehouseGates::where('name', $warehouse_d['plan_gate'])
+                ->where('warehouse_id', $warehouse->id)
+                ->first();
                 $taskLoading = TaskLoading::create([
                     'task_id' => $task->id,
-                    'warehouse_id' => $warehouse['name'],
-                    'sorting_order' => $warehouse['sorting_order'],
-                    'plan_gate' => $warehouse['plan_gate'],
-                    'description' => $warehouse['description'],
+                    'warehouse_id' => $warehouse ? $warehouse->id : null,
+                    'sorting_order' => $weighing,
+                    'warehouse_gate_plan_id' => $plan_gate ? $plan_gate->id : null,
+                    'description' => $warehouse_d['description'],
                 ]);
                 $taskLoading->save();
-                foreach ($warehouse['gates'] as $gate) {
-                    TaskLoading::create([
-                        'task_id' => $task->id,
-                        'warehouse_gate_plan_id' => $gate,
-                        'sorting_order' => $warehouse['sorting_order'],
-                        'description' => $warehouse['description'],
-                    ]);
-                }
+                
             }
             return response()->json([
                 'status' => true,
                 'message' => 'Task created successfully',
-                'data' => $validate
+                'data' => $task,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

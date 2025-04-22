@@ -27,6 +27,6 @@ class Truck extends Model
 
     public function user()
     {
-        return $this->belongsToMany(User::class, 'track_users', 'truck_id', 'user_id')->withPivot('assigned_date');
+        return $this->belongsToMany(User::class, 'truck_user', 'user_id', 'truck_id')->withPivot('assigned_date');
     }
 }
