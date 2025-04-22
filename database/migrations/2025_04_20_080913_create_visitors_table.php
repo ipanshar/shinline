@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('visitors', function (Blueprint $table) {
             $table->id();
             $table->string('name')->nullable();
-            $table->string('plate_number')->uniqid();
+            $table->string('plate_number');
             $table->string('phone')->nullable();
             $table->string('viche_color')->nullable();
             $table->integer('truck_category_id')->nullable();
