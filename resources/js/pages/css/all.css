@@ -1,0 +1,7 @@
+.paginateButton {
+    background-color: #ed0808;
+    color: rgb(255, 255, 255);
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+}
