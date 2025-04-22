@@ -124,10 +124,11 @@ export default function AdminPanel() {
 
     // Колонки для DataGrid
     const userColumns: GridColDef[] = [
-        { field: 'id', headerName: 'ID', width: 100 }, // Фиксированная ширина
+        { field: 'id', headerName: 'ID', width: 100 }, 
+        { field: 'login', headerName: 'Login', width: 255 }, 
         { field: 'name', headerName: 'Имя', width: 200 },
         { field: 'email', headerName: 'Email', width: 250 },
-        { field: 'rolesString', headerName: 'Роли', width: 300 },
+        { field: 'rolesString', headerName: 'Роли', width: 300, cellClassName: 'roles-column' }, // Используем строковое поле для отображения ролей
     ];
 
     return (
@@ -189,7 +190,7 @@ export default function AdminPanel() {
                 </div>
                 <div style={{ marginTop: '30px' }}>
                     <h3>Список пользователей</h3>
-                    <div style={{ height: 400, width: '100%', overflowX: 'auto' }}>
+                    <div style={{  width: '100%', overflowX: 'auto' }}>
                         <DataGrid
                             rows={users}
                             columns={userColumns}
@@ -206,6 +207,16 @@ export default function AdminPanel() {
                                 '& .MuiDataGrid-columnHeaders': {
                                     width: 'auto', // Не фиксируем ширину заголовков
                                 },
+                                '& .roles-column': {
+                                    whiteSpace: 'normal', // Позволяем перенос строк в ячейках
+                                    wordBreak: 'break-word', // Перенос длинных слов
+                                    lineHeight: '1.5', // Увеличиваем высоту строки
+                                    padding: '8px', // Добавляет отступы
+                                },
+                                '& .MuiDataGrid-row': {
+                                    height: 'auto', // Автоматическая высота строк
+                                    maxHeight: 'none', // Снимаем ограничения
+                                },                                
                             }}
                         />
                     </div>

@@ -43,14 +43,9 @@ class RoleController extends Controller
     }
 
     public function rolespermissions(){
-        return Inertia::render('settings/rolespermissions');
+        return Inertia::render('rolespermissions');
     }
-    public function productsmanagment(){
-        return Inertia::render('settings/products-managment');
-    }
-    public function rate(){
-        return Inertia::render('settings/rate');
-    }
+
 
 
     /**
