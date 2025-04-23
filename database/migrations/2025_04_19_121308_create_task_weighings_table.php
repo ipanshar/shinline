@@ -17,9 +17,9 @@ return new class extends Migration
             $table->integer('sort_order')->nullable();
             $table->double('weight')->nullable();
             $table->string('description')->nullable();
-            $table->foreignId('statuse_weighing_id')->constrained('statuse_weighings')->onDelete('cascade');
+            $table->foreignId('statuse_weighing_id')->nullable();
             $table->integer('user_id')->nullable();
-            $table->foreignId('yard_id')->constrained('yards')->onDelete('cascade');
+            $table->foreignId('yard_id')->nullable();
             $table->timestamps();
         });
     }
