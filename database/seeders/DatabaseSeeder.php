@@ -44,7 +44,7 @@ class DatabaseSeeder extends Seeder
         // Role::create([
         //     'name' => 'Охрана',
         // ]);
-        //User::where('login', 'admin')->first()->roles()->attach(Role::where('name', 'Администратор')->first());
+        // User::where('login', 'admin')->first()->roles()->attach(Role::where('name', 'Администратор')->first());
         // Status::create([
         //     'name' => 'Новый', 'key' => 'new'
         // ]);
