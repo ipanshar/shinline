@@ -54,6 +54,7 @@ Route::post('/security/getvisitors', [VisitorsCotroller::class,'getVisitors']); 
 Route::post('/security/addvisitor', [VisitorsCotroller::class,'addVisitor']); //Добавить посетителя
 Route::post('/security/updatevisitor', [VisitorsCotroller::class,'updateVisitor']); //Обновить посетителя
 Route::post('/security/exitvisitor', [VisitorsCotroller::class,'exitVisitor']); //Выход посетителя
+Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck']); //Поиск грузовика
 
 // Status routes
 Route::post('/setings/getstatus', [StatusCotroller::class,'getStatus']); //Получить все статусы
