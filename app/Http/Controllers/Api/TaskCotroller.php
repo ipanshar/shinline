@@ -411,7 +411,7 @@ class TaskCotroller extends Controller
         }
         $status = Status::whereIn('key', ['new', 'waiting_loading'])->get()->keyBy('key');
         $waiting_loading = $status['waiting_loading'];
-        $new_status = $status['new'];
+        $new_status = $status['on_territory'];
         
 
 
@@ -455,6 +455,60 @@ class TaskCotroller extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Error Updating Task: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function getTaskWeihings(Request $request)
+    {
+       
+        try {
+        $status = Status::where('key', 'on_territory')->first();
+        $task_weighings = Task::query()
+        ->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
+        ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+        ->leftJoin('task_weighings', 'tasks.id', '=', 'task_weighings.task_id')
+        ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
+        ->where('tasks.status_id', $status->id)
+        ->where('tasks.yard_id', $request->yard_id)
+        ->select('task_weighings.*', 'statuses.name as status_name', 'trucks.plate_number as truck_plate_number', 'statuse_weighings.name as statuse_weighing_name')
+        ->get();
+            return response()->json([
+                'status' => true,
+                'message' => 'Task Weighings retrieved successfully',
+                'data' => $task_weighings,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error Retrieving Task Weighings: ' . $e->getMessage(),
+            ], 500);
+        }
+
+    }
+
+    public function updateTaskWeighing(Request $request)
+    {
+        try {
+            $task_weighing = TaskWeighing::where('id', $request->id)->first();
+            if (!$task_weighing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Task Weighing not found',
+                ], 404);
+            }
+            $task_weighing->update([
+                'weight' => $request->weight,
+                'description' => $request->description,
+            ]);
+            return response()->json([
+                'status' => true,
+                'message' => 'Task Weighing updated successfully',
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error Updating Task Weighing: ' . $e->getMessage(),
             ], 500);
         }
     }

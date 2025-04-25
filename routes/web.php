@@ -111,6 +111,8 @@ Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class,'deleteGate'
 Route::post('/task/gettasks', [TaskCotroller::class,'getTasks']); //Получить все задачи
 Route::post('/task/addtask', [TaskCotroller::class,'addTask']); //Добавить задачу
 Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing']); //Обработка QR кода
+Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings']); //Получить задачи все взвешивания 
+Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing']); //Обновить задачи взвешивание 
 });
 
 

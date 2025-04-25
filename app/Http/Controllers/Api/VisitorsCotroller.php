@@ -93,7 +93,8 @@ class VisitorsCotroller extends Controller
     }
     public function getVisitors(Request $request)
     {
-        $status = $request->status_id;
+        
+
 
         $query = DB::table('visitors')
             ->leftJoin('truck_categories', 'visitors.truck_category_id', '=', 'truck_categories.id')
@@ -115,8 +116,11 @@ class VisitorsCotroller extends Controller
             )
             ->orderBy('visitors.id', 'desc');
 
-        if (!empty($status) && is_array($status)) {
-            $query->whereIn('statuses.key', $status);
+        if ($request->has('status') && is_array($request->status)) {
+            $query->whereIn('statuses.key', $request->status);
+        }
+        if ($request->has('yard_id')) {
+            $query->where('visitors.yard_id', '=', $request->yard_id);
         }
 
         $visitors = $query->take(1000)->get();

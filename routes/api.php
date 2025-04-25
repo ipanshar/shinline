@@ -100,3 +100,5 @@ Route::post('/task/gettasks', [TaskCotroller::class,'getTasks'])->middleware('au
 Route::post('/task/addtask', [TaskCotroller::class,'addTask'])->middleware('auth:sanctum'); //Добавить задачу
 Route::post('/task/addapitask', [TaskCotroller::class,'addApiTask']); //Добавить задачу через API
 Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing'])->middleware('auth:sanctum'); //Обработка QR кода
+Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания 
+Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание 
