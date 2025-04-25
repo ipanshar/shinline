@@ -11,10 +11,14 @@ class WarehouseCotroller extends Controller
 {
     public function getWarehouses(Request $request)
     {
-        $warehouses = Warehouse::all();
-        $warehouses->leftJoin('yards', 'warehouses.yard_id', '=', 'yards.id')
-            ->select('warehouses.*', 'yards.name as yard_name')
-            ->get();
+        $warehouses = Warehouse::query();
+        if ($request->has('yard_id')) {
+            $warehouses->where('yard_id', $request->input('yard_id'));
+            
+        }
+        $warehouses=$warehouses->Leftjoin('yards', 'warehouses.yard_id', '=', 'yards.id')->select('warehouses.*', 'yards.name as yard_name')
+        ->get(); 
+        
         return response()->json([
             'status' => true,
             'message' => 'Warehouses retrieved successfully',
@@ -33,7 +37,6 @@ class WarehouseCotroller extends Controller
                 'yard_id' => 'required|integer',
             ]);
             $warehouse = Warehouse::create($validate);
-            $warehouse->save();
 
             return response()->json([
                 'status' => true,
