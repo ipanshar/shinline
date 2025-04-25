@@ -110,6 +110,7 @@ Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class,'deleteGate'
 // Task routes
 Route::post('/task/gettasks', [TaskCotroller::class,'getTasks']); //Получить все задачи
 Route::post('/task/addtask', [TaskCotroller::class,'addTask']); //Добавить задачу
+Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing']); //Обработка QR кода
 });
 
 

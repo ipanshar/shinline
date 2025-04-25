@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\TaskLoading;
+use App\Models\TaskLoadingStatus;
 use App\Models\TaskWeighing;
 use App\Models\TrailerModel;
 use App\Models\TrailerType;
@@ -230,8 +231,8 @@ class TaskCotroller extends Controller
                 'warehouse' => 'required|array',
                 'warehouse.*.name' => 'required|string|max:255',
                 'warehouse.*.sorting_order' => 'required|integer|min:1',
-                'warehouse.*.gates' => 'required|array|min:1',
-                'warehouse.*.gates.*' => 'required|integer|min:1',
+                'warehouse.*.gates' => 'array',
+                'warehouse.*.gates.*' => 'string',
                 'warehouse.*.plan_gate' => 'nullable|integer',
                 'warehouse.*.description' => 'nullable|string|max:500',
             ]);
@@ -375,6 +376,85 @@ class TaskCotroller extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Error Creating Task: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function qrProccesing(Request $request)
+    {
+        $qr = explode("\n", $request->qr); 
+        $yard_name = $qr[0].' '.$qr[1];
+        $warehouse_exp = explode(',', $qr[2]);
+        $warehouse_name = $warehouse_exp[0];
+        $warehouse_gate_name = $warehouse_exp[1];
+        $yard = Yard::where('name', 'like', '%' . $yard_name . '%')->first();
+        if (!$yard) {
+            $yard = Yard::create([
+                'name' => $yard_name,
+            ]);
+        }
+        $warehouse = Warehouse::where('name', 'like', '%' . $warehouse_name . '%')->first();
+        if (!$warehouse) {
+            $warehouse = Warehouse::create([
+                'name' => $warehouse_name,
+                'yard_id' => $yard->id,
+            ]);
+        }
+        $warehouse_gate = WarehouseGates::where('name', 'like', '%' . $warehouse_gate_name . '%')
+            ->where('warehouse_id', $warehouse->id)
+            ->first();
+        if (!$warehouse_gate) { 
+            $warehouse_gate = WarehouseGates::create([
+                'name' => $warehouse_gate_name,
+                'warehouse_id' => $warehouse->id,
+            ]);
+        }
+        $status = Status::whereIn('key', ['new', 'waiting_loading'])->get()->keyBy('key');
+        $waiting_loading = $status['waiting_loading'];
+        $new_status = $status['new'];
+        
+
+
+        try {
+            $task = Task::query()
+            ->where('tasks.id', $request->task_id)
+            ->where('tasks.user_id', $request->user_id)
+            ->where('tasks.status_id', $new_status->id)
+            ->first();
+            
+            if (!$task ) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Task not found',
+                ], 404);
+            }
+            $task_loading = TaskLoading::where('task_id', $task->id)
+            ->where('warehouse_id', $warehouse->id)
+            ->first();
+            if ($task_loading) {
+                $task_loading->update(['warehouse_gate_fact_id' => $warehouse_gate->id]);
+            
+                TaskLoadingStatus::create([
+                    'task_loading_id' => $task_loading->id,
+                    'staus_id' => $waiting_loading->id,
+                ]);
+            }else{
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Task loading warehouse not found',
+                    'data' => $waiting_loading,
+
+
+                ], 404);
+            }
+            return response()->json([
+                'status' => true,
+                'message' => 'Task updated successfully'
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error Updating Task: ' . $e->getMessage(),
             ], 500);
         }
     }

@@ -99,3 +99,4 @@ Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class,'deleteGate'
 Route::post('/task/gettasks', [TaskCotroller::class,'getTasks'])->middleware('auth:sanctum'); //Получить все задачи
 Route::post('/task/addtask', [TaskCotroller::class,'addTask'])->middleware('auth:sanctum'); //Добавить задачу
 Route::post('/task/addapitask', [TaskCotroller::class,'addApiTask']); //Добавить задачу через API
+Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing'])->middleware('auth:sanctum'); //Обработка QR кода

@@ -188,7 +188,7 @@ class AuthController extends Controller
             $user->save();
             $data = array(
                 'name'		=> $user->name, 
-                'project_name'	=> $request->project_name,
+                'project_name'	=> config('app.name'),
                 'request'	=> 'recovery_password',
                 'recovery_token' =>$user->recovery_token
             );

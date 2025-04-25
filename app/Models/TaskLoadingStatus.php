@@ -8,7 +8,7 @@ class TaskLoadingStatus extends Model
 {
     protected $fillable = [
         'task_loading_id',
-        'status_id'
+        'staus_id'
     ];
     public function taskLoading()
     {
@@ -20,7 +20,7 @@ class TaskLoadingStatus extends Model
     }
     public function scopeWithStatus($query, $statusId)
     {
-        return $query->where('status_id', $statusId);
+        return $query->where('staus_id', $statusId);
     }
     public function scopeWithTaskLoading($query, $taskLoadingId)
     {
