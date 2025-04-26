@@ -87,7 +87,7 @@ class TruckCotroller extends Controller
         }
     }
 
-    public function getTruck(Request $request)
+    public function getTrucks(Request $request)
     {
         try {
 
@@ -95,8 +95,8 @@ class TruckCotroller extends Controller
             if ($request->has('user_id')) {
                 $query->where('user_id', $request->input('user_id'));
             }
-            if ($request->has('id')) {
-                $query->where('id', $request->input('id'));
+            if ($request->has('truck_id')) {
+                $query->where('trucks.id', $request->input('truck_id'));
             }
             if ($request->has('plate_number')) {
                 $query->where('plate_number', 'like', '%' . $request->input('plate_number') . '%');
@@ -139,9 +139,19 @@ class TruckCotroller extends Controller
             if ($request->has('limit')) {
                 $query->limit($request->input('limit'));
             }
-
-            $trucks = $query->get();
-            if ($trucks->isEmpty()) {
+            $cur_page = 0;
+            $last_page = 0;
+            $trucks=[];
+            if ($request->has('page')) {
+                $trucks =  $query->paginate(100);
+                $cur_page = $trucks->currentPage();
+                $last_page = $trucks->lastPage();
+                $trucks = $trucks->items();
+            } else {
+  
+                $trucks =  $query->get();
+            }
+            if (empty($trucks)) {
                 return response()->json([
                     'status' => false,
                     'message' => "No trucks found"
@@ -150,7 +160,9 @@ class TruckCotroller extends Controller
             return response()->json([
                 'status' => true,
                 'message' => "Truck found",
-                "data" => $trucks
+                "data" => $trucks,
+                "current_page" => $cur_page,
+                "last_page" => $last_page,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

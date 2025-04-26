@@ -2,13 +2,7 @@ import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
-import { useUser } from '@/components/UserContext';
-import axios from 'axios';
-import React, { useEffect, useState } from 'react';
-interface User {
-    name: string;
-    email?: string;
-}
+
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -18,20 +12,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function Dashboard() {
-    const { user, setUser } = useUser();
-    useEffect(() => {
-        axios.get('/profile/user').then((response) => {
-            setUser({
-                id: response.data.id,
-                name: response.data.name,
-                roles: response.data.roles,
-                avatar: response.data.avatar,
-                email: response.data.email,
-            });
-        }).catch((error) => {
-            console.error('Ошибка при получении данных пользователя:', error);
-        });
-    }, [setUser]);
+   
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>

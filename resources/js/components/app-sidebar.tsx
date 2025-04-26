@@ -4,9 +4,11 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import {  Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck } from 'lucide-react';
+import { Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck } from 'lucide-react';
 import AppLogo from './app-logo';
-import { useUser } from '@/components/UserContext'; // Контекст для получения данных пользователя
+import { useUser } from '@/components/UserContext';
+import axios from 'axios';
+import React, { useEffect, useState } from 'react';
 
 // Навигация основного меню
 const mainNavItems: NavItem[] = [
@@ -62,32 +64,36 @@ const mainNavItems: NavItem[] = [
         title: 'Главная',
         href: '/dashboard',
         icon: LayoutGrid,
-        role:'',
+        role: '',
     },
 ];
 
 // Навигация нижнего меню
 const footerNavItems: NavItem[] = [
-    // {
-    //     title: 'Репозиторий',
-    //     href: 'https://github.com/laravel/react-starter-kit',
-    //     icon: Folder,
-    //     role:'Администратор',
-    // },
-    // {
-    //     title: 'Документация',
-    //     href: 'https://laravel.com/docs/starter-kits',
-    //     icon: BookOpen,
-    //     role:'Администратор',
-    // },
+
 ];
 
 export function AppSidebar() {
-    const { user  } = useUser(); // Получение ролей пользователя из контекста
-    // Фильтрация элементов меню на основе роли
+    const { user, setUser } = useUser(); 
+
     const filteredMainNavItems = mainNavItems.filter((item) => {
         return !item.role || user?.roles.includes(item.role);
     });
+    useEffect(() => {
+        if (!user) {
+            axios.get('/profile/user').then((response) => {
+                setUser({
+                    id: response.data.id,
+                    name: response.data.name,
+                    roles: response.data.roles,
+                    avatar: response.data.avatar,
+                    email: response.data.email,
+                });
+            }).catch((error) => {
+                console.error('Ошибка при получении данных пользователя:', error);
+            });
+        }
+    }, [setUser]);
 
     return (
         <Sidebar collapsible="icon" variant="inset">

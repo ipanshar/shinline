@@ -4,7 +4,7 @@ import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import WarehousesTable from '@/components/WarehousesTable';
+import WarehousesTable from '@/components/warehauses/WarehousesTable';
 
 
 const breadcrumbs: BreadcrumbItem[] = [
