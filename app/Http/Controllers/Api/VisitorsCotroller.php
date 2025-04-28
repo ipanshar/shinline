@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
 use App\Models\Task;
 use App\Models\Truck;
@@ -77,6 +78,7 @@ class VisitorsCotroller extends Controller
                     'begin_date' => now(),
                     'status_id' => $status->id,
                 ]);
+                MessageSent::dispatch('На територию вьехало транспортное средство '.$request->plate_number.', для рейса '.$task->name);
             }
 
             return response()->json([
@@ -223,5 +225,11 @@ class VisitorsCotroller extends Controller
 
     }
    
+    public function ChatTest(Request $request)
+{
+    MessageSent::dispatch($request->text);
+    return response()->json(['status' => 'Message dispatched']);
+}
+
 
 }

@@ -43,6 +43,12 @@ const mainNavItems: NavItem[] = [
         role: 'Оператор', // Доступ  для роль Оператор
     },
     {
+        title: 'Чат',
+        href: '/chat',
+        icon: ShieldCheck,
+        role: 'Оператор', // Доступ только для администраторов
+    },
+    {
         title: 'Проверка',
         href: '/check',
         icon: ShieldCheck,

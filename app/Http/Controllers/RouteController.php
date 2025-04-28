@@ -31,5 +31,9 @@ class RouteController extends Controller
     public function integration_dss(){
         return Inertia::render('integration_dss');
     }
+    public function chat(){
+        return Inertia::render('chat');
+    }
+
 
 }

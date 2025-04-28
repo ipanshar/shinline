@@ -43,6 +43,7 @@ Route::post('/security/addvisitor', [VisitorsCotroller::class,'addVisitor'])->mi
 Route::post('/security/updatevisitor', [VisitorsCotroller::class,'updateVisitor'])->middleware('auth:sanctum'); //Обновить посетителя
 Route::post('/security/exitvisitor', [VisitorsCotroller::class,'exitVisitor'])->middleware('auth:sanctum'); //Выход посетителя
 Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck'])->middleware('auth:sanctum'); //Поиск грузовика
+Route::post('/security/chattest', [VisitorsCotroller::class,'ChatTest']);
 
 // Status routes
 Route::post('/setings/getstatus', [StatusCotroller::class,'getStatus'])->middleware('auth:sanctum'); //Получить все статусы
