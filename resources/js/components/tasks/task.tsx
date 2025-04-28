@@ -7,6 +7,7 @@ import { ruRU } from '@mui/x-data-grid/locales';
 import Select from "react-select";
 
 import axios from "axios";
+import TaskCard from "@/components/tasks/taskCard";
 
 interface TascksProps {
     // Define the expected props here, e.g., exampleProp?: string;
@@ -86,76 +87,7 @@ export class Tascks extends React.Component<TascksProps, TascksState> {
     view_app = () => {
         if (this.state.tasks.length > 0) {
             const updatedViewApp = this.state.tasks.map((task, index) => (
-                <div key={index} className="border border-dark rounded m-1 p-2 bg-white shadow-md">
-                    <table className="table table-bordered table-striped table-hover w-full">
-                        <thead className="bg-red-500 text-white w-full">
-                            <tr>
-                                <th className="w-1/3 d-flex justify-content-start">ID: {task.id}</th>
-                                <th className="w-1/3">Рейс: {task.name}</th>
-                                <th className="w-1/3">Статус: {task.status_name}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td className="d-flex justify-content-start"><small>План: {task.plan_date}</small></td>
-                                <td className="d-flex justify-content-start"><small>Прибытие: {task.begin_date}</small></td>
-                                <td className="d-flex justify-content-start"><small>Убытие: {task.end_date}</small></td>
-                            </tr>
-                            <tr>
-                                <td colSpan={3} className="d-flex justify-content-start"><small >{task.description}</small></td>
-                            </tr>
-                            <tr>
-                                <td colSpan={3} className="d-flex justify-content-start"><small >{task.yard_name}</small></td>
-                            </tr>
-                            <tr>
-                                <td colSpan={3} className="d-flex justify-content-start">
-                                    <small>
-                                        Кординатор:{task.avtor};{task.phone ? " тел: " + task.phone : ""}
-                                    </small></td>
-                            </tr>
-                            <tr>
-                                <td colSpan={3} >
-                                    <span className="d-flex justify-content-start"><small> {task.company ? "Компания: " + task.company + "; " : ""} Номер ТС: <b>{task.truck_plate_number}</b>;
-                                        {task.trailer_plate_number ? "Номер прицепа: " + task.trailer_plate_number + "; " : ""}
-                                        {task.truck_model ? "Модель ТС: " + task.truck_model + "; " : ""}
-                                        {task.truck_category_name ? "Категория ТС: " + task.truck_category_name + "; " : ""}
-                                        {task.trailer_type_name ? "Тип прицепа: " + task.trailer_type_name + "; " : ""}
-                                        {task.truck_model_name ? "Модель прицепа: " + task.truck_model_name + "; " : ""}
-                                        {task.color ? "Цвет: " + task.color + ";" : ""}
-                                    </small></span></td>
-                            </tr>
-                            <tr>
-                                <td colSpan={3} className="d-flex justify-content-start"><small>Водитель: {task.user_name};
-                                    login: {task.user_login}; тел: {task.user_phone};</small></td>
-                            </tr>
-                            <tr>
-                                <td colSpan={3} className="text-center"><small><b>Задачи</b></small></td>
-                            </tr>
-                            {task.task_weighings.length > 0 ?
-                                <tr className="d-flex justify-content-start border-t-2 border-b-gray-300  bg-green-200">
-                                    <td className="d-flex justify-content-start"><small>{task.task_weighings[0].statuse_weighing_name}</small></td>
-                                    <td className="d-flex justify-content-start"><small>вес: <b>{task.task_weighings[0].weight}</b></small></td>
-                                    <td className="d-flex justify-content-start"><small>{task.task_weighings[0].weight ? task.task_weighings[0].updated_at : ''}</small></td>
-                                </tr> : ''}
-                            {task.task_loadings.length > 0 ? task.task_loadings.map((task_loading: any, index: number) => (
-                                <tr key={index} className="d-flex justify-content-start border-t-2 border-b-gray-300  bg-yellow-200">
-                                    <td className="d-flex justify-content-start"><small>{task_loading.warehouse_name}</small></td>
-                                    <td className="d-flex justify-content-start"><small>Ворота план: <b>{task_loading.warehouse_gate_plan_name}</b></small></td>
-                                    <td className="d-flex justify-content-start"><small>Ворота факт: <b>{task_loading.warehouse_gate_fact_name}</b></small></td>
-                                </tr>
-                            )) : ''}
-                            {task.task_weighings.length > 0 ?
-                                <tr className="d-flex justify-content-start border-t-2 border-b-gray-300 bg-green-200">
-                                    <td className="d-flex justify-content-start"><small>{task.task_weighings[1].statuse_weighing_name}</small></td>
-                                    <td className="d-flex justify-content-start"><small>вес: <b>{task.task_weighings[1].weight}</b></small></td>
-                                    <td className="d-flex justify-content-start"><small>{task.task_weighings[1].weight ? task.task_weighings[1].updated_at : ''}</small></td>
-                                </tr> : ''}
-                        </tbody>
-                        <tfoot className="bg-red-500 text-white w-full">
-
-                        </tfoot>
-                    </table>
-                </div>)
+                <TaskCard task={task}/>)
             )
 
             this.setState({ view_app: updatedViewApp });
