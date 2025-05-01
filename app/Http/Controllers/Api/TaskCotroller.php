@@ -234,7 +234,7 @@ class TaskCotroller extends Controller
                 'warehouse.*.sorting_order' => 'required|integer|min:1',
                 'warehouse.*.gates' => 'array',
                 'warehouse.*.gates.*' => 'string',
-                'warehouse.*.plan_gate' => 'nullable|integer',
+                'warehouse.*.plan_gate' => 'nullable|string',
                 'warehouse.*.description' => 'nullable|string|max:500',
             ]);
             $truck = Truck::where('plate_number', $validate['plate_number'])->first();
