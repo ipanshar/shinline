@@ -67,7 +67,7 @@ export default function Register() {
                             autoFocus
                             tabIndex={1}
                             autoComplete="company"
-                            value={data.name}
+                            value={data.company}
                             onChange={(e) => setData('company', e.target.value)}
                             disabled={processing}
                             placeholder="ТОО «EH Cargo» или ИП «Иванов И.И.»"
@@ -83,7 +83,7 @@ export default function Register() {
                             autoFocus
                             tabIndex={1}
                             autoComplete="phone"
-                            value={data.name}
+                            value={data.phone}
                             onChange={(e) => setData('phone', e.target.value)}
                             disabled={processing}
                             placeholder="+7 (777) 123-45-67"

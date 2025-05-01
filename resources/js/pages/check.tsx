@@ -5,6 +5,7 @@ import { type BreadcrumbItem } from "@/types";
 import AddVehicleDialog from "@/components/vehicles/AddVehicleDialog";
 import VehicleSearch from "@/components/vehicles/VehicleSearch";
 import VehicleList from "@/components/vehicles/VehicleList";
+import SecurityCheck from "@/components/check/SecurityCheck";
 import { Vehicle, searchVehicles } from "@/lib/api";
 import axios from "axios";
 
@@ -52,31 +53,32 @@ export default function Check() {
    };
 
   // Обновление статуса машины
-  const handleStatusUpdate = (id: string, newStatus: boolean) => {
-    setVehicles((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, allowed: newStatus } : v))
-    );
-  };
+  // const handleStatusUpdate = (id: string, newStatus: boolean) => {
+  //   setVehicles((prev) =>
+  //     prev.map((v) => (v.id === id ? { ...v, allowed: newStatus } : v))
+  //   );
+  // };
 
   // Повторный поиск после добавления машины
-  const handleVehicleAdded = () => {
-    if (searchPattern.length === 3) {
-      handleSearch(searchPattern);
-    }
-  };
+  // const handleVehicleAdded = () => {
+  //   if (searchPattern.length === 3) {
+  //     handleSearch(searchPattern);
+  //   }
+  // };
 
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
       <Head title="Проверка" />
       <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
         <div className="flex flex-col gap-4">
-          <AddVehicleDialog onVehicleAdded={handleVehicleAdded} />
-          <VehicleSearch onSearch={handleSearch} isLoading={isLoading} />
-          <VehicleList
+          {/* <AddVehicleDialog onVehicleAdded={handleVehicleAdded} /> */}
+          {/* <VehicleSearch onSearch={handleSearch} isLoading={isLoading} /> */}
+          {/* <VehicleList
             vehicles={vehicles}
             isLoading={isLoading}
             onStatusUpdate={handleStatusUpdate}
-          />
+          /> */}
+        <SecurityCheck/>
         </div>
       </div>
     </AppLayout>
