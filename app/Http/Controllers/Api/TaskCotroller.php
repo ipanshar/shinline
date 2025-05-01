@@ -19,6 +19,7 @@ use App\Models\WarehouseGates;
 use App\Models\Yard;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Constraint\Count;
+use App\Events\MessageSent;
 
 class TaskCotroller extends Controller
 {
@@ -412,7 +413,7 @@ class TaskCotroller extends Controller
         // $status = Status::whereIn('key', ['new', 'waiting_loading'])->get()->keyBy('key');
         $status = Status::whereIn('key', ['new', 'waiting_loading', 'on_territory'])->get()->keyBy('key');
         $waiting_loading = $status['waiting_loading'];
-        $new_status = $status['on_territory'];
+        $new_status = $status['new'];
         
 
 
@@ -424,11 +425,13 @@ class TaskCotroller extends Controller
             ->first();
             
             if (!$task ) {
+                MessageSent::dispatch('Сканирование: '.$warehouse_exp[0].' '.$warehouse_exp[1].', рейс не найден');
                 return response()->json([
                     'status' => false,
                     'message' => 'Task not found',
                 ], 404);
             }
+            MessageSent::dispatch('Сканирование: '.$warehouse_exp[0].' '.$warehouse_exp[1].', для выполнения рейса '.$task->name);
             $task_loading = TaskLoading::where('task_id', $task->id)
             ->where('warehouse_id', $warehouse->id)
             ->first();
@@ -440,6 +443,7 @@ class TaskCotroller extends Controller
                     'staus_id' => $waiting_loading->id,
                 ]);
             }else{
+                MessageSent::dispatch('Сканирование: '.$warehouse_exp[0].' '.$warehouse_exp[1].', в задании нет этого склада');
                 return response()->json([
                     'status' => false,
                     'message' => 'Task loading warehouse not found',

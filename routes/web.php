@@ -35,6 +35,7 @@ Route::get('/check', [RouteController::class, 'check']);
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
+Route::get('/chat', [RouteController::class, 'chat']);
 
 //Settings roles
 Route::get('/roles', [RoleController::class, 'index']);
@@ -55,6 +56,7 @@ Route::post('/security/addvisitor', [VisitorsCotroller::class,'addVisitor']); //
 Route::post('/security/updatevisitor', [VisitorsCotroller::class,'updateVisitor']); //Обновить посетителя
 Route::post('/security/exitvisitor', [VisitorsCotroller::class,'exitVisitor']); //Выход посетителя
 Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck']); //Поиск грузовика
+
 
 // Status routes
 Route::post('/setings/getstatus', [StatusCotroller::class,'getStatus']); //Получить все статусы
