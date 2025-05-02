@@ -413,7 +413,7 @@ class TaskCotroller extends Controller
         // $status = Status::whereIn('key', ['new', 'waiting_loading'])->get()->keyBy('key');
         $status = Status::whereIn('key', ['new', 'waiting_loading', 'on_territory'])->get()->keyBy('key');
         $waiting_loading = $status['waiting_loading'];
-        $new_status = $status['new'];
+        $new_status = $status['on_territory'];
         
 
 
