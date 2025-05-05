@@ -55,7 +55,7 @@ const UserTaskCard: React.FC<{ task: Task }> = ({ task }) => {
   return (
     <div className="bg-white shadow-md rounded-xl p-4 mb-6 border border-gray-200 max-w-3xl mx-auto">
       <div className="text-lg font-bold text-blue-700 mb-2">
-        📌 {task.id} | 🚚 Рейс: {task.name} | {task.status_name}
+        📌 {task.id} | 🚚 Рейс: {task.name} | {task.status_name} 
       </div>
 
       <div className="text-sm text-gray-600 mb-2">
@@ -81,6 +81,21 @@ const UserTaskCard: React.FC<{ task: Task }> = ({ task }) => {
       <p className="text-sm mb-1">
         👤 Водитель: <b>{task.user_name}</b> | Login: {task.user_login} | Тел: {task.user_phone}
       </p>
+
+      {task.coordinates && typeof task.coordinates === "string" && (
+        <div className="mt-2 w-full">
+          <button
+            onClick={() =>
+              window.open(`https://www.google.com/maps?q=${task.coordinates}`, "_blank")
+            }
+            className="w-full bg-white/60 hover:bg-white/80 text-gray-800 font-medium py-2 px-4 rounded-lg border border-gray-300 shadow transition duration-200 cursor-pointer"
+          >
+            📍Открыть на карте
+          </button>
+        </div>
+      )}
+
+
 
       {/* Таблица задач */}
       {(task.task_weighings.length > 0 || task.task_loadings.length > 0) && (

@@ -105,7 +105,7 @@ class TaskCotroller extends Controller
                     ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_plan_id', '=', 'warehouse_gates.id')
                     ->leftJoin('warehouse_gates as a', 'task_loadings.warehouse_gate_fact_id', '=', 'a.id')
                     ->select('task_loadings.*', 'warehouses.name as warehouse_name', 'warehouse_gates.name as warehouse_gate_plan_name'
-                        , 'a.name as warehouse_gate_fact_name')
+                        , 'a.name as warehouse_gate_fact_name', 'warehouses.coordinates as warehouse_coordinates')
                     ->get();
                 $taskWeighing = TaskWeighing::query()
                     ->where('task_id', $task->id)
@@ -146,6 +146,7 @@ class TaskCotroller extends Controller
                     'created_at' => $task->created_at,
                     'task_loadings' => $taskLoading,
                     'task_weighings' => $taskWeighing,
+                    'coordinates' => optional($taskLoading->first())->warehouse_coordinates
 
                 ]);
             }
