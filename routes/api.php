@@ -46,7 +46,7 @@ Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck'])->
 Route::post('/security/chattest', [VisitorsCotroller::class,'ChatTest']);
 
 // Status routes
-Route::post('/setings/getstatus', [StatusCotroller::class,'getStatus'])->middleware('auth:sanctum'); //Получить все статусы
+Route::post('/setings/getstatus', [StatusCotroller::class,'getStatuses'])->middleware('auth:sanctum'); //Получить все статусы
 Route::post('/setings/addstatus', [StatusCotroller::class,'addStatus'])->middleware('auth:sanctum'); //Добавить статус
 Route::post('/setings/updatestatus', [StatusCotroller::class,'updateStatus'])->middleware('auth:sanctum'); //Обновить статус
 
