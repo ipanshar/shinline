@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useUser } from '@/components/UserContext';
 import CustomTaskCard, { Task } from './userTaskCard';
+import { useTranslation } from 'react-i18next';
 
 const scannerId = "qr-reader";
 
@@ -12,8 +13,11 @@ const UserTasks = () => {
   const [loading, setLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [qrResult, setQrResult] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState('');
   const qrScanner = useRef<Html5Qrcode | null>(null);
   const userId = user?.id;
+
+  const { t } = useTranslation();
 
   // Загрузка задач
   useEffect(() => {
@@ -41,12 +45,11 @@ const UserTasks = () => {
 
     const timeout = setTimeout(() => {
       startScan(selectedTaskId);
-    }, 300); // ждём появления DOM
+    }, 300);
 
     return () => clearTimeout(timeout);
   }, [selectedTaskId]);
 
-  // Запуск камеры
   const startScan = async (taskId: number) => {
     setQrResult(null);
 
@@ -69,7 +72,6 @@ const UserTasks = () => {
     }
   };
 
-  // Обработка результата
   const handleQrSubmit = (qr: string, taskId: number) => {
     axios.post('/task/qrproccesing', {
       qr,
@@ -82,9 +84,23 @@ const UserTasks = () => {
     });
   };
 
-  // Закрыть сканер
+  const handleManualCodeSubmit = (code: string) => {
+    if (!selectedTaskId || !userId) return;
+    axios.post('/task/processShortCode', {
+      code,
+      task_id: selectedTaskId,
+      user_id: userId
+    }).then(res => {
+      setQrResult(res.data.message || 'Код успешно обработан!');
+    }).catch(err => {
+      setQrResult('Ошибка: ' + (err.response?.data?.message || err.message) + '\ncode:' + code);
+    });
+  };
+
   const closeScanner = () => {
     setSelectedTaskId(null);
+    setManualCode('');
+    setQrResult(null);
     qrScanner.current?.stop().then(() => qrScanner.current?.clear());
   };
 
@@ -92,7 +108,7 @@ const UserTasks = () => {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4">Мои задачи</h2>
+      <h2 className="text-xl font-semibold mb-4">{t('my_tasks')}</h2>
 
       {tasks.map(task => (
         <CustomTaskCard
@@ -105,10 +121,7 @@ const UserTasks = () => {
       ))}
 
       {selectedTaskId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
-        >      
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md relative shadow-lg">
             <button
               onClick={closeScanner}
@@ -119,10 +132,24 @@ const UserTasks = () => {
             </button>
 
             <h3 className="text-lg font-semibold text-center text-blue-700 mb-4">
-              Сканирование QR для задачи #{selectedTaskId}
+              Сканирование / Ввод кода для задачи #{selectedTaskId}
             </h3>
 
-            <div id={scannerId} className="w-full aspect-square border-2 border-dashed rounded-md" />
+            <div id={scannerId} className="w-full aspect-square border-2 border-dashed rounded-md mb-4" />
+
+            <input
+              type="text"
+              className="w-full border p-2 rounded mb-2"
+              placeholder="Введите код (напр. 020506)"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+            />
+            <button
+              onClick={() => handleManualCodeSubmit(manualCode)}
+              className="bg-blue-600 hover:bg-blue-700 text-white py-2 w-full rounded-lg shadow font-semibold transition"
+            >
+              Подтвердить код
+            </button>
 
             {qrResult && (
               <p className="mt-4 text-center text-green-600 font-medium">
@@ -132,8 +159,6 @@ const UserTasks = () => {
           </div>
         </div>
       )}
-
-
     </div>
   );
 };

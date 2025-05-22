@@ -9,65 +9,74 @@ import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher2 from './LanguageSwitcher2';
+
+
+export function AppSidebar() {
+    const { user, setUser } = useUser(); 
+
+
+    const { t } = useTranslation();
 
 // Навигация основного меню
 const mainNavItems: NavItem[] = [
     {
-        title: 'Роли',
+        title: t('roles'),
         href: '/roles_permissions',
         icon: ShieldCheck,
         role: 'Администратор', // Доступ только для администраторов
     },
     {
-        title: 'Интеграция DSS',
+        title: t('dss_integration'),
         href: '/integration_dss',
         icon: Boxes,
         role: 'Интегратор', // Доступ  для роль интегратор
     },
     {
-        title: 'Склады',
+        title: t('warehouses'),
         href: '/warehouses',
         icon: Warehouse,
         role: 'Оператор', // Доступ  для роль Оператор
     },
     {
-        title: 'Грузовики',
+        title: t('trucks'),
         href: '/trucks',
         icon: Truck,
         role: 'Оператор', // Доступ  для роль Оператор
     },
     {
-        title: 'Задания',
+        title: t('tasks'),
         href: '/tasks',
         icon: ListChecks,
         role: 'Оператор', // Доступ  для роль Оператор
     },
     {
-        title: 'Чат',
+        title: t('chat'),
         href: '/chat',
         icon: ShieldCheck,
         role: 'Оператор', // Доступ только для администраторов
     },
     {
-        title: 'Проверка',
+        title: t('check'),
         href: '/check',
         icon: ShieldCheck,
         role: 'Охрана', // Доступ  для роль Охрана
     },
     {
-        title: 'Взвешивание',
+        title: t('weighing'),
         href: '/weighing',
         icon: Scale,
         role: 'Охрана', // Доступ  для роль Охрана
     },
     {
-        title: 'История',
+        title: t('history'),
         href: '/history',
         icon: History,
         role: 'Охрана', // Доступ  для роль Охрана
     },
     {
-        title: 'Главная',
+        title: t('home'),
         href: '/dashboard',
         icon: LayoutGrid,
         role: '',
@@ -79,8 +88,6 @@ const footerNavItems: NavItem[] = [
 
 ];
 
-export function AppSidebar() {
-    const { user, setUser } = useUser(); 
 
     const filteredMainNavItems = mainNavItems.filter((item) => {
         return !item.role || user?.roles.includes(item.role);
@@ -117,6 +124,7 @@ export function AppSidebar() {
 
             <SidebarContent>
                 <NavMain items={filteredMainNavItems} />
+                <LanguageSwitcher2/>
             </SidebarContent>
 
             <SidebarFooter>

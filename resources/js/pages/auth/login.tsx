@@ -9,6 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 type LoginForm = {
     login: string;
@@ -27,6 +29,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
         password: '',
         remember: false,
     });
+    const { t } = useTranslation();
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -36,8 +39,9 @@ export default function Login({ status, canResetPassword }: LoginProps) {
     };
 
     return (
-        <AuthLayout title="Войдите в свою учетную запись" description="Введите свой адрес электронной почты и пароль ниже, чтобы войти в систему">
+        <AuthLayout title={t('login_account')} description={t('enter_info_login')}>
             <Head title="Авторизоваться" />
+            <LanguageSwitcher />
 
             <form className="flex flex-col gap-6" onSubmit={submit}>
                 <div className="grid gap-6">
@@ -59,10 +63,10 @@ export default function Login({ status, canResetPassword }: LoginProps) {
 
                     <div className="grid gap-2">
                         <div className="flex items-center">
-                            <Label htmlFor="password">Пароль</Label>
+                            <Label htmlFor="password">{t('password')}</Label>
                             {canResetPassword && (
                                 <TextLink href={route('password.request')} className="ml-auto text-sm" tabIndex={5}>
-                                    Забыли пароль?
+                                    {t('forgot_password')}
                                 </TextLink>
                             )}
                         </div>
@@ -87,19 +91,19 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                             onClick={() => setData('remember', !data.remember)}
                             tabIndex={3}
                         />
-                        <Label htmlFor="remember">Запомнить меня</Label>
+                        <Label htmlFor="remember">{t('remember_me')}</Label>
                     </div>
 
                     <Button type="submit" className="mt-4 w-full" tabIndex={4} disabled={processing}>
                         {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                        Авторизоваться
+                        {t('login')}
                     </Button>
                 </div>
 
                 <div className="text-muted-foreground text-center text-sm">
-                У вас нет учетной записи?{' '}
+               {t('no_account')}{' '}
                     <TextLink href={route('register')} tabIndex={5}>
-                    Зарегистрироваться
+                    {t('register')}
                     </TextLink>
                 </div>
             </form>

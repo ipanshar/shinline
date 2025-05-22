@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
+
 
 type RegisterForm = {
     name: string;
@@ -29,6 +32,7 @@ export default function Register() {
         password: '',
         password_confirmation: '',
     });
+    const { t } = useTranslation();
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -38,12 +42,14 @@ export default function Register() {
     };
 
     return (
-        <AuthLayout title="Регистрация аккаунта" description="Введите ниже свои данные, чтобы создать учетную запись">
+        <AuthLayout title={t('register_account')} description={t('enter_info')}>
             <Head title="Регистрация" />
+            <LanguageSwitcher />
             <form className="flex flex-col gap-6" onSubmit={submit}>
+                
                 <div className="grid gap-6">
                     <div className="grid gap-2">
-                        <Label htmlFor="name">ФИО</Label>
+                        <Label htmlFor="name">{t('full_name')}</Label>
                         <Input
                             id="name"
                             type="text"
@@ -59,7 +65,7 @@ export default function Register() {
                         <InputError message={errors.name} className="mt-2" />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="company">Компания</Label>
+                        <Label htmlFor="company">{t('company')}</Label>
                         <Input
                             id="company"
                             type="text"
@@ -75,7 +81,7 @@ export default function Register() {
                         <InputError message={errors.name} className="mt-2" />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="phone">Телефон</Label>
+                        <Label htmlFor="phone">{t('phone')}</Label>
                         <Input
                             id="phone"
                             type="text"
@@ -91,7 +97,7 @@ export default function Register() {
                         <InputError message={errors.name} className="mt-2" />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="Login">Логин</Label>
+                        <Label htmlFor="Login">{t('username')}</Label>
                         <Input
                             id="login"
                             type="text"
@@ -107,7 +113,7 @@ export default function Register() {
                         <InputError message={errors.login} className="mt-2" />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="email">Email адрес</Label>
+                        <Label htmlFor="email">{t('email')}</Label>
                         <Input
                             id="email"
                             type="email"
@@ -123,7 +129,7 @@ export default function Register() {
                     </div>
 
                     <div className="grid gap-2">
-                        <Label htmlFor="password">Пароль</Label>
+                        <Label htmlFor="password">{t('password')}</Label>
                         <Input
                             id="password"
                             type="password"
@@ -139,7 +145,7 @@ export default function Register() {
                     </div>
 
                     <div className="grid gap-2">
-                        <Label htmlFor="password_confirmation">Confirm password</Label>
+                        <Label htmlFor="password_confirmation">{t('confirm_password')}</Label>
                         <Input
                             id="password_confirmation"
                             type="password"
@@ -156,14 +162,14 @@ export default function Register() {
 
                     <Button type="submit" className="mt-2 w-full" tabIndex={5} disabled={processing}>
                         {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                        Create account
+                        {t('create_account')}
                     </Button>
                 </div>
 
                 <div className="text-muted-foreground text-center text-sm">
-                    Already have an account?{' '}
+                    {t('already_have_account')}{' '}
                     <TextLink href={route('login')} tabIndex={6}>
-                        Log in
+                        {t('login')}
                     </TextLink>
                 </div>
             </form>

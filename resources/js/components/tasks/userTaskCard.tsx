@@ -71,7 +71,7 @@ const UserTaskCard: React.FC<{ task: Task }> = ({ task }) => {
       <p className="text-sm mb-1">
         🚛 Компания: <b>{task.company || "Не указано"}</b> | Номер ТС: <b>{task.truck_plate_number}</b>
       </p>
-
+      
       {task.trailer_plate_number && <p className="text-sm mb-1">Номер прицепа: {task.trailer_plate_number}</p>}
       {task.truck_model && <p className="text-sm mb-1">Модель ТС: {task.truck_model}</p>}
       {task.truck_category_name && <p className="text-sm mb-1">Категория: {task.truck_category_name}</p>}
@@ -130,7 +130,11 @@ const UserTaskCard: React.FC<{ task: Task }> = ({ task }) => {
         >
           Сканировать QR
         </button>
+      
+
       </div>
+
+     
     </div>
   );
 };

@@ -17,6 +17,14 @@ const breadcrumbs: BreadcrumbItem[] = [
 export default function Warehouses() {
     const [warehouses, setWarehouses] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [codes, setCodes] = useState([]);
+
+    useEffect(() => {
+        axios.get('/api/task/gate-codes')
+        .then(res => setCodes(res.data.data))
+        .catch(err => console.error(err));
+        console.log(codes)
+    }, [codes]);
 
 
     return (
@@ -25,6 +33,28 @@ export default function Warehouses() {
             <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
                 <div className="border-sidebar-border/70 dark:border-sidebar-border relative min-h-[100vh] flex-1 overflow-hidden rounded-xl border md:min-h-min p-4">
                     <WarehousesTable warehouses={warehouses} loading={loading} />
+
+                    <table className="min-w-full text-sm border mt-4">
+                        <thead className="bg-gray-100 font-semibold">
+                            <tr>
+                            <th className="p-2 border">Двор</th>
+                            <th className="p-2 border">Склад</th>
+                            <th className="p-2 border">Ворота</th>
+                            <th className="p-2 border">Код</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {codes.map((item, i) => (
+                            <tr key={i} className="border-t">
+                                <td className="p-2 border">{item.yard_name}</td>
+                                <td className="p-2 border">{item.warehouse_name}</td>
+                                <td className="p-2 border">{item.gate_name}</td>
+                                <td className="p-2 border font-mono">{item.code}</td>
+                            </tr>
+                            ))}
+                        </tbody>
+                        </table>
+
                 </div>
 
             </div>

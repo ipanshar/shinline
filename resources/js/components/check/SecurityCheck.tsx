@@ -238,7 +238,7 @@ const SecurityCheck = () => {
       className="border rounded px-2 py-1 text-sm"
     >
       <option value="on_territory">На территории</option>
-      <option value="left">Покинули</option>
+      <option value="left">Вне территории</option>
       <option value="all">Все</option>
     </select>
   </div>
@@ -248,7 +248,7 @@ const SecurityCheck = () => {
     <div>Номер</div>
     <div>Модель</div>
     <div>Статус</div>
-    <div>Заезд</div>
+    <div>Въезд</div>
     <div>Выезд</div>
     <div className="text-center">Действие</div>
   </div>
@@ -277,7 +277,7 @@ const SecurityCheck = () => {
             onClick={() => exitVisitor(visitor.id)}
             className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded cursor-pointer"
           >
-            Вышел
+            Покинул
           </button>
         )}
       </div>

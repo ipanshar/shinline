@@ -20,6 +20,7 @@ use App\Models\Yard;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Constraint\Count;
 use App\Events\MessageSent;
+use Carbon\Carbon;
 
 class TaskCotroller extends Controller
 {
@@ -164,6 +165,67 @@ class TaskCotroller extends Controller
             ], 500);
         }
     }
+
+  public function getActualTasks(Request $request)
+        {
+            try {
+                $today = Carbon::today();
+
+                $tasks = Task::whereDate('plan_date', '>=', $today)
+                    ->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
+                    ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+                    ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+                    ->leftJoin('yards', 'tasks.yard_id', '=', 'yards.id')
+                    ->select(
+                        'tasks.plan_date',
+                        'statuses.name as status_name',
+                        'users.name as user_name',
+                        'users.phone as user_phone',
+                        'trucks.plate_number as truck_plate_number',
+                        'trucks.truck_model_id', // если нужно модель, надо подключить таблицу моделей
+                        'yards.name as yard_name'
+                    )
+                    ->orderBy('plan_date', 'asc')
+                    ->get();
+
+                // Подгрузка моделей грузовиков (если надо выводить имя модели)
+                // Можно сделать через join с таблицей моделей, например truck_models
+                // Пример (если в таблице trucks есть поле truck_model_id):
+                $truckModelIds = $tasks->pluck('truck_model_id')->unique()->filter()->values();
+
+                $truckModels = [];
+                if ($truckModelIds->isNotEmpty()) {
+                    $truckModels = \DB::table('truck_models')
+                        ->whereIn('id', $truckModelIds)
+                        ->pluck('name', 'id');
+                }
+
+                // Формируем нужный массив с нужными полями
+                $data = $tasks->map(function ($task) use ($truckModels) {
+                    return [
+                        'truck_plate_number' => $task->truck_plate_number,
+                        'truck_model_name' => $truckModels[$task->truck_model_id] ?? 'Неизвестно',
+                        'user_name' => $task->user_name,
+                        'user_phone' => $task->user_phone,
+                        'status_name' => $task->status_name,
+                        'plan_date' => $task->plan_date,
+                        'yard_name' => $task->yard_name,
+                    ];
+                });
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Актуальные задачи загружены',
+                    'data' => $data,
+                ], 200);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Ошибка при загрузке актуальных задач: ' . $e->getMessage(),
+                ], 500);
+            }
+        }
+
 
     public function addTask(Request $request)
     {
@@ -464,6 +526,96 @@ class TaskCotroller extends Controller
             ], 500);
         }
     }
+
+    public function processShortCode(Request $request)
+    {
+        $code = $request->input('code'); // например 020506
+        $taskId = $request->input('task_id');
+        $userId = $request->input('user_id');
+
+        if (!preg_match('/^\d{6}$/', $code)) {
+            return response()->json(['status' => false, 'message' => 'Неверный формат кода'], 400);
+        }
+
+        $yardId = intval(substr($code, 0, 2));
+        $warehouseId = intval(substr($code, 2, 2));
+        $gateId = intval(substr($code, 4, 2));
+
+        $yard = Yard::find($yardId);
+        $warehouse = Warehouse::where('id', $warehouseId)->where('yard_id', $yardId)->first();
+        $gate = WarehouseGates::where('id', $gateId)->where('warehouse_id', $warehouseId)->first();
+
+        if (!$yard || !$warehouse || !$gate) {
+            return response()->json(['status' => false, 'message' => 'Объекты не найдены'], 404);
+        }
+
+        // как в qrProccesing:
+        $status = Status::whereIn('key', ['new', 'waiting_loading', 'on_territory'])->get()->keyBy('key');
+        $waiting_loading = $status['waiting_loading'];
+        $new_status = $status['on_territory'];
+
+        $task = Task::where('id', $taskId)
+            ->where('user_id', $userId)
+            ->where('status_id', $new_status->id)
+            ->first();
+
+        if (!$task) {
+            return response()->json(['status' => false, 'message' => 'Задание не найдено'], 404);
+        }
+
+        $task_loading = TaskLoading::where('task_id', $task->id)
+            ->where('warehouse_id', $warehouseId)
+            ->first();
+
+        if ($task_loading) {
+            $task_loading->update(['warehouse_gate_fact_id' => $gate->id]);
+
+            TaskLoadingStatus::create([
+                'task_loading_id' => $task_loading->id,
+                'staus_id' => $waiting_loading->id,
+            ]);
+
+            return response()->json(['status' => true, 'message' => 'Код успешно обработан']);
+        }
+
+        return response()->json(['status' => false, 'message' => 'Задание не содержит указанный склад'], 404);
+    }
+
+    public function getGateCodes()
+        {
+            $data = [];
+
+            $yards = Yard::all();
+            foreach ($yards as $yard) {
+                $warehouses = Warehouse::where('yard_id', $yard->id)->get();
+                foreach ($warehouses as $warehouse) {
+                    $gates = WarehouseGates::where('warehouse_id', $warehouse->id)->get();
+                    foreach ($gates as $gate) {
+                        $code = str_pad($yard->id, 2, '0', STR_PAD_LEFT)
+                            . str_pad($warehouse->id, 2, '0', STR_PAD_LEFT)
+                            . str_pad($gate->id, 2, '0', STR_PAD_LEFT);
+
+                        $data[] = [
+                            'yard_id' => $yard->id,
+                            'yard_name' => $yard->name,
+                            'warehouse_id' => $warehouse->id,
+                            'warehouse_name' => $warehouse->name,
+                            'gate_id' => $gate->id,
+                            'gate_name' => $gate->name,
+                            'code' => $code,
+                        ];
+                    }
+                }
+            }
+
+            return response()->json([
+                'status' => true,
+                'data' => $data
+            ]);
+        }
+
+
+
 
     public function getTaskWeihings(Request $request)
     {

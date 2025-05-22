@@ -6,6 +6,9 @@ import { createRoot } from 'react-dom/client';
 import { initializeTheme } from './hooks/use-appearance';
 import { UserProvider} from './components/UserContext';
 import '@/pages/css/all.css';
+import './i18n';
+
+
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 

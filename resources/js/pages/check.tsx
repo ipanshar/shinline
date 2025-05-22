@@ -1,13 +1,14 @@
-import { useState } from "react";
+// import { useState } from "react";
 import { Head } from "@inertiajs/react";
 import AppLayout from "@/layouts/app-layout";
 import { type BreadcrumbItem } from "@/types";
-import AddVehicleDialog from "@/components/vehicles/AddVehicleDialog";
-import VehicleSearch from "@/components/vehicles/VehicleSearch";
-import VehicleList from "@/components/vehicles/VehicleList";
+// import AddVehicleDialog from "@/components/vehicles/AddVehicleDialog";
+// import VehicleSearch from "@/components/vehicles/VehicleSearch";
+// import VehicleList from "@/components/vehicles/VehicleList";
 import SecurityCheck from "@/components/check/SecurityCheck";
-import { Vehicle, searchVehicles } from "@/lib/api";
-import axios from "axios";
+// import { Vehicle, searchVehicles } from "@/lib/api";
+// import axios from "axios";
+import TrucksTable from "@/components/check/TrucksTable";
 
 const breadcrumbs: BreadcrumbItem[] = [
   {
@@ -17,22 +18,22 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function Check() {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [searchPattern, setSearchPattern] = useState<string>("");
+  // const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  // const [isLoading, setIsLoading] = useState(false);
+  // const [searchPattern, setSearchPattern] = useState<string>("");
 
   // Поиск по 3 цифрам
-  const handleSearch = async (pattern: string) => {
-    setSearchPattern(pattern);
-    setIsLoading(true);
-    try {
-      const results = await searchVehicles(pattern);
-      setVehicles(results);
-    } catch (error) {
-      console.error("Ошибка при поиске:", error);
-    } finally {
-      setIsLoading(false);
-    }
+  // const handleSearch = async (pattern: string) => {
+  //   setSearchPattern(pattern);
+  //   setIsLoading(true);
+  //   try {
+  //     const results = await searchVehicles(pattern);
+  //     setVehicles(results);
+  //   } catch (error) {
+  //     console.error("Ошибка при поиске:", error);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
 
   //   const serch = await axios.post('/security/searchtruck', {
   //     plate_number: pattern,
@@ -50,7 +51,7 @@ export default function Check() {
   //   );
   //   setIsLoading(false);
 
-   };
+  //  };
 
   // Обновление статуса машины
   // const handleStatusUpdate = (id: string, newStatus: boolean) => {
@@ -71,13 +72,14 @@ export default function Check() {
       <Head title="Проверка" />
       <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
         <div className="flex flex-col gap-4">
-          {/* <AddVehicleDialog onVehicleAdded={handleVehicleAdded} /> */}
-          {/* <VehicleSearch onSearch={handleSearch} isLoading={isLoading} /> */}
-          {/* <VehicleList
+          {/* <AddVehicleDialog onVehicleAdded={handleVehicleAdded} />
+          <VehicleSearch onSearch={handleSearch} isLoading={isLoading} />
+          <VehicleList
             vehicles={vehicles}
             isLoading={isLoading}
             onStatusUpdate={handleStatusUpdate}
           /> */}
+          <TrucksTable/>
         <SecurityCheck/>
         </div>
       </div>

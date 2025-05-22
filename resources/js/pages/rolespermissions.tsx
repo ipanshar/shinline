@@ -128,6 +128,7 @@ export default function AdminPanel() {
         { field: 'login', headerName: 'Login', width: 255 }, 
         { field: 'name', headerName: 'Имя', width: 200 },
         { field: 'email', headerName: 'Email', width: 250 },
+        { field: 'phone', headerName: 'Phone', width: 200 },
         { field: 'rolesString', headerName: 'Роли', width: 300, cellClassName: 'roles-column' }, // Используем строковое поле для отображения ролей
     ];
 
