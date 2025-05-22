@@ -20,7 +20,7 @@ export default function Warehouses() {
     const [codes, setCodes] = useState([]);
 
     useEffect(() => {
-        axios.get('/api/task/gate-codes')
+        axios.get('/task/gate-codes')
         .then(res => setCodes(res.data.data))
         .catch(err => console.error(err));
         console.log(codes)
