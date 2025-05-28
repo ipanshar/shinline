@@ -91,4 +91,15 @@ class YardCotroller extends Controller
           'message' => 'Yard deleted successfully',
      ]);
     }
+    public function getYardById($yardName)
+    {
+     $yard = Yard::where('name', '=', $yardName )->first();
+     if (!$yard) {
+         $yard = Yard::create([
+             'name' => $yardName,
+         ]);
+     }
+     return $yard;
+    }
 }
+

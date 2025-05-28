@@ -45,6 +45,7 @@ const WarehousesTable: React.FC<WarehousesTableProps> = () => {
     const columns = [
         { field: "id", headerName: "ID", width: isMobile ? 50 : 80 },
         { field: "name", headerName: "Название", flex: 1, minWidth: 150 },
+        { field: "barcode", headerName: "Штрихкод", flex: 1, minWidth: 100 },
         { field: "address", headerName: "Адрес", flex: 1, minWidth: 200 },
         { field: "phone", headerName: "Телефон", flex: 1, minWidth: 150 },
         { field: "yard_name", headerName: "Зона", flex: 2, minWidth: 250 },

@@ -274,32 +274,39 @@ class TaskCotroller extends Controller
     {
         try {
             $validate = $request->validate([
-                'name' => 'required|string|max:255',
+                'task_id'=> 'nullable|integer',
+                'name' => 'nullable|string|max:255',
                 'user_name' => 'string|max:255',
-                'user_phone' => 'string|max:255',
-                'company' => 'string|max:255',
+                'login' => 'required|string|max:255',
+                'user_phone' => 'nullable|string|max:255',
+                'company' => 'nullable|string|max:255',
                 'plate_number' => 'string|max:50',
                 'trailer_plate_number' => "string|max:50",
                 'truck_model' => 'string|max:255',
                 'truck_category' => 'string|max:255',
-                'trailer_type' => 'string|max:255',
-                'trailer_model' => 'string|max:255',
-                'color' => 'string|max:100',
-                'vin' => 'string|max:100',
+                'trailer_type' => 'nullable|string|max:255',
+                'trailer_model' => 'nullable|string|max:255',
+                'color' => 'nullable|string|max:100',
+                'vin' => 'nullable|string|max:100',
                 'avtor' => 'required|string|max:255',
-                'phone' => 'string|max:50',
+                'phone' => 'nullable|string|max:50',
                 'Yard' => 'required|string|max:255',
                 'description' => 'nullable|string|max:500',
                 'plan_date' => 'date_format:Y-m-d H:i:s',
                 'weighing' => 'required|boolean',
                 'warehouse' => 'required|array',
                 'warehouse.*.name' => 'required|string|max:255',
-                'warehouse.*.sorting_order' => 'required|integer|min:1',
+                'warehouse.*.sorting_order' => 'integer',
                 'warehouse.*.gates' => 'array',
                 'warehouse.*.gates.*' => 'string',
                 'warehouse.*.plan_gate' => 'nullable|string',
                 'warehouse.*.description' => 'nullable|string|max:500',
+                'warehouse.*.barcode' => 'nullable|string|max:100',
+                'warehouse.*.yard' => 'nullable|string|max:150',
+                'warehouse.*.document' => 'nullable|string|max:150',
             ]);
+
+            //Добавление или обновление грузовика и его модели
             $truck = Truck::where('plate_number', $validate['plate_number'])->first();
             if (!$truck && $validate['plate_number']) {
                 $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truck_category'] . '%')->first();
@@ -308,15 +315,14 @@ class TaskCotroller extends Controller
                         'name' => $validate['truck_category'],
                         'ru_name' => $validate['truck_category'],
                     ]);
-                    $truckCategory->save();
                 }
+                //Добавление или обновление модели грузовика и прицепа
                 $truckModel = TruckModel::where('name', 'like', '%' . $validate['truck_model'] . '%')->first();
                 if (!$truckModel && $validate['truck_model']) {
                     $truckModel = TruckModel::create([
                         'name' => $validate['truck_model'],
                         'truck_category_id' => $truckCategory->id,
                     ]);
-                    $truckModel->save();
                 }
                 $trailerModel = TrailerModel::where('name', 'like', '%' . $validate['trailer_model'] . '%')->first();
                 if (!$trailerModel && $validate['trailer_model']) {
@@ -324,15 +330,14 @@ class TaskCotroller extends Controller
                         'name' => $validate['trailer_model'],
                         'trailer_type_id' => $truckCategory->id,
                     ]);
-                    $trailerModel->save();
                 }
                 $trailerType = TrailerType::where('name', 'like', '%' . $validate['trailer_type'] . '%')->first();
                 if (!$trailerType && $validate['trailer_type']) {
                     $trailerType = TrailerType::create([
                         'name' => $validate['trailer_type'],
                     ]);
-                    $trailerType->save();
                 }
+                //добавляем грузовик
                 $truck = Truck::create([
                     'user_id' => 1,
                     'vin' => $validate['vin'],
@@ -346,91 +351,83 @@ class TaskCotroller extends Controller
                     'trailer_type_id' => $trailerType ? $trailerType->id : null,
                     'color' => $validate['color'],
                 ]);
-                $truck->save();
             }
-            $user = User::where('phone', '=', $validate['user_phone'] )
-                ->orWhere('login', '=',  $validate['user_phone'] )
-                ->first();
-            if (!$user && $validate['user_name'] && $validate['user_phone']) {
-                $user = User::create([
-                    'name' => $validate['user_name'],
-                    'login' => $validate['user_phone'],
-                    'password' => bcrypt($validate['user_phone']),
-                    'company' => $validate['company'],
-                    'phone' => $validate['user_phone'],
-                ]);
-                $user->save();
-                $user->trucks()->syncWithoutDetaching([$truck->id]);
-            }
-            $yard = Yard::where('name', 'like', '%' . $validate['Yard'] . '%')->first();
-            if (!$yard) {
-                $yard = Yard::create([
-                    'name' => $validate['Yard'],
-                ]);
-            }
+            //--
+
+            // Добавление или обновление пользователя
+            $user = $this->getUserByLogin($validate['login'], $validate['user_name'], $validate['user_phone'], $validate['company']);
+            $user->trucks()->syncWithoutDetaching([$truck->id]);
+            //--
+
+            // Добавление или обновление двора
+            $yardController = new YardCotroller();
+            $yard = $yardController->getYardById($validate['Yard']);
+            
+            // Создание задачи
             $status = Status::where('key', 'new')->first();
-            $task = Task::create([
-                'name' => $validate['name'],
-                'user_id' => $user ? $user->id : null,
-                'truck_id' => $truck ? $truck->id : null,
-                'avtor' => $validate['avtor'],
-                'phone' => $validate['phone'],
-                'description' => $validate['description'],
-                'plan_date' => $validate['plan_date'],
-                'yard_id' => $yard ? $yard->id : null,
-                'status_id' => $status ? $status->id : null,
-            ]);
-            $task->save();
+            
+            $task = $this->getTaskById($validate['task_id'], $validate['name'], $user ? $user->id : null, $truck ? $truck->id : null, $validate['avtor'], 
+            $validate['phone'], $validate['description'], $validate['plan_date'], $yard ? $yard->id : null, $status ? $status->id : null);
+    
+           //--
+
+
+            //Задача взвешивание
             $weighing = 0;
-            if( $validate['weighing']){
-                $weighing = 1;
-               TaskWeighing::create([
-                    'task_id' => $task->id,
-                    'sort_order' =>  1,
-                    'statuse_weighing_id' => 1,
-                    'yard_id' => $yard ? $yard->id : 1,
-                ]);
-                TaskWeighing::create([
-                    'task_id' => $task->id,
-                    'sorting_order' => Count($validate['warehouse']) + 1,
-                    'statuse_weighing_id' => 2,
-                    'yard_id' => $yard ? $yard->id : 1,
-                ]);
-            }
-            foreach ($validate['warehouse'] as $warehouse_d) {
-                $weighing++;
-                $warehouse = Warehouse::where('name', $warehouse_d['name'])->first();
-                if (!$warehouse) {
-                    $warehouse = Warehouse::create([
-                        'name' => $warehouse_d['name'],
-                        'yard_id' => $yard ? $yard->id : null,
-                    ]);
+           $weighing = $this->createUpdateTaskWeighing($task->id, $validate['weighing'], $yard ? $yard->id : 1, Count($validate['warehouse']));
+            //--
+
+            //Задачи для погрузки
+            $warehouseActive=[];
+           foreach ($validate['warehouse'] as $warehouse_d) {
+               
+            $weighing++;
+
+
+                if (!$warehouse_d['yard']) continue; // Пропускаем, если нет двора
+                // Проверяем или создаем двор
+                $yardId = $yardController->getYardById( $warehouse_d['yard']);
+
+                // Проверяем или создаем склад
+                $WareHauseController = new WarehouseCotroller;
+                $warehouse = $WareHauseController->getWarehouseById($warehouse_d['name'], $yardId, $warehouse_d['barcode']);
+                
+                //Если склад найден добавим в активные склады
+                if($warehouse){
+                    array_push($warehouseActive, $warehouse->id);
                 }
-                $warehouse->save();
-                foreach ($warehouse_d['gates'] as $gate_name) {
-                    $gate = WarehouseGates::where('name', $gate_name)
-                    ->where('warehouse_id', $warehouse->id)
-                    ->first();
-                    if (!$gate) {
-                         WarehouseGates::create([
-                            'warehouse_id' => $warehouse->id,
-                            'name' => $gate_name,
-                        ]);
-                    }  
-                }
-                $plan_gate = WarehouseGates::where('name', $warehouse_d['plan_gate'])
-                ->where('warehouse_id', $warehouse->id)
-                ->first();
-                $taskLoading = TaskLoading::create([
-                    'task_id' => $task->id,
-                    'warehouse_id' => $warehouse ? $warehouse->id : null,
-                    'sorting_order' => $weighing,
-                    'warehouse_gate_plan_id' => $plan_gate ? $plan_gate->id : null,
-                    'description' => $warehouse_d['description'],
-                ]);
-                $taskLoading->save();
+
+                
+                // foreach ($warehouse_d['gates'] as $gate_name) {
+                //     $gate = WarehouseGates::where('name', $gate_name)
+                //     ->where('warehouse_id',$warehouse ? $warehouse->id:null)
+                //     ->first();
+                //     if (!$gate) {
+                //          WarehouseGates::create([
+                //             'warehouse_id' => $warehouse ? $warehouse->id:null,
+                //             'name' => $gate_name,
+                //         ]);
+                //     }  
+                // }
+                // $plan_gate = WarehouseGates::where('name', $warehouse_d['plan_gate'])
+                // ->where('warehouse_id', $warehouse ? $warehouse->id:null)
+                // ->first();
+
+                $this->createUpdateTaskLoading( 
+                    $task->id,
+                    $warehouse ? $warehouse->id : null,
+                    $warehouse_d['description'], 
+                    $weighing, 
+                    // $plan_gate ? $plan_gate->id : null, 
+                    $warehouse_d['barcode'], 
+                    $warehouse_d['document']
+                );
                 
             }
+            // Удаляем неактивные склады
+            TaskLoading::where('task_id', $task->id)->whereNotIn('warehouse_id', $warehouseActive)->delete();
+            //--
+
             return response()->json([
                 'status' => true,
                 'message' => 'Task created successfully',
@@ -669,5 +666,114 @@ class TaskCotroller extends Controller
                 'message' => 'Error Updating Task Weighing: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function createUpdateTaskLoading($task_id, $warehouse_id, $description = null, $sorting_order = null,  $barcode = null, 
+    $document = null, $comment = null, $warehouse_gate_plan_id = 0, $warehouse_gate_fact_id = 0)
+    {
+        
+        if (!$task_id || !$warehouse_id) {
+            return null; // Invalid parameters
+        }
+        $data = [];
+
+        if ($sorting_order) {
+           $data['sorting_order'] = $sorting_order;
+        }
+        if ($warehouse_gate_plan_id <> 0) {
+            $data['warehouse_gate_plan_id'] = $warehouse_gate_plan_id;
+        }
+        if ($warehouse_gate_fact_id <> 0) {
+            $data['warehouse_gate_fact_id'] = $warehouse_gate_fact_id;
+        }
+        if ($description) {
+            $data['description'] = $description;
+        }
+        if ($barcode) {
+            $data['barcode'] = $barcode;
+        }
+        if ($document) {
+            $data['document'] = $document;
+        }
+        if ($comment) {
+            $data['comment'] = $comment;
+        }
+
+        $taskLoading = TaskLoading::where('task_id', $task_id)
+            ->where('warehouse_id', $warehouse_id)
+            ->first();
+        if ($taskLoading) {
+            $taskLoading->update($data);
+            return $taskLoading; // Return updated TaskLoading
+        } else {
+            $data['task_id'] = $task_id;
+            $data['warehouse_id'] = $warehouse_id;
+            return TaskLoading::create($data); // Create new TaskLoading
+        
+        }
+        
+    }
+
+    private function getUserByLogin($login, $user_name=null, $user_phone = null,$company=null )
+    {
+        $user = User::where('login', '=',  $login )->first();
+            if (!$user && $user_name) {
+                $user = User::create([
+                    'name' => $user_name,
+                    'login' => $login,
+                    'password' => bcrypt('Aa1234'),
+                    'company' => $company,
+                    'phone' => $user_phone,
+                ]); // Добавить аккаунт водителю если его нет
+            }
+        return $user;
+    }
+
+    private function createUpdateTaskWeighing($task_id, $weighing=null, $yard_id=1, $warehouseCount = 1){
+        if (!$task_id) {
+            return 0; 
+        }
+        $taskWeighing = TaskWeighing::where('task_id', $task_id)->where('yard_id',$yard_id)->first();
+        if ($taskWeighing && $weighing) {
+            return 1; // Проверяем наличие задачи
+        } 
+        else if ($taskWeighing && $weighing==null) {
+            TaskWeighing::where('task_id', $task_id)->where('yard_id',$yard_id)->delete();
+            return 0; // Удаляем задачу на взвешивания
+        }
+        else if ($taskWeighing == null && $weighing) {
+            TaskWeighing::create([
+                'task_id' => $task_id,
+                'sort_order' =>  1,
+                'statuse_weighing_id' => 1,
+                'yard_id' => $yard_id,
+            ]);
+            TaskWeighing::create([
+                'task_id' => $task_id,
+                'sorting_order' => $warehouseCount + 1,
+                'statuse_weighing_id' => 2,
+                'yard_id' => $yard_id,
+            ]);
+            return 1; // Создаем задание на взвешивания
+        }
+    }
+
+    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1)
+    {
+        $task= Task::where('id', $task_id)->first();
+        if (!$task) {
+            $task = Task::create([
+                'name' => $name,
+                'user_id' => $user_id,
+                'truck_id' => $truck_id,
+                'avtor' => $avtor,
+                'phone' => $phone,
+                'description' => $description,
+                'plan_date' => $plan_date,
+                'yard_id' => $yard_id,
+                'status_id' => $status_id 
+            ]);
+        }
+        return $task;
     }
 }

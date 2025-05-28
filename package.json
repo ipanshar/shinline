@@ -64,6 +64,7 @@
         "react-dom": "^19.0.0",
         "react-hook-form": "^7.56.1",
         "react-i18next": "^15.5.1",
+        "react-qr-code": "^2.0.15",
         "react-select": "^5.10.1",
         "sonner": "^2.0.3",
         "tailwind-merge": "^3.0.1",

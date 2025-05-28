@@ -108,5 +108,21 @@ class WarehouseCotroller extends Controller
             'message' => 'Warehouse deleted successfully',
         ], 200);
     }
+
+    public function getWarehouseById($WarehouseName,$yardId,$barcode)
+    {
+        $warehouse = Warehouse::where('name', $WarehouseName)->first();
+                if (!$warehouse) {
+                    $warehouse = Warehouse::create([
+                        'name' => $WarehouseName,
+                        'yard_id' => $yardId ? $yardId->id : null,
+                        'barcode' => $barcode,
+                    ]);
+                }
+
+                return $warehouse;
+
+    }
+
 }
  

@@ -36,6 +36,7 @@ Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
 Route::get('/chat', [RouteController::class, 'chat']);
+route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 
 //Settings roles
 Route::get('/roles', [RoleController::class, 'index']);
