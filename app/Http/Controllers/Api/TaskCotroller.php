@@ -443,33 +443,29 @@ class TaskCotroller extends Controller
 
     public function qrProccesing(Request $request)
     {
-        $qr = explode("\n", $request->qr); 
-        $yard_name = $qr[0].' '.$qr[1];
-        $warehouse_exp = explode(',', $qr[2]);
-        $warehouse_name = $warehouse_exp[0];
-        $warehouse_gate_name = $warehouse_exp[1];
-        $yard = Yard::where('name', 'like', '%' . $yard_name . '%')->first();
-        if (!$yard) {
-            $yard = Yard::create([
-                'name' => $yard_name,
-            ]);
+        $request->validate([
+            'qr' => 'required|string|max:5',
+            'task_id' => 'required|integer',
+            'user_id' => 'required|integer',
+        ]);
+
+        $user = User::find($request->user_id);
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User not found',
+            ], 404);
         }
-        $warehouse = Warehouse::where('name', 'like', '%' . $warehouse_name . '%')->first();
-        if (!$warehouse) {
-            $warehouse = Warehouse::create([
-                'name' => $warehouse_name,
-                'yard_id' => $yard->id,
-            ]);
-        }
-        $warehouse_gate = WarehouseGates::where('name', 'like', '%' . $warehouse_gate_name . '%')
-            ->where('warehouse_id', $warehouse->id)
-            ->first();
+       
+        
+        $warehouse_gate = WarehouseGates::where('code',  $request->qr)->first();
         if (!$warehouse_gate) { 
-            $warehouse_gate = WarehouseGates::create([
-                'name' => $warehouse_gate_name,
-                'warehouse_id' => $warehouse->id,
-            ]);
+           return response()->json([
+                'status' => false,
+                'message' => 'Warehouse gate not found',
+            ], 404);
         }
+         $warehouse = Warehouse::where('id', $warehouse_gate->warehouse_id)->first();
         // $status = Status::whereIn('key', ['new', 'waiting_loading'])->get()->keyBy('key');
         $status = Status::whereIn('key', ['new', 'waiting_loading', 'on_territory'])->get()->keyBy('key');
         $waiting_loading = $status['waiting_loading'];
@@ -485,13 +481,13 @@ class TaskCotroller extends Controller
             ->first();
             
             if (!$task ) {
-                MessageSent::dispatch('Сканирование: '.$warehouse_exp[0].' '.$warehouse_exp[1].', рейс не найден');
+                MessageSent::dispatch('Пользователь:'.$user->name.'\nСканирование: склад - '.$warehouse->name.' ворота'.$warehouse_gate->name.', рейс не найден');
                 return response()->json([
                     'status' => false,
                     'message' => 'Task not found',
                 ], 404);
             }
-            MessageSent::dispatch('Сканирование: '.$warehouse_exp[0].' '.$warehouse_exp[1].', для выполнения рейса '.$task->name);
+            MessageSent::dispatch('Пользователь:'.$user->name.'\nСканирование: склад - '.$warehouse->name.' ворота'.$warehouse_gate->name.', для выполнения рейса '.$task->name);
             $task_loading = TaskLoading::where('task_id', $task->id)
             ->where('warehouse_id', $warehouse->id)
             ->first();
@@ -503,13 +499,10 @@ class TaskCotroller extends Controller
                     'staus_id' => $waiting_loading->id,
                 ]);
             }else{
-                MessageSent::dispatch('Сканирование: '.$warehouse_exp[0].' '.$warehouse_exp[1].', в задании нет этого склада');
+                MessageSent::dispatch('Пользователь:'.$user->name.'\nСканирование: склад - '.$warehouse->name.' ворота'.$warehouse_gate->name.', в задании нет этого склада');
                 return response()->json([
                     'status' => false,
                     'message' => 'Task loading warehouse not found',
-                    'data' => $waiting_loading,
-
-
                 ], 404);
             }
             return response()->json([
