@@ -20,6 +20,7 @@ use App\Models\Yard;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Constraint\Count;
 use App\Events\MessageSent;
+use App\Models\Visitor;
 use Carbon\Carbon;
 
 class TaskCotroller extends Controller
@@ -307,7 +308,9 @@ class TaskCotroller extends Controller
             ]);
 
             //Добавление или обновление грузовика и его модели
-            $truck = Truck::where('plate_number', $validate['plate_number'])->first();
+            //Проверяем или создаем грузовик
+            $plate_number = strtolower(str_replace(' ', '', $validate['plate_number']));
+            $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$plate_number])->first();
             if (!$truck && $validate['plate_number']) {
                 $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truck_category'] . '%')->first();
                 if (!$truckCategory && $validate['truck_category']) {
@@ -364,10 +367,25 @@ class TaskCotroller extends Controller
             $yard = $yardController->getYardById($validate['Yard']);
             
             // Создание задачи
-            $status = Status::where('key', 'new')->first();
+            $status=null;
+            $statuses = Status::whereIn('key', ['new', 'left_territory', 'on_territory'])->get()->keyBy('key');
+            $statusNew = $statuses['new'];
+            $on_territory = $statuses['on_territory'];
+
+            // Проверяем, есть ли уже посетитель с таким грузовиком и двором
+            $visitor = Visitor::where('truck_id', $truck->id)
+                ->where('yard_id', $yard->id)
+                ->where('status_id', $on_territory->id)
+                ->first();
+            if ($visitor) {
+                $status = $on_territory;
+            } else {
+                $status = $statusNew;
+            }
             
             $task = $this->getTaskById($validate['task_id'], $validate['name'], $user ? $user->id : null, $truck ? $truck->id : null, $validate['avtor'], 
-            $validate['phone'], $validate['description'], $validate['plan_date'], $yard ? $yard->id : null, $status ? $status->id : null);
+            $validate['phone'], $validate['description'], $validate['plan_date'], $yard ? $yard->id : null, $status ? $status->id : null, 
+            $visitor ? $visitor->entry_date : null,$visitor ? $visitor->exit_date : null);
     
            //--
 
@@ -751,21 +769,24 @@ class TaskCotroller extends Controller
         }
     }
 
-    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1)
+    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1,$begin_date= null, $end_date = null)
     {
+        $data = [
+            'name' => $name,
+            'user_id' => $user_id,
+            'truck_id' => $truck_id,
+            'avtor' => $avtor,
+            'phone' => $phone,
+            'description' => $description,
+            'plan_date' => $plan_date,
+            'yard_id' => $yard_id,
+            'status_id' => $status_id,
+            'begin_date' => $begin_date,
+            'end_date' => $end_date,
+        ];
         $task= Task::where('id', $task_id)->first();
         if (!$task) {
-            $task = Task::create([
-                'name' => $name,
-                'user_id' => $user_id,
-                'truck_id' => $truck_id,
-                'avtor' => $avtor,
-                'phone' => $phone,
-                'description' => $description,
-                'plan_date' => $plan_date,
-                'yard_id' => $yard_id,
-                'status_id' => $status_id 
-            ]);
+            $task = Task::create($data);
         }
         return $task;
     }
