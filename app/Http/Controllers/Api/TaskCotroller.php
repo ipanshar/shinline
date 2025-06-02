@@ -278,7 +278,7 @@ class TaskCotroller extends Controller
                 'task_id'=> 'nullable|integer',
                 'name' => 'nullable|string|max:255',
                 'user_name' => 'string|max:255',
-                'login' => 'required|string|max:255',
+                'login' => 'nullable|string|max:255',
                 'user_phone' => 'nullable|string|max:255',
                 'company' => 'nullable|string|max:255',
                 'plate_number' => 'string|max:50',
