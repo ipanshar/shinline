@@ -93,6 +93,9 @@ class YardCotroller extends Controller
     }
     public function getYardById($yardName)
     {
+     if ($yardName == null){
+         return null;  
+     }
      $yard = Yard::where('name', '=', $yardName )->first();
      if (!$yard) {
          $yard = Yard::create([
