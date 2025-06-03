@@ -71,7 +71,7 @@ try{
         $responseData = json_decode($response->getBody(), true);
 
         if (!isset($responseData['token'])) {
-            return ['error' => 'Ошибка авторизации: токен отсутствует в ответе!'];
+            return ['error' => 'Ошибка авторизации: токен отсутствует в ответе!', 'data'=>$responseData];
         }
 
         // Сохраняем токен в настройках DSS
@@ -100,12 +100,8 @@ try{
             return ['error' => $secondLogin['error']];
         }
         if (!isset($secondLogin['token'])) {
-            return ['error' => 'Токен не получен после второго этапа авторизации!'];
+            return ['error' => 'Токен не получен после второго этапа авторизации!', 'data'=>$secondLogin];
         }else {
-            // Устанавливаем токен в настройках DSS
-            $this->dssSettings->token = $secondLogin['token'];
-            $this->dssSettings->begin_session = now(); // Устанавливаем время начала сессии
-            $this->dssSettings->save();
         }
         return $secondLogin; 
     }
