@@ -71,7 +71,7 @@ try{
         $responseData = json_decode($response->getBody(), true);
 
         if (!isset($responseData['token'])) {
-            return ['error' => 'Ошибка авторизации: токен отсутствует в ответе!', 'data'=>$responseData];
+            return ['error' => 'Ошибка авторизации: токен отсутствует в ответе!'.$response->getBody()->getContents()];
         }
 
         // Сохраняем токен в настройках DSS
