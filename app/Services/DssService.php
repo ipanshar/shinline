@@ -71,7 +71,7 @@ try{
         $responseData = json_decode($response->getBody(), true);
 
         if (!isset($responseData['token'])) {
-            return ['error' => 'Ошибка авторизации: токен отсутствует в ответе!'.$response->getBody()->getContents()];
+            return ['error' => 'Ошибка авторизации: токен отсутствует в ответе!','data'=>$responseData];
         }
 
         // Сохраняем токен в настройках DSS
@@ -97,7 +97,7 @@ try{
         );
 
         if (isset($secondLogin['error'])) {
-            return ['error' => $secondLogin['error']];
+            return ['error' => $secondLogin['error'], 'data'=>$secondLogin];
         }
         if (!isset($secondLogin['token'])) {
             return ['error' => 'Токен не получен после второго этапа авторизации!', 'data'=>$secondLogin];
