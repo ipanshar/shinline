@@ -82,7 +82,7 @@ class DssController extends Controller
     {
         $keepAliveResponse = $this->dssService->dssKeepAlive();
         if (isset($keepAliveResponse['error'])) {
-            return response()->json(['error' => $keepAliveResponse['error']], 500);
+            return response()->json(['error' => $keepAliveResponse], 500);
         }
         return response()->json(['message' => 'DSS session kept alive successfully']);
     }
