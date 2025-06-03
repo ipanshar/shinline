@@ -65,7 +65,7 @@ try{
             ]
         ]);
     }catch(RequestException $e){
-        $response = $e->getResponse()->getBody();
+        $response = $e->getResponse();
     }
 
         $responseData = json_decode($response->getBody(), true);
