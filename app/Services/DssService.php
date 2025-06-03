@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\DssApi;
 use App\Models\DssSetings;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Facades\Hash;
 
 class DssService
@@ -25,6 +26,7 @@ class DssService
     public function firstLogin($username)
     {
         $dssApi = DssApi::where('api_name', 'Authorize')->where('dss_setings_id', $this->dssSettings->id)->first();
+    try{
         $response = $this->client->post($this->baseUrl.$dssApi->request_url, [
             'json' => [
                 'userName' => $username,
@@ -34,6 +36,13 @@ class DssService
         ]);
 
         return json_decode($response->getBody(), true);
+    }catch(RequestException $e){
+        if($e->hasResponse()){
+            return  json_decode($e->getResponse()->getBody(),true);
+        }else{
+            return  ['error' => $e['error']];
+        }
+    }
     }
     // Второй этап авторизации
     // Получаем токен
@@ -44,7 +53,8 @@ class DssService
         $temp3 = md5($temp2);
         $temp4 = md5($username . ":" . $realm . ":" . $temp3);
         $signature = md5($temp4 . ":" . $randomKey);
-
+        $response = null;
+try{
         $response = $this->client->post($this->baseUrl, [
             'json' => [
                 'userName' => $username,
@@ -54,6 +64,9 @@ class DssService
                 'clientType' => 'WINPC_V2'
             ]
         ]);
+    }catch(RequestException $e){
+        $response = $e->getResponse()->getBody();
+    }
 
         $responseData = json_decode($response->getBody(), true);
 
