@@ -114,12 +114,7 @@ try{
     public function dssKeepAlive()
     {
         if (!$this->dssSettings->token) {
-            $this->dssAutorize(); // Если токен не установлен, выполняем авторизацию
-            if (isset($this->dssSettings->token)) {
-                $this->token = $this->dssSettings->token; // Обновляем токен после авторизации
-            } else {
-                return ['error' => 'Не удалось получить токен после авторизации!'];
-            }
+           return $this->dssAutorize(); // Если токен не установлен, выполняем авторизацию
         }
         // Получаем API-метод из базы данных
         $dssApi = DssApi::where('api_name', 'KeepAlive')->where('dss_setings_id', $this->dssSettings->id)->first();
