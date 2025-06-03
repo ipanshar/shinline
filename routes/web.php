@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\VisitorsCotroller;
 use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
 use App\Http\Controllers\Api\YardCotroller;
+use App\Http\Controllers\DssController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\RouteController;
 use App\Http\Controllers\Settings\ProfileController;
@@ -114,10 +115,21 @@ Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class,'deleteGate'
 Route::post('/task/gettasks', [TaskCotroller::class,'getTasks']); //Получить все задачи
 Route::post('/task/addtask', [TaskCotroller::class,'addTask']); //Добавить задачу
 Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing']); //Обработка QR кода
-Route::post('/task/processShortCode', [TaskCotroller::class,'processShortCode'])->middleware('auth:sanctum'); //Обработка QR кода
+Route::post('/task/processShortCode', [TaskCotroller::class,'processShortCode']); //Обработка QR кода
 Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
 Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings']); //Получить задачи все взвешивания 
 Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing']); //Обновить задачи взвешивание 
+
+// Dss routes
+Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); //Авторизация в DSS
+Route::post('/dss/settings', [DssController::class, 'dssSettings']); //Получить настройки DSS
+Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate']); //Обновить настройки DSS
+Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate']); //Создать настройки DSS
+Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete']); //Удалить настройки DSS
+Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
+Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
+Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS  
+
 });
 
 

@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\VisitorsCotroller;
 use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
 use App\Http\Controllers\Api\YardCotroller;
+use App\Http\Controllers\DssController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -106,3 +107,13 @@ Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
 Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания 
 Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание 
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
+
+//Dss routes
+Route::post('/dss/autorization', [DssController::class, 'dssAutorization'])->middleware('auth:sanctum'); //Авторизация в DSS
+Route::post('/dss/settings', [DssController::class, 'dssSettings'])->middleware('auth:sanctum'); //Получить настройки DSS
+Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate'])->middleware('auth:sanctum'); //Обновить настройки DSS
+Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate'])->middleware('auth:sanctum'); //Создать настройки DSS
+Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])->middleware('auth:sanctum'); //Удалить настройки DSS
+Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middleware('auth:sanctum'); //Поддержание сессии DSS
+Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('auth:sanctum'); //Обновление токена DSS
+Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('auth:sanctum'); //Выход из DSS  
