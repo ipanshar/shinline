@@ -15,6 +15,7 @@ class Warehouse extends Model
         'email',
         'coordinates',
         'yard_id',
+        'barcode',
     ];
 
     public function gates()

@@ -1,4 +1,5 @@
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
+import WarehouseLayout from '@/layouts/warehouse-layout';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
@@ -23,13 +24,14 @@ export default function Warehouses() {
         axios.get('/task/gate-codes')
         .then(res => setCodes(res.data.data))
         .catch(err => console.error(err));
-        console.log(codes)
+       // console.log(codes)
     }, [codes]);
 
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Склады" />
+            <WarehouseLayout>
             <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
                 <div className="border-sidebar-border/70 dark:border-sidebar-border relative min-h-[100vh] flex-1 overflow-hidden rounded-xl border md:min-h-min p-4">
                     <WarehousesTable warehouses={warehouses} loading={loading} />
@@ -58,6 +60,7 @@ export default function Warehouses() {
                 </div>
 
             </div>
+            </WarehouseLayout>
         </AppLayout>
     );
 }

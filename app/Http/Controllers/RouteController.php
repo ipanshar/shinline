@@ -37,6 +37,9 @@ class RouteController extends Controller
     public function statistics(){
         return Inertia::render('Statisticspage');
     }
+    public function warehouseGate(){
+        return Inertia::render('warehouseGate');
+    }
 
 
 }

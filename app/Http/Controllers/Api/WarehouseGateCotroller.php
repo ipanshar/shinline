@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 
 class WarehouseGateCotroller extends Controller
 {
-    public function addWarehouseGate(Request $request)
+    public function addGate(Request $request)
     {try{
         $validate = $request->validate([
             'warehouse_id' => 'required|integer',
@@ -20,7 +20,9 @@ class WarehouseGateCotroller extends Controller
             'coordinates' => 'string|max:255',
             'coordinates_svg' => 'string|max:255',
         ]);
+         
         $warehouseGate = WarehouseGates::create($validate);
+        $warehouseGate->code = 1000+$warehouseGate->id;
         $warehouseGate->save();
 
         return response()->json([
@@ -36,19 +38,22 @@ class WarehouseGateCotroller extends Controller
         }
     }
 
-    public function getWarehouseGates(Request $request)
+    public function getGates(Request $request)
     {
-        $warehouseGates = WarehouseGates::all();
+        $warehouseGates = WarehouseGates::query();
         $warehouseGates->leftJoin('warehouses', 'warehouse_gates.warehouse_id', '=', 'warehouses.id')
-            ->select('warehouse_gates.*', 'warehouses.name as warehouse_name')
-            ->get();
+            ->select('warehouse_gates.*', 'warehouses.name as warehouse_name');
+        if ($request->has('warehouse_id')) {
+            $warehouseGates->where('warehouse_gates.warehouse_id', $request->input('warehouse_id'));
+        }
+        $warehouseGates = $warehouseGates->get();
         return response()->json([
             'status' => true,
             'message' => 'Warehouse gates retrieved successfully',
             'data' => $warehouseGates,
         ], 200);
     }
-    public function updateWarehouseGate(Request $request)
+    public function updateGate(Request $request)
     {
         try {
             $validate = $request->validate([
@@ -81,7 +86,7 @@ class WarehouseGateCotroller extends Controller
             ], 500);
         }
     }
-    public function deleteWarehouseGate(Request $request)
+    public function deleteGate(Request $request)
     {
         $user = Auth::user();
         if (!$user) {

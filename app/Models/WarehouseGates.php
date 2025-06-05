@@ -17,6 +17,7 @@ class WarehouseGates extends Model
         'coordinates',
         'coordinates_svg',
         'status',
+        'code',
     ];
 
     public function warehouse()

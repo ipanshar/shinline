@@ -11,7 +11,7 @@ export default function TrucksTable() {
   useEffect(() => {
     setLoading(true);
     axios.post(
-      "/task/actual-tasks",
+        "/task/actual-tasks",
       {},
       {
         headers: { Authorization: `Bearer ${token}` },

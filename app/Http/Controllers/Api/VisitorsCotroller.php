@@ -16,7 +16,8 @@ class VisitorsCotroller extends Controller
     public function addVisitor(Request $request)
     {
         try {
-            $truck = Truck::where('plate_number', '=', $request->plate_number)->first();
+            $plate_number = strtolower(str_replace(' ', '', $request->plate_number));
+            $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$plate_number])->first();
             if (!$truck && $request->truck_model_name) {
 
                 $truck_model = TruckModel::where('name', $request->truck_model_name)->first();
@@ -46,12 +47,16 @@ class VisitorsCotroller extends Controller
             $task = $truck ? DB::table('tasks')->where('truck_id', $truck->id)
                 ->where('end_date', '=', null)
                 ->where('begin_date', '=', null)
+                ->where('yard_id', $request->yard_id)
                 ->first() : null;
 
             $status = DB::table('statuses')->where('key', 'on_territory')->first();
             if ($request->truck_model_name) {
                 $truck_model = DB::table('truck_models')->where('name', $request->truck_model_name)->first();
                 if (!$truck_model) {
+                    $truck_model = TruckModel::create([
+                        'name' => $request->truck_model_name,
+                    ]);
                 }
             }
 
@@ -78,7 +83,7 @@ class VisitorsCotroller extends Controller
                     'begin_date' => now(),
                     'status_id' => $status->id,
                 ]);
-                MessageSent::dispatch('На територию вьехало транспортное средство '.$request->plate_number.', для рейса '.$task->name);
+                MessageSent::dispatch('На територию въехало транспортное средство '.$request->plate_number.', для рейса '.$task->name);
             }
 
             return response()->json([
@@ -95,8 +100,6 @@ class VisitorsCotroller extends Controller
     }
     public function getVisitors(Request $request)
     {
-        
-
 
         $query = DB::table('visitors')
             ->leftJoin('truck_categories', 'visitors.truck_category_id', '=', 'truck_categories.id')

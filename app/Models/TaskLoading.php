@@ -13,7 +13,9 @@ class TaskLoading extends Model
         'warehouse_gate_fact_id',
         'sort_order',
         'description',
-        
+        'barcode',
+        'document',
+        'comment',        
     ];
     public function task()
     {
