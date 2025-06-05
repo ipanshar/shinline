@@ -34,6 +34,9 @@ class RouteController extends Controller
     public function chat(){
         return Inertia::render('chat');
     }
+    public function statistics(){
+        return Inertia::render('Statisticspage');
+    }
 
 
 }
