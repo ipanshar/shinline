@@ -21,7 +21,7 @@ use App\Http\Controllers\Settings\ProfileController;
 Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
-
+Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']);
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');
@@ -129,6 +129,7 @@ Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])
 Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
 Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS  
+
 
 });
 

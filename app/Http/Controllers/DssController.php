@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\DssSetings;
 use App\Services\DssService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class DssController extends Controller
 {
@@ -106,5 +107,18 @@ class DssController extends Controller
         }
         return response()->json(['message' => 'Logged out from DSS successfully']);
     }
+
+    public function dssAlarmAdd(Request $request)
+{
+    // Преобразуем запрос в JSON-формат
+    $data = json_encode($request->all(), JSON_PRETTY_PRINT) . "\n";
+
+    // Записываем данные в файл, добавляя их в конец
+    Storage::disk('local')->append('dss_alarm_log.txt', $data);
+
+    return response()->json(['message' => 'Запись успешно добавлена']);
+}
+
+  
 
 }

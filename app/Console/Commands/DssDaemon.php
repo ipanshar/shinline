@@ -25,8 +25,8 @@ class DssDaemon extends Command
             $keepAliveResult = $service->dssKeepAlive();
             $this->logResult('KeepAlive', $keepAliveResult);
 
-            // Вызов UpdateToken если прошло 28 минут
-            if ((time() - $lastTokenUpdate) >= (28 * 60)) {
+            // Вызов UpdateToken если прошло 30 минут
+            if ((time() - $lastTokenUpdate) >= (30 * 60)) {
                 $tokenUpdateResult = $service->dssUpdateToken();
                 $this->logResult('UpdateToken', $tokenUpdateResult);
                 $lastTokenUpdate = time();

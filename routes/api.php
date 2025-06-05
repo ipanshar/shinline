@@ -117,3 +117,4 @@ Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])
 Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middleware('auth:sanctum'); //Поддержание сессии DSS
 Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('auth:sanctum'); //Обновление токена DSS
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('auth:sanctum'); //Выход из DSS  
+Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Добавление тревоги в DSS
