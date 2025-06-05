@@ -41,9 +41,9 @@ class DssDaemon extends Command
     protected function logResult($operation, $result)
     {
         if (isset($result['success'])) {
-            $this->info("$operation успешно выполнен.");
+            $this->info(now()->toDateTimeLocalString()." $operation успешно выполнен.");
         } else {
-            $this->error("$operation завершился с ошибкой: " . json_encode($result));
+            $this->error(now()->toDateTimeLocalString()." $operation завершился с ошибкой: " . json_encode($result));
         }
     }
 }
