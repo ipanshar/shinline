@@ -12,6 +12,9 @@ use App\Http\Controllers\Api\VisitorsCotroller;
 use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
 use App\Http\Controllers\Api\YardCotroller;
+use App\Http\Controllers\DssController;
+use App\Http\Controllers\Admin\StatisticsController;
+use App\Http\Controllers\Admin\TrafficStatsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 

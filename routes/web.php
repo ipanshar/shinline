@@ -39,11 +39,8 @@ Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
 Route::get('/chat', [RouteController::class, 'chat']);
-<<<<<<< HEAD
 Route::get('/statistics', [RouteController::class, 'statistics']);
-=======
 route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
->>>>>>> cb2662a8f5fac0f1878576235bec07f1a5044ae2
 
 //Settings roles
 Route::get('/roles', [RoleController::class, 'index']);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
 interface Yard {
   id: number;
@@ -25,7 +25,9 @@ interface WarehouseItem {
 }
 
 interface TaskFormData {
+  task_id: null,
   name: string;
+  login: string;
   user_name: string;
   user_phone: string;
   company: string;
@@ -60,7 +62,9 @@ const initialWarehouseItem: WarehouseItem = {
 };
 
 const initialFormState: TaskFormData = {
+  task_id: null,
   name: '',
+  login: '', 
   user_name: '',
   user_phone: '',
   company: '',
@@ -245,32 +249,43 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
     });
   };
 
-  const formatDateForAPI = (dateStr: string) => {
-    if (!dateStr) return '';
-    const dt = new Date(dateStr);
-    const pad = (n: number) => (n < 10 ? '0' + n : n);
-    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(
-      dt.getHours()
-    )}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
-  };
+  const formatDateForAPI = (date: string | Date) => {
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 
   const handleSubmit = async () => {
-    try {
-      const payload = {
-        ...formData,
-        plan_date: formatDateForAPI(formData.plan_date),
-      };
-      await axios.post('/api/task/addapitask', payload);
-      alert('Задача успешно добавлена');
-      onClose();
-      setFormData(initialFormState);
-      setGatesMap({});
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Неизвестная ошибка';
-      alert('Ошибка при отправке: ' + errorMessage);
-      console.error(err);
+  try {
+    const payload = {
+      ...formData,
+      task_id: formData.task_id ?? null,
+      plan_date: formatDateForAPI(formData.plan_date),
+    };
+    console.log('Payload:', payload);
+
+    await axios.post('/api/task/addapitask', payload);
+
+    alert('Задача успешно добавлена');
+    onClose();
+    setFormData(initialFormState);
+    setGatesMap({});
+  } catch (err) {
+    const error = err as AxiosError<any>;
+
+    if (error.response) {
+      console.error('Response data:', error.response.data);
+      console.error('Status:', error.response.status);
+      console.error('Headers:', error.response.headers);
+      alert('Ошибка сервера: ' + (error.response.data?.message || 'Неизвестная ошибка'));
+    } else {
+      console.error('Unexpected error:', err);
+      alert('Произошла неизвестная ошибка');
     }
-  };
+  }
+};
+
 
   if (!isOpen) return null;
 
@@ -317,6 +332,17 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
               type="text"
               name="user_name"
               value={formData.user_name}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
+            />
+          </label>
+
+            <label className="block text-sm font-medium text-gray-700">
+            Логин пользователя (login)
+            <input
+              type="text"
+              name="login"
+              value={formData.login}
               onChange={handleChange}
               className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
             />
