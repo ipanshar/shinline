@@ -54,6 +54,7 @@ class DssService
         $temp3 = md5($temp2);
         $temp4 = md5($username . ":" . $realm . ":" . $temp3);
         $signature = md5($temp4 . ":" . $randomKey);
+        $response = null;
         try {
             $response = $this->client->post($this->baseUrl . $this->dssApi->request_url, [
                 'json' => [
@@ -111,6 +112,7 @@ class DssService
         $dssApi = DssApi::where('api_name', 'KeepAlive')->where('dss_setings_id', $this->dssSettings->id)->first();
 
         // Отправка запроса
+        $response = null;
         try {
         $response = $this->client->put($this->baseUrl . $dssApi->request_url, [
             'headers' => [
@@ -124,6 +126,17 @@ class DssService
         ]);
     } catch (RequestException $e) {
             $this->dssAutorize();
+            
+            $response = $this->client->put($this->baseUrl . $dssApi->request_url, [
+            'headers' => [
+                'X-Subject-Token' =>  $this->token,
+                'Content-Type' => 'application/json',
+                'Charset' => 'utf-8'
+            ],
+            'json' => [
+                'token' => $this->dssSettings->token,
+            ]
+        ]);
         }
 
         // Проверяем успешность ответа
