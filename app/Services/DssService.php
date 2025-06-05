@@ -54,7 +54,6 @@ class DssService
         $temp3 = md5($temp2);
         $temp4 = md5($username . ":" . $realm . ":" . $temp3);
         $signature = md5($temp4 . ":" . $randomKey);
-        $response = null;
         try {
             $response = $this->client->post($this->baseUrl . $this->dssApi->request_url, [
                 'json' => [
@@ -94,6 +93,8 @@ class DssService
             $this->dssSettings->token = $secondLogin['token'];
             $this->dssSettings->begin_session = now(); // Устанавливаем время начала сессии
             $this->dssSettings->save();
+            $this->token = $secondLogin['token']; // Обновляем токен в сервисе
+            return ['success' => true, 'token' => $this->token];
         } else {
             return ['error' => 'Ошибка: токен не установлен', 'firstLogin' => $firstLogin, 'secondLogin' => $secondLogin];
         }
@@ -104,7 +105,7 @@ class DssService
     public function dssKeepAlive()
     {
         if (!$this->dssSettings->token) {
-            return $this->dssAutorize(); // Если токен не установлен, выполняем авторизацию
+             $this->dssAutorize(); // Если токен не установлен, выполняем авторизацию
         }
         // Получаем API-метод из базы данных
         $dssApi = DssApi::where('api_name', 'KeepAlive')->where('dss_setings_id', $this->dssSettings->id)->first();
@@ -122,7 +123,7 @@ class DssService
             ]
         ]);
     } catch (RequestException $e) {
-           return $this->dssAutorize();
+            $this->dssAutorize();
         }
 
         // Проверяем успешность ответа
