@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck } from 'lucide-react';
+import { LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -21,6 +21,18 @@ export function AppSidebar() {
 
 // Навигация основного меню
 const mainNavItems: NavItem[] = [
+     {
+        title: t('home'),
+        href: '/dashboard',
+        icon: LayoutGrid,
+        role: '',
+    },
+    {
+        title: 'Статистика',
+        href: '/statistics',
+        icon: LineChart,
+        role: 'Статистика',
+    },
     {
         title: t('roles'),
         href: '/roles_permissions',
@@ -75,12 +87,7 @@ const mainNavItems: NavItem[] = [
         icon: History,
         role: 'Охрана', // Доступ  для роль Охрана
     },
-    {
-        title: t('home'),
-        href: '/dashboard',
-        icon: LayoutGrid,
-        role: '',
-    },
+   
 ];
 
 // Навигация нижнего меню

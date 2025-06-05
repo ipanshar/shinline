@@ -3,6 +3,7 @@ import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import { Tascks } from '@/components/tasks/task';
 import { useTranslation } from 'react-i18next';
+import TascksMiddle from '@/components/tasks/TasksMiddle';
 
 
 export default function Tasks() {
@@ -21,9 +22,8 @@ export default function Tasks() {
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={t('tasks')} />
-            
-            <Tascks />
+             <Head title={t('tasks')} />
+            <TascksMiddle />
                 
            
         </AppLayout>

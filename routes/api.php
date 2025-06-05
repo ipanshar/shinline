@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
 use App\Http\Controllers\Api\YardCotroller;
 use App\Http\Controllers\DssController;
+use App\Http\Controllers\Admin\StatisticsController;
+use App\Http\Controllers\Admin\TrafficStatsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -107,6 +109,14 @@ Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
 Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания 
 Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание 
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
+
+
+
+
+// Statistics routes
+Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику 
+Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingStats']);
+Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
 //Dss routes
 Route::post('/dss/autorization', [DssController::class, 'dssAutorization'])->middleware('auth:sanctum'); //Авторизация в DSS

@@ -17,6 +17,8 @@ use App\Http\Controllers\DssController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\RouteController;
 use App\Http\Controllers\Settings\ProfileController;
+use App\Http\Controllers\Admin\StatisticsController;
+use App\Http\Controllers\Admin\TrafficStatsController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -37,6 +39,7 @@ Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
 Route::get('/chat', [RouteController::class, 'chat']);
+Route::get('/statistics', [RouteController::class, 'statistics']);
 route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 
 //Settings roles
@@ -119,6 +122,12 @@ Route::post('/task/processShortCode', [TaskCotroller::class,'processShortCode'])
 Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
 Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings']); //Получить задачи все взвешивания 
 Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing']); //Обновить задачи взвешивание 
+Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
+
+
+Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику 
+Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingStats']);
+Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
 // Dss routes
 Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); //Авторизация в DSS
