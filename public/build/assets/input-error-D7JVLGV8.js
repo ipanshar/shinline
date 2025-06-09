@@ -1,0 +1,1 @@
+import{j as n}from"./app-DUyv2vMF.js";import{b as o}from"./button-g_VPEBkA.js";function m({message:r,className:t="",...e}){return r?n.jsx("p",{...e,className:o("text-sm text-red-600 dark:text-red-400",t),children:r}):null}export{m as I};

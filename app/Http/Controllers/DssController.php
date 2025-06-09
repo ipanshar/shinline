@@ -110,13 +110,14 @@ class DssController extends Controller
 
     public function dssAlarmAdd(Request $request)
 {
-    // Преобразуем запрос в JSON-формат
+   try {
     $data = json_encode($request->all(), JSON_PRETTY_PRINT) . "\n";
-
-    // Записываем данные в файл, добавляя их в конец
     Storage::disk('local')->append('dss_alarm_log.txt', $data);
+    return response()->json(['message' => 'Запись успешно добавлена', 'data' => $request->all()], 201);
+} catch (\Exception $e) {
+    return response()->json(['error' => 'Ошибка при записи в файл', 'data'=>$e->getMessage()], 500);
+}
 
-    return response()->json(['message' => 'Запись успешно добавлена']);
 }
 
   
