@@ -15,11 +15,12 @@ return new class extends Migration
             $table->id();
             $table->integer('truck_id');
             $table->integer('yard_id');
-            $table->integer('user_id');
-            $table->string('task_id');
+            $table->integer('user_id')->nullable(); 
+            $table->string('task_id')->nullable();
             $table->boolean('one_permission')->default(true);
             $table->dateTime('begin_date')->nullable();
             $table->dateTime('end_date')->nullable();
+            $table->integer('status_id'); 
             $table->timestamps();
         });
     }

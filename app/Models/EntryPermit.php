@@ -14,5 +14,6 @@ class EntryPermit extends Model
         'one_permission',
         'begin_date',
         'end_date',
+        'status_id',
     ];
 }

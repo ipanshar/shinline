@@ -61,6 +61,7 @@ Route::post('/security/addvisitor', [VisitorsCotroller::class,'addVisitor']); //
 Route::post('/security/updatevisitor', [VisitorsCotroller::class,'updateVisitor']); //Обновить посетителя
 Route::post('/security/exitvisitor', [VisitorsCotroller::class,'exitVisitor']); //Выход посетителя
 Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck']); //Поиск грузовика
+Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePermits']); //Получить активные пропуска
 
 
 // Status routes

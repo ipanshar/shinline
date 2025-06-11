@@ -20,6 +20,7 @@ use App\Models\Yard;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Constraint\Count;
 use App\Events\MessageSent;
+use App\Models\EntryPermit;
 use App\Models\Visitor;
 use Carbon\Carbon;
 
@@ -404,9 +405,8 @@ class TaskCotroller extends Controller
             $statusNew = $statuses['new'];
             $on_territory = $statuses['on_territory'];
 
-            // Проверяем, есть ли уже посетитель с таким грузовиком и двором
+            // Проверяем, есть ли уже посетитель с таким грузовиком
             $visitor = Visitor::where('truck_id', $truck? $truck->id: 0)
-                ->where('yard_id', $yard ? $yard->id:0)
                 ->where('status_id', $on_territory->id)
                 ->first();
             if ($visitor) {
@@ -414,7 +414,7 @@ class TaskCotroller extends Controller
             } else {
                 $status = $statusNew;
             }
-
+      
             $task = $this->getTaskById(
                 $validate['task_id'],
                 $validate['name'],
@@ -424,12 +424,24 @@ class TaskCotroller extends Controller
                 $validate['phone'],
                 $validate['description'],
                 $validate['plan_date'],
-                $yard ? $yard->id : null,
+                $yard ? $visitor->yard_id : null,
                 $status ? $status->id : null,
                 $visitor ? $visitor->entry_date : null,
-                $visitor ? $visitor->exit_date : null
+                $visitor ? $visitor->exit_date : null,
+                $request->has('create_user_id') ? $request->create_user_id : null
             );
 
+            if($yard && $truck && $task){
+                // Проверяем или создаем разрешение на въезд
+                $this->getPermitById(
+                   $truck->id, $yard->id,
+                    $request->has('create_user_id') ? $request->create_user_id : null, 
+                    $task->id , 
+                    $request->has('one_permission') ? $request->one_permission : true, 
+                    $validate['plan_date'], 
+                     $request->has('end_date') ? $request->end_date : $validate['plan_date'],
+                );
+            }          
             //--
 
 
@@ -448,7 +460,19 @@ class TaskCotroller extends Controller
                 if (!$warehouse_d['yard']) continue; // Пропускаем, если нет двора
                 // Проверяем или создаем двор
                 $yardId = $yardController->getYardById($warehouse_d['yard']);
-
+                
+                
+                if($yardId && $truck && $task){
+                // Проверяем или создаем разрешение на въезд
+                $this->getPermitById(
+                   $truck->id, $yardId->id,
+                    $request->has('create_user_id') ? $request->create_user_id : null, 
+                    $task->id , 
+                    $request->has('one_permission') ? $request->one_permission : true, 
+                    $validate['plan_date'], 
+                    $request->has('end_date') ? $request->end_date : $validate['plan_date'],
+                );
+            }
                 // Проверяем или создаем склад
                 $WareHauseController = new WarehouseCotroller;
                 $warehouse = $WareHauseController->getWarehouseById($warehouse_d['name'], $yardId, $warehouse_d['barcode']);
@@ -485,7 +509,16 @@ class TaskCotroller extends Controller
                 );
             }
             // Удаляем неактивные склады
-            TaskLoading::where('task_id', $task->id)->whereNotIn('warehouse_id', $warehouseActive)->delete();
+            $warehouseNotActive=TaskLoading::where('task_id', $task->id)->whereNotIn('warehouse_id', $warehouseActive)->get();
+            foreach ($warehouseNotActive as $notActive) {
+                if($truck && $task && $notActive->yard_id){
+                EntryPermit::where('task_id', $task->id)
+                    ->where('truck_id', $truck->id)
+                    ->where('yard_id', $notActive->yard_id)
+                    ->delete();
+                }
+                $notActive->delete();
+            }
             //--
 
             return response()->json([
@@ -664,9 +697,6 @@ class TaskCotroller extends Controller
         ]);
     }
 
-
-
-
     public function getTaskWeihings(Request $request)
     {
 
@@ -816,7 +846,7 @@ class TaskCotroller extends Controller
         }
     }
 
-    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null)
+    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null)
     {
         $data = [
             'name' => $name,
@@ -830,6 +860,7 @@ class TaskCotroller extends Controller
             'status_id' => $status_id,
             'begin_date' => $begin_date,
             'end_date' => $end_date,
+            'create_user_id' => $create_user_id,
         ];
         $task = Task::where('id', $task_id)->first();
         if (!$task) {
@@ -837,4 +868,33 @@ class TaskCotroller extends Controller
         }
         return $task;
     }
+
+    private function getPermitById($truck_id, $yard_id, $user_id = null, $task_id = null, $one_permission = true, $begin_date = null, $end_date = null) 
+{
+    $status_id = Status::where('key', 'active')->first()->id;
+    $data = [
+        'truck_id' => $truck_id,
+        'yard_id' => $yard_id,
+        'user_id' => $user_id,
+        'task_id' => $task_id,
+        'one_permission' => $one_permission,
+        'begin_date' => $begin_date,
+        'end_date' => $end_date,
+        'status_id' => $status_id, 
+    ];
+
+    $query = EntryPermit::where('truck_id', $truck_id)->where('yard_id', $yard_id)->where('status_id', $status_id);
+
+    if ($task_id !== null) {
+        $query->where('task_id', $task_id);
+    }
+
+    $permit = $query->first();
+
+    if (!$permit) {
+        $permit = EntryPermit::create($data);
+    }
+
+    return $permit;
+}
 }

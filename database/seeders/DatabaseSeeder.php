@@ -107,6 +107,12 @@ class DatabaseSeeder extends Seeder
         // Status::create([
         //     'name' => 'На взвешивании', 'key' => 'on_weighing'
         // ]);
+        Status::create([
+            'name' => 'Активный ', 'key' => 'active'
+         ]);
+        Status::create([
+            'name' => 'Не активный', 'key' => 'not_active'
+        ]);
 
         // TrailerType::create([
         //     'name' => 'Тент',
@@ -191,36 +197,36 @@ class DatabaseSeeder extends Seeder
 
        // Yard::create(['name' => 'Шин-Лайн Байсерке']);
 
-      $dssAdd =  DssSetings::create([
-            'base_url' => 'http://10.210.0.250',
-            'user_name' => 'system',
-            'password' => 'Aa1834865',
-            'client_type' => 'WINPC_V2']);
+    //   $dssAdd =  DssSetings::create([
+    //         'base_url' => 'http://10.210.0.250',
+    //         'user_name' => 'system',
+    //         'password' => 'Aa1834865',
+    //         'client_type' => 'WINPC_V2']);
 
-        DssApi::create([
-            'api_name' => 'Authorize',
-            'method' => 'POST',
-            'request_url' => '/brms/api/v1.0/accounts/authorize',
-            'dss_setings_id' => $dssAdd->id,
-        ]);
-         DssApi::create([
-            'api_name' => 'KeepAlive',
-            'method' => 'PUT',
-            'request_url' => '/brms/api/v1.0/accounts/keepalive',
-            'dss_setings_id' => $dssAdd->id,
-        ]);
-         DssApi::create([
-            'api_name' => 'UpdateToken',
-            'method' => 'POST',
-            'request_url' => '/brms/api/v1.0/accounts/updateToken',
-            'dss_setings_id' => $dssAdd->id,
-        ]);
-         DssApi::create([
-            'api_name' => 'Unauthorize',
-            'method' => 'POST',
-            'request_url' => '/brms/api/v1.0/accounts/unauthorize',
-            'dss_setings_id' => $dssAdd->id,
-        ]);
+    //     DssApi::create([
+    //         'api_name' => 'Authorize',
+    //         'method' => 'POST',
+    //         'request_url' => '/brms/api/v1.0/accounts/authorize',
+    //         'dss_setings_id' => $dssAdd->id,
+    //     ]);
+    //      DssApi::create([
+    //         'api_name' => 'KeepAlive',
+    //         'method' => 'PUT',
+    //         'request_url' => '/brms/api/v1.0/accounts/keepalive',
+    //         'dss_setings_id' => $dssAdd->id,
+    //     ]);
+    //      DssApi::create([
+    //         'api_name' => 'UpdateToken',
+    //         'method' => 'POST',
+    //         'request_url' => '/brms/api/v1.0/accounts/updateToken',
+    //         'dss_setings_id' => $dssAdd->id,
+    //     ]);
+    //      DssApi::create([
+    //         'api_name' => 'Unauthorize',
+    //         'method' => 'POST',
+    //         'request_url' => '/brms/api/v1.0/accounts/unauthorize',
+    //         'dss_setings_id' => $dssAdd->id,
+    //     ]);
 
     }
 }
