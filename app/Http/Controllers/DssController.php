@@ -1,4 +1,10 @@
 <?php
+//это контроллер для работы с DSS (Distributed Security System)
+// он включает в себя авторизацию, получение и обновление настроек, поддержание сессии, обновление токена и выход из системы
+// также он включает в себя методы для работы с тревогами (alarms), такие как добавление тревоги в лог
+// и получение настроек DSS
+// он использует сервис DssService для выполнения операций с DSS
+// он использует модель DssSetings для работы с настройками DSS в базе данных
 
 namespace App\Http\Controllers;
 
@@ -50,6 +56,7 @@ class DssController extends Controller
         }
         return response()->json($dssSeting);
     }
+
     //Обновление настроек DSS
     public function dssSettingsUpdate(Request $request)
     {
@@ -60,6 +67,7 @@ class DssController extends Controller
         $dssSeting->update($request->all());
         return response()->json($dssSeting);
     }
+
     //Создание настроек DSS
     public function dssSettingsCreate(Request $request)
     {

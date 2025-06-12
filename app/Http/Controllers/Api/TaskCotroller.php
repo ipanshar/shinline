@@ -34,6 +34,9 @@ class TaskCotroller extends Controller
             if ($request->has('status_id')) {
                 $tasks->where('tasks.status_id', $request->status_id);
             }
+            if ($request->has('id')) {
+                $tasks->where('tasks.id', $request->id);
+            }
             if ($request->has('yard_id')) {
                 $tasks->where('tasks.yard_id', $request->yard_id);
             }

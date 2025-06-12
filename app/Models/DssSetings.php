@@ -12,7 +12,9 @@ class DssSetings extends Model
         'password',
         'token',
         'client_type',
-        'keep_alive',
+        'keepalive',
+        'update_token',
+        'update_token_count'
     ];
     
     public function dssApis()
