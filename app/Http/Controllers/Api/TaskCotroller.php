@@ -863,7 +863,9 @@ class TaskCotroller extends Controller
             'create_user_id' => $create_user_id,
         ];
         $task = Task::where('id', $task_id)->first();
-        if (!$task) {
+        if ($task) {
+            $task->update($data);
+        } else {
             $task = Task::create($data);
         }
         return $task;
