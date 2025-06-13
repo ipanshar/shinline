@@ -16,12 +16,16 @@ interface Gate {
   name: string;
 }
 
+
 interface WarehouseItem {
   name: string;
   sorting_order: number;
   gates: string[];
   plan_gate: string | null;
   description: string | null;
+  barcode?: string | null;
+  yard?: string | null;
+  document?: string | null;
 }
 
 interface TaskFormData {
@@ -44,7 +48,10 @@ interface TaskFormData {
   Yard: string;
   description: string;
   plan_date: string;
+  end_date: string;
   weighing: boolean;
+  create_user_id: string;
+  one_permission: boolean;
   warehouse: WarehouseItem[];
 }
 
@@ -60,6 +67,25 @@ const initialWarehouseItem: WarehouseItem = {
   plan_gate: null,
   description: null,
 };
+
+interface UserOption {
+  id: number;
+  user_name: string;
+  login: string;
+  user_phone: string;
+}
+
+interface TruckSearchResult {
+  id: number;
+  plate_number: string;
+  truck_model_name?: string;
+  truck_category_name?: string;
+  trailer_type_name?: string;
+  trailer_model_name?: string;
+  color?: string;
+  vin?: string;
+}
+
 
 const initialFormState: TaskFormData = {
   task_id: null,
@@ -81,7 +107,10 @@ const initialFormState: TaskFormData = {
   Yard: '',
   description: '',
   plan_date: '',
+  end_date: '',
   weighing: false,
+  create_user_id:'',
+  one_permission: false,
   warehouse: [{ ...initialWarehouseItem }],
 };
 
@@ -90,6 +119,31 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [gatesMap, setGatesMap] = useState<Record<number, Gate[]>>({});
   const [formData, setFormData] = useState<TaskFormData>(initialFormState);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [plateSearch, setPlateSearch] = useState('');  
+  const [isSearching, setIsSearching] = useState(false);
+  const [truckSearchResult, setTruckSearchResult] = useState<TruckSearchResult | null>(null);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [selectedTruck, setSelectedTruck] = useState<TruckSearchResult | null>(null);
+  const [userId, serUserId] = useState();
+  
+  useEffect(() => {
+      const userFromSession = sessionStorage.getItem('user');
+      if (userFromSession) {
+        const user = JSON.parse(userFromSession);
+        serUserId(user.id);
+      }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    axios.get<UserOption[]>('/users/without-roles')
+      .then(res => setUsers(res.data))
+      .catch(() => setUsers([]));
+  }, [isOpen]);
+
+
 
   useEffect(() => {
     if (!isOpen) return;
@@ -119,54 +173,98 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
         }
       })
       .catch(() => setWarehouses([]));
+        
   }, [isOpen]);
 
-  const loadGatesForWarehouse = (warehouseName: string, index: number) => {
-    const warehouseObj = warehouses.find((w) => w.name === warehouseName);
-    if (!warehouseObj) {
-      setGatesMap((prev) => {
-        const copy = { ...prev };
-        delete copy[index];
-        return copy;
-      });
-      setFormData((prev) => {
-        const arr = [...prev.warehouse];
-        arr[index].plan_gate = null;
-        arr[index].gates = [];
-        return { ...prev, warehouse: arr };
-      });
+  useEffect(() => {
+    if (!plateSearch.trim()) {
+      setTruckSearchResult(null);
       return;
     }
 
-    axios
-      .post('/warehouse/getwarehouses', { warehouse_id: warehouseObj.id })
-      .then((res) => {
-        const data = res.data.data;
-        if (Array.isArray(data)) {
-          setGatesMap((prev) => ({ ...prev, [index]: data }));
-          setFormData((prev) => {
-            const arr = [...prev.warehouse];
-            arr[index].gates = data.map((g: Gate) => g.name);
-            if (!data.some((g: Gate) => g.name === arr[index].plan_gate)) {
-              arr[index].plan_gate = null;
-            }
-            return { ...prev, warehouse: arr };
-          });
-        } else {
-          setGatesMap((prev) => {
-            const copy = { ...prev };
-            delete copy[index];
-            return copy;
-          });
-          setFormData((prev) => {
-            const arr = [...prev.warehouse];
+    if (searchTimeout) clearTimeout(searchTimeout);
+
+    const timeout = setTimeout(() => {
+      handleSearchTruck();
+    }, 600); // задержка 600мс
+
+    setSearchTimeout(timeout);
+  }, [plateSearch]);
+
+
+
+  const handleSearchTruck = async () => {
+    if (!plateSearch.trim()) return;
+    setIsSearching(true);
+    try {
+      const res = await axios.get<{ found: boolean; data?: TruckSearchResult }>(
+        '/trucs/search',
+        { params: { plate_number: plateSearch } }
+      );
+      setTruckSearchResult(res.data.found ? res.data.data! : null);
+    } catch (e) {
+      console.error(e);
+      setTruckSearchResult(null);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+const handleCreateTruck = () => {
+    // Здесь вызовете POST /api/trucks/add с нужными полями
+    alert('Создание ТС пока не реализовано');
+  };
+
+
+  const handleSelectTruck = () => {
+    if (!truckSearchResult) return;
+    setFormData(prev => ({
+      ...prev,
+      plate_number: truckSearchResult.plate_number,
+      truck_model: truckSearchResult.truck_model_name || '',
+      truck_category: truckSearchResult.truck_category_name || '',
+      trailer_type: truckSearchResult.trailer_type_name || '',
+      trailer_model: truckSearchResult.trailer_model_name || '',
+      color: truckSearchResult.color || '',
+      vin: truckSearchResult.vin || '',
+    }));
+  setSelectedTruck(truckSearchResult); // или то, как ты его назвал
+
+  };
+
+ const loadGatesForWarehouse = (warehouseName: string, index: number) => {
+  const warehouseObj = warehouses.find((w) => w.name === warehouseName);
+  if (!warehouseObj) {
+    setGatesMap((prev) => {
+      const copy = { ...prev };
+      delete copy[index];
+      return copy;
+    });
+    setFormData((prev) => {
+      const arr = [...prev.warehouse];
+      arr[index].plan_gate = null;
+      arr[index].gates = [];
+      return { ...prev, warehouse: arr };
+    });
+    return;
+  }
+
+  axios
+    .post('/warehouse/getgates', { warehouse_id: warehouseObj.id })
+    .then((res) => {
+      const data = res.data.data;
+      if (Array.isArray(data)) {
+        setGatesMap((prev) => ({ ...prev, [index]: data }));
+        setFormData((prev) => {
+          const arr = [...prev.warehouse];
+          arr[index].gates = data.map((g: Gate) => g.name);
+          if (!data.some((g: Gate) => g.name === arr[index].plan_gate)) {
             arr[index].plan_gate = null;
-            arr[index].gates = [];
-            return { ...prev, warehouse: arr };
-          });
-        }
-      })
-      .catch(() => {
+          }
+          return { ...prev, warehouse: arr };
+        });
+      } else {
+        // Очистка, если данные невалидны
         setGatesMap((prev) => {
           const copy = { ...prev };
           delete copy[index];
@@ -178,8 +276,39 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
           arr[index].gates = [];
           return { ...prev, warehouse: arr };
         });
+      }
+    })
+    .catch(() => {
+      // Обработка ошибок
+      setGatesMap((prev) => {
+        const copy = { ...prev };
+        delete copy[index];
+        return copy;
       });
+      setFormData((prev) => {
+        const arr = [...prev.warehouse];
+        arr[index].plan_gate = null;
+        arr[index].gates = [];
+        return { ...prev, warehouse: arr };
+      });
+    });
+};
+
+
+const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const userId = Number(e.target.value);
+    const user = users.find(u => u.id === userId)!;
+
+    setFormData(prev => ({
+      ...prev,
+      user_name: user.user_name,
+      login: user.login,
+      user_phone: user.user_phone,
+    }));
   };
+
+
+  
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -258,10 +387,25 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
 
   const handleSubmit = async () => {
   try {
+    const normalizedWarehouse = formData.warehouse.map((item) => ({
+      name: item.name,
+      sorting_order: item.sorting_order,
+      gates: item.gates,
+      plan_gate: item.plan_gate,
+      description: item.description,
+      barcode: item.barcode ?? null,
+      yard: item.yard ?? null,
+      document: item.document ?? null,
+    }));
+
+
     const payload = {
       ...formData,
       task_id: formData.task_id ?? null,
       plan_date: formatDateForAPI(formData.plan_date),
+      end_date: formatDateForAPI(formData.end_date),
+      warehouse: normalizedWarehouse,
+      create_user_id: userId,
     };
     console.log('Payload:', payload);
 
@@ -298,8 +442,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
           <button onClick={onClose} className="text-gray-500 hover:text-red-600 text-2xl">
             &times;
           </button>
-        </div>
-
+        </div>  
         {/* Top-level form fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block text-sm font-medium text-gray-700">
@@ -327,36 +470,21 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
           </label>
 
           <label className="block text-sm font-medium text-gray-700">
-            Пользователь (user_name)
-            <input
-              type="text"
-              name="user_name"
-              value={formData.user_name}
-              onChange={handleChange}
+            Выберите пользователя
+            <select
+              name="user_id"
+              value={formData.login ? users.find(u => u.login === formData.login)?.id ?? '' : ''}
+              onChange={handleUserSelect}
+              required
               className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-            <label className="block text-sm font-medium text-gray-700">
-            Логин пользователя (login)
-            <input
-              type="text"
-              name="login"
-              value={formData.login}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Телефон пользователя (user_phone)
-            <input
-              type="text"
-              name="user_phone"
-              value={formData.user_phone}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
+            >
+              <option value="">— Выберите —</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.user_name}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="block text-sm font-medium text-gray-700">
@@ -370,94 +498,98 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
             />
           </label>
 
-          <label className="block text-sm font-medium text-gray-700">
-            Номер машины (plate_number)
+           <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700">
+          Поиск ТС по номеру23
+          <div className="flex mt-1">
             <input
               type="text"
-              name="plate_number"
-              value={formData.plate_number}
+              value={plateSearch}
+              onChange={(e) => setPlateSearch(e.target.value)}
+              placeholder="Введите номер машины"
+              className="flex-1 border border-gray-300 rounded-l px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
+            />
+            <button
+              type="button"
+              onClick={handleSearchTruck}
+              disabled={isSearching}
+              className="bg-blue-600 text-white px-4 py-2 rounded-r hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isSearching ? 'Поиск...' : 'Найти'}
+            </button>
+          </div>
+        </label>
+
+        {truckSearchResult !== null ? (
+          <div className="p-3 bg-green-50 rounded border border-green-200">
+            <p className="text-green-800">ТС найдено:</p>
+            <ul className="text-gray-700">
+              <li><strong>Номер:</strong> {truckSearchResult.plate_number}</li>
+              <li><strong>Модель:</strong> {truckSearchResult.truck_model_name}</li>
+              <li><strong>Прицеп:</strong> {truckSearchResult.trailer_model_name}</li>
+              <li><strong>Цвет:</strong> {truckSearchResult.color}</li>
+              <li><strong>VIN:</strong> {truckSearchResult.vin}</li>
+            </ul>
+              {selectedTruck ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTruck(null);
+                    setTruckSearchResult(null);
+                    setPlateSearch('');
+                  }}
+                  className="mt-2 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                >
+                  Отвязать ТС
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSelectTruck}
+                  className="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
+                  Выбрать ТС
+                </button>
+              )}
+          </div>
+        ) : (
+          !isSearching && plateSearch && (
+            <div className="p-3 bg-yellow-50 rounded border border-yellow-200">
+              <p className="text-yellow-800">ТС с таким номером не найдено.</p>
+              <button
+                type="button"
+                onClick={handleCreateTruck}
+                className="mt-2 bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700"
+              >
+                Создать ТС
+              </button>
+            </div>
+          )
+        )}
+      </div>
+
+
+       <label className="block text-sm font-medium text-gray-700">
+            Описание (description)
+            <textarea
+              name="description"
+              value={formData.description}
               onChange={handleChange}
+              rows={2}
               className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
             />
           </label>
 
-          <label className="block text-sm font-medium text-gray-700">
-            Номер прицепа (trailer_plate_number)
+<label className="block text-sm font-medium text-gray-700">
+            Дата планирования (plan_date)
             <input
-              type="text"
-              name="trailer_plate_number"
-              value={formData.trailer_plate_number}
+              type="datetime-local"
+              name="plan_date"
+              value={formData.plan_date}
               onChange={handleChange}
               className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
             />
           </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Модель грузовика (truck_model)
-            <input
-              type="text"
-              name="truck_model"
-              value={formData.truck_model}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Категория грузовика (truck_category)
-            <input
-              type="text"
-              name="truck_category"
-              value={formData.truck_category}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Тип прицепа (trailer_type)
-            <input
-              type="text"
-              name="trailer_type"
-              value={formData.trailer_type}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Модель прицепа (trailer_model)
-            <input
-              type="text"
-              name="trailer_model"
-              value={formData.trailer_model}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Цвет (color)
-            <input
-              type="text"
-              name="color"
-              value={formData.color}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            VIN (vin)
-            <input
-              type="text"
-              name="vin"
-              value={formData.vin}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
           <label className="block text-sm font-medium text-gray-700">
             Телефон (phone)
             <input
@@ -469,42 +601,17 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
             />
           </label>
 
+         
+          
           <label className="block text-sm font-medium text-gray-700">
-            Описание (description)
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              rows={2}
-              className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm font-medium text-gray-700">
-            Дата планирования (plan_date)
+            Крайний срок (end_date)
             <input
               type="datetime-local"
-              name="plan_date"
-              value={formData.plan_date}
+              name="end_date"
+              value={formData.end_date}
               onChange={handleChange}
               className="w-full border border-gray-300 rounded px-3 py-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
             />
-          </label>
-
-          <label className="flex items-center space-x-2 text-sm font-medium text-gray-700">
-            <input
-              type="checkbox"
-              name="weighing"
-              checked={formData.weighing}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  weighing: e.target.checked,
-                }))
-              }
-              className="form-checkbox h-5 w-5 text-blue-600"
-            />
-            <span>Весовой контроль (weighing)</span>
           </label>
 
           <label className="block text-sm font-medium text-gray-700">
@@ -525,6 +632,44 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
             </select>
           </label>
         </div>
+
+          <label className="flex items-center space-x-2 text-sm font-medium text-gray-700">
+            <input
+              type="checkbox"
+              name="weighing"
+              checked={formData.weighing}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  weighing: e.target.checked,
+                }))
+              }
+              className="form-checkbox h-5 w-5 text-blue-600"
+            />
+            <span>Весовой контроль (weighing)</span>
+          </label>
+          
+
+          <label className="flex items-center space-x-2 text-sm font-medium text-gray-700">
+            <input
+              type="checkbox"
+              name="weighing"
+              checked={formData.one_permission}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  one_permission: e.target.checked,
+                }))
+              }
+              className="form-checkbox h-5 w-5 text-blue-600"
+            />
+            <span>Одноразовый заезд</span>
+          </label>
+
+
+          
+
+          
 
         {/* Склады и ворота */}
         <div>

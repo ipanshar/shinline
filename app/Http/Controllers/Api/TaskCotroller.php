@@ -29,49 +29,10 @@ class TaskCotroller extends Controller
     public function getTasks(Request $request)
     {
         try {
-            $tasks = Task::query();
-
-            if ($request->has('status_id')) {
-                $tasks->where('tasks.status_id', $request->status_id);
-            }
-            if ($request->has('id')) {
-                $tasks->where('tasks.id', $request->id);
-            }
-            if ($request->has('yard_id')) {
-                $tasks->where('tasks.yard_id', $request->yard_id);
-            }
-            if ($request->has('user_id')) {
-                $tasks->where('tasks.user_id', $request->user_id);
-            }
-            if ($request->has('truck_id')) {
-                $tasks->where('truck_id', $request->truck_id);
-            }
-            if ($request->has('avtor')) {
-                $tasks->where('tasks.avtor', $request->avtor);
-            }
-            if ($request->has('address')) {
-                $tasks->where('tasks.address', 'like', '%' . $request->address . '%');
-            }
-            if ($request->has('phone')) {
-                $tasks->where('tasks.phone', 'like', '%' . $request->phone . '%');
-            }
-            if ($request->has('plan_date')) {
-                $tasks->where('tasks.plan_date', '>=', $request->plan_date);
-            }
-            if ($request->has('begin_date')) {
-                $tasks->where('tasks.begin_date', '>=', $request->begin_date);
-            }
-            if ($request->has('end_date')) {
-                $tasks->where('tasks.end_date', '<=', $request->end_date);
-            }
-            if ($request->has('search')) {
-                $tasks->where(function ($query) use ($request) {
-                    $query->where('tasks.name', 'like', '%' . $request->search . '%')
-                        ->orWhere('tasks.description', 'like', '%' . $request->search . '%');
-                });
-            }
-
-            $tasks->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
+        // === Если передан task_id — вернуть одну задачу ===
+        if ($request->has('task_id')) {
+            $task = Task::query()
+                ->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
                 ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
                 ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
                 ->leftJoin('trailer_models', 'trucks.trailer_model_id', '=', 'trailer_models.id')
@@ -79,7 +40,7 @@ class TaskCotroller extends Controller
                 ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
                 ->leftJoin('truck_categories', 'truck_models.truck_category_id', '=', 'truck_categories.id')
                 ->leftJoin('yards', 'tasks.yard_id', '=', 'yards.id')
-                ->select(
+                ->select([
                     'tasks.*',
                     'statuses.name as status_name',
                     'users.login as user_login',
@@ -91,98 +52,223 @@ class TaskCotroller extends Controller
                     'trailer_types.name as trailer_type_name',
                     'truck_models.name as truck_model_name',
                     'truck_categories.name as truck_category_name'
-                )
-                ->orderBy('tasks.created_at', 'desc');
+                ])
+                ->where('tasks.id', $request->task_id)
+                ->first();
 
-            $cur_page = 0;
-            $last_page = 0;
-            if ($request->has('page')) {
-                $tasks =  $tasks->paginate(50);
-                $cur_page = $tasks->currentPage();
-                $last_page = $tasks->lastPage();
-                $tasks = $tasks->items();
-            } else {
-                $tasks->limit(150);
-                $tasks =  $tasks->get();
-            }
-            if (!$tasks) {
+            if (!$task) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'No tasks found',
-                    'data' => $tasks
+                    'message' => 'Task not found'
                 ], 404);
             }
-            $data = [];
-            foreach ($tasks as $task) {
-                $taskLoading = TaskLoading::query()
-                    ->where('task_id', $task->id)
-                    ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
-                    ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_plan_id', '=', 'warehouse_gates.id')
-                    ->leftJoin('warehouse_gates as a', 'task_loadings.warehouse_gate_fact_id', '=', 'a.id')
-                    ->select(
-                        'task_loadings.*',
-                        'warehouses.name as warehouse_name',
-                        'warehouse_gates.name as warehouse_gate_plan_name',
-                        'a.name as warehouse_gate_fact_name',
-                        'warehouses.coordinates as warehouse_coordinates'
-                    )
-                    ->get();
-                $taskWeighing = TaskWeighing::query()
-                    ->where('task_id', $task->id)
-                    ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
-                    ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
-                    ->get();
 
-                array_push($data, [
+            $taskLoadings = TaskLoading::where('task_id', $task->id)
+                ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+                ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_plan_id', '=', 'warehouse_gates.id')
+                ->leftJoin('warehouse_gates as a', 'task_loadings.warehouse_gate_fact_id', '=', 'a.id')
+                ->select(
+                    'task_loadings.*',
+                    'warehouses.name as warehouse_name',
+                    'warehouse_gates.name as warehouse_gate_plan_name',
+                    'a.name as warehouse_gate_fact_name',
+                    'warehouses.coordinates as warehouse_coordinates'
+                )
+                ->get();
+
+            $taskWeighings = TaskWeighing::where('task_id', $task->id)
+                ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
+                ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Task retrieved successfully',
+                'data' => [
                     'id' => $task->id,
                     'name' => $task->name,
+                    'status_id' => $task->status_id,
+                    'status_name' => $task->status_name,
                     'user_id' => $task->user_id,
                     'user_name' => $task->user_name,
-                    'user_phone' => $task->user_phone,
                     'user_login' => $task->user_login,
                     'user_phone' => $task->user_phone,
-                    'trailer_plate_number' => $task->trailer_number,
-                    'status_name' => $task->status_name,
-                    'status_id' => $task->status_id,
                     'truck_id' => $task->truck_id,
-                    'truck_model' => $task->truck_model,
-                    'truck_category' => $task->truck_category,
-                    'trailer_type' => $task->trailer_type,
+                    'truck_plate_number' => $task->truck_plate_number,
+                    'trailer_plate_number' => $task->trailer_number,
+                    'truck_model_name' => $task->truck_model_name,
+                    'truck_category_name' => $task->truck_category_name,
+                    'trailer_model_name' => $task->trailer_model_name,
+                    'trailer_type_name' => $task->trailer_type_name,
+                    'yard_id' => $task->yard_id,
+                    'yard_name' => $task->yard_name,
                     'avtor' => $task->avtor,
+                    'company' => $task->company,
                     'description' => $task->description,
                     'address' => $task->address,
                     'phone' => $task->phone,
                     'plan_date' => $task->plan_date,
                     'begin_date' => $task->begin_date,
                     'end_date' => $task->end_date,
-                    'yard_id' => $task->yard_id,
-                    'status_name' => $task->status_name,
-                    'truck_plate_number' => $task->truck_plate_number,
-                    'trailer_model_name' => $task->trailer_model_name,
-                    'trailer_type_name' => $task->trailer_type_name,
-                    'truck_model_name' => $task->truck_model_name,
-                    'truck_category_name' => $task->truck_category_name,
-                    'yard_name' => $task->yard_name,
                     'created_at' => $task->created_at,
-                    'task_loadings' => $taskLoading,
-                    'task_weighings' => $taskWeighing,
-                    'coordinates' => optional($taskLoading->first())->warehouse_coordinates
-
-                ]);
-            }
-            return response()->json([
-                'status' => true,
-                'message' => 'Tasks retrieved successfully',
-                'data' => $data,
-                'current_page' => $cur_page,
-                'last_page' => $last_page,
+                    'task_loadings' => $taskLoadings,
+                    'task_weighings' => $taskWeighings,
+                    'coordinates' => optional($taskLoadings->first())->warehouse_coordinates,
+                ]
             ], 200);
-        } catch (\Exception $e) {
+        }
+
+        // === Если task_id НЕ передан — вернуть список задач ===
+        $tasks = Task::query();
+
+        // Фильтрация по параметрам
+        if ($request->has('status_id')) {
+            $tasks->where('tasks.status_id', $request->status_id);
+        }
+        if ($request->has('yard_id')) {
+            $tasks->where('tasks.yard_id', $request->yard_id);
+        }
+        if ($request->has('user_id')) {
+            $tasks->where('tasks.user_id', $request->user_id);
+        }
+        if ($request->has('truck_id')) {
+            $tasks->where('truck_id', $request->truck_id);
+        }
+        if ($request->has('avtor')) {
+            $tasks->where('tasks.avtor', $request->avtor);
+        }
+        if ($request->has('address')) {
+            $tasks->where('tasks.address', 'like', '%' . $request->address . '%');
+        }
+        if ($request->has('phone')) {
+            $tasks->where('tasks.phone', 'like', '%' . $request->phone . '%');
+        }
+        if ($request->has('plan_date')) {
+            $tasks->where('tasks.plan_date', '>=', $request->plan_date);
+        }
+        if ($request->has('begin_date')) {
+            $tasks->where('tasks.begin_date', '>=', $request->begin_date);
+        }
+        if ($request->has('end_date')) {
+            $tasks->where('tasks.end_date', '<=', $request->end_date);
+        }
+        if ($request->has('search')) {
+            $tasks->where(function ($q) use ($request) {
+                $q->where('tasks.name', 'like', '%' . $request->search . '%')
+                  ->orWhere('tasks.description', 'like', '%' . $request->search . '%');
+            });
+        }
+
+        $tasks->leftJoin('statuses', 'tasks.status_id', '=', 'statuses.id')
+            ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+            ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+            ->leftJoin('trailer_models', 'trucks.trailer_model_id', '=', 'trailer_models.id')
+            ->leftJoin('trailer_types', 'trailer_models.trailer_type_id', '=', 'trailer_types.id')
+            ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('truck_categories', 'truck_models.truck_category_id', '=', 'truck_categories.id')
+            ->leftJoin('yards', 'tasks.yard_id', '=', 'yards.id')
+            ->select(
+                'tasks.*',
+                'statuses.name as status_name',
+                'users.login as user_login',
+                'users.name as user_name',
+                'users.phone as user_phone',
+                'trucks.plate_number as truck_plate_number',
+                'yards.name as yard_name',
+                'trailer_models.name as trailer_model_name',
+                'trailer_types.name as trailer_type_name',
+                'truck_models.name as truck_model_name',
+                'truck_categories.name as truck_category_name'
+            )
+            ->orderBy('tasks.created_at', 'desc');
+
+        $cur_page = 0;
+        $last_page = 0;
+        if ($request->has('page')) {
+            $paginated = $tasks->paginate(50);
+            $cur_page = $paginated->currentPage();
+            $last_page = $paginated->lastPage();
+            $tasks = $paginated->items();
+        } else {
+            $tasks = $tasks->limit(150)->get();
+        }
+
+        if (!$tasks) {
             return response()->json([
                 'status' => false,
-                'message' => 'Error Retrieving Tasks: ' . $e->getMessage(),
-            ], 500);
+                'message' => 'No tasks found',
+                'data' => []
+            ], 404);
         }
+
+        $data = [];
+        foreach ($tasks as $task) {
+            $taskLoadings = TaskLoading::where('task_id', $task->id)
+                ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+                ->leftJoin('warehouse_gates', 'task_loadings.warehouse_gate_plan_id', '=', 'warehouse_gates.id')
+                ->leftJoin('warehouse_gates as a', 'task_loadings.warehouse_gate_fact_id', '=', 'a.id')
+                ->select(
+                    'task_loadings.*',
+                    'warehouses.name as warehouse_name',
+                    'warehouse_gates.name as warehouse_gate_plan_name',
+                    'a.name as warehouse_gate_fact_name',
+                    'warehouses.coordinates as warehouse_coordinates'
+                )
+                ->get();
+
+            $taskWeighings = TaskWeighing::where('task_id', $task->id)
+                ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
+                ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
+                ->get();
+
+            $data[] = [
+                'id' => $task->id,
+                'name' => $task->name,
+                'status_id' => $task->status_id,
+                'status_name' => $task->status_name,
+                'user_id' => $task->user_id,
+                'user_name' => $task->user_name,
+                'user_login' => $task->user_login,
+                'user_phone' => $task->user_phone,
+                'truck_id' => $task->truck_id,
+                'truck_plate_number' => $task->truck_plate_number,
+                'trailer_plate_number' => $task->trailer_number,
+                'truck_model_name' => $task->truck_model_name,
+                'truck_category_name' => $task->truck_category_name,
+                'trailer_model_name' => $task->trailer_model_name,
+                'trailer_type_name' => $task->trailer_type_name,
+                'yard_id' => $task->yard_id,
+                'yard_name' => $task->yard_name,
+                'avtor' => $task->avtor,
+                'company' => $task->company,
+                'description' => $task->description,
+                'address' => $task->address,
+                'phone' => $task->phone,
+                'plan_date' => $task->plan_date,
+                'begin_date' => $task->begin_date,
+                'end_date' => $task->end_date,
+                'created_at' => $task->created_at,
+                'task_loadings' => $taskLoadings,
+                'task_weighings' => $taskWeighings,
+                'coordinates' => optional($taskLoadings->first())->warehouse_coordinates,
+            ];
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Tasks retrieved successfully',
+            'data' => $data,
+            'current_page' => $cur_page,
+            'last_page' => $last_page,
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => false,
+            'message' => 'Error Retrieving Tasks: ' . $e->getMessage(),
+        ], 500);
+    }
+
     }
 
     public function getActualTasks(Request $request)
@@ -383,8 +469,6 @@ class TaskCotroller extends Controller
                     'trailer_model_id' => $trailerModel ? $trailerModel->id : null,
                     'trailer_type_id' => $trailerType ? $trailerType->id : null,
                     'truck_category_id' => $truckCategory ? $truckCategory->id : null,
-                    'trailer_model_id' => $trailerModel ? $trailerModel->id : null,
-                    'trailer_type_id' => $trailerType ? $trailerType->id : null,
                     'color' => $validate['color'],
                 ]);
             }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\UsersController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\Api\StatusCotroller;
@@ -75,6 +76,8 @@ Route::post('/trucs/addtruck', [TruckCotroller::class,'addTruck']); //Добав
 Route::post('/trucs/updatetruck', [TruckCotroller::class,'updateTruck']); //Обновить грузовик
 Route::post('/trucs/deletetruck', [TruckCotroller::class,'deleteTruck']); //Удалить грузовик
 
+Route::get('/trucs/search',      [TruckCotroller::class, 'searchByPlate']); // Поиск по номеру ТС для добавление задач
+
 Route::post('/trucks/attachtruckuser', [TruckCotroller::class,'attachTruckUser']); //Привязать грузовик к пользователю
 Route::post('/trucks/detachtruckuser', [TruckCotroller::class,'detachTruckUser']); //Отвязать грузовик от пользователя
 Route::post('/trucks/gettruckusers', [TruckCotroller::class,'getTruckByUser']); //Получить грузовики пользователя
@@ -141,7 +144,12 @@ Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //О
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS  
 
 
+
+Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']);
+
+
 });
+
 
 
  

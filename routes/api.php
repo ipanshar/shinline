@@ -12,9 +12,11 @@ use App\Http\Controllers\Api\VisitorsCotroller;
 use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
 use App\Http\Controllers\Api\YardCotroller;
+use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\DssController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -23,8 +25,8 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 
-// Authification routes
 
+// Authification routes
 Route::post('/auth/register', [AuthController::class, 'createUser']); //Регистрация
 Route::post('/auth/login', [AuthController::class, 'loginUser']); //Авторизация
 Route::post('/auth/logout', [AuthController::class,'logout']); //Выход
@@ -59,6 +61,7 @@ Route::post('/trucs/gettrucks', [TruckCotroller::class,'getTrucks'])->middleware
 Route::post('/trucs/addtruck', [TruckCotroller::class,'addTruck'])->middleware('auth:sanctum'); //Добавить грузовик
 Route::post('/trucs/updatetruck', [TruckCotroller::class,'updateTruck'])->middleware('auth:sanctum'); //Обновить грузовик
 Route::post('/trucs/deletetruck', [TruckCotroller::class,'deleteTruck'])->middleware('auth:sanctum'); //Удалить грузовик
+Route::get('/trucs/search',      [TruckCotroller::class, 'searchByPlate']);
 
 Route::post('/trucks/attachtruckuser', [TruckCotroller::class,'attachTruckUser'])->middleware('auth:sanctum'); //Привязать грузовик к пользователю
 Route::post('/trucks/detachtruckuser', [TruckCotroller::class,'detachTruckUser'])->middleware('auth:sanctum'); //Отвязать грузовик от пользователя
@@ -129,3 +132,8 @@ Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middlewar
 Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('auth:sanctum'); //Обновление токена DSS
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('auth:sanctum'); //Выход из DSS  
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Добавление тревоги в DSS
+
+
+
+Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']); // Список пользователей без ролей для добавление задач
+

@@ -278,4 +278,46 @@ class TruckCotroller extends Controller
             ], 404);
         }
     }
+
+
+    public function searchByPlate(Request $request)
+    {
+        $data = $request->validate([
+            'plate_number' => 'required|string|max:255',
+        ]);
+
+        // нормализация: убираем пробелы, lowercase
+        $normalized = mb_strtolower(str_replace(' ', '', $data['plate_number']));
+
+        $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') LIKE ?", ["%$normalized%"])
+            ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+            ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
+            ->leftJoin('trailer_types', 'trucks.trailer_type_id', '=', 'trailer_types.id')
+            ->leftJoin('trailer_models', 'trucks.trailer_model_id', '=', 'trailer_models.id')
+            ->select([
+                'trucks.id',
+                'trucks.plate_number',
+                'trucks.color',
+                'trucks.vin',
+                'truck_brands.name as truck_brand_name',
+                'truck_models.name as truck_model_name',
+                'truck_categories.ru_name as truck_category_name',
+                'trailer_types.name as trailer_type_name',
+                'trailer_models.name as trailer_model_name',
+            ])
+            ->first();
+
+        if ($truck) {
+            return response()->json([
+                'found' => true,
+                'data'  => $truck,
+            ], 200);
+        }
+
+        return response()->json([
+            'found' => false,
+        ], 200);
+    }
+
 }
