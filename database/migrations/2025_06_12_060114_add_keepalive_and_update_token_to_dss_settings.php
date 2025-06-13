@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('dss_settings', function (Blueprint $table) {
+        Schema::table('dss_setings', function (Blueprint $table) {
             $table->dateTime('keepalive')->nullable();
             $table->dateTime('update_token')->nullable();
             $table->integer('update_token_count')->default(0);
@@ -23,7 +23,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('dss_settings', function (Blueprint $table) {
+        Schema::table('dss_setings', function (Blueprint $table) {
             $table->dropColumn('keepalive');
             $table->dropColumn('update_token');
             $table->dropColumn('update_token_count');
