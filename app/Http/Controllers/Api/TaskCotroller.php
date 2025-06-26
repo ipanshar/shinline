@@ -972,7 +972,17 @@ class TaskCotroller extends Controller
             'end_date' => $end_date,
             'create_user_id' => $create_user_id,
         ];
-        $task = Task::where('id', $task_id)->first();
+        $query = Task::query();
+
+        if (!empty($task_id)) {
+            $query->where('id', $task_id);
+        }
+
+        if (!empty($name)) {
+            $query->orWhere('name', $name);
+        }
+
+        $task = $query->first();
         if ($task) {
             $task->update($data);
         } else {
