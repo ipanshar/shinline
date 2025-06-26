@@ -54,13 +54,17 @@ class VisitorsCotroller extends Controller
             $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
             $task = $permit ? DB::table('tasks')->where('id', $permit->task_id)->first() : null;
 
-            $status = DB::table('statuses')->where('key', 'on_territory')->first()->id;
-            if (!$status) {
+            $statusRow = DB::table('statuses')->where('key', 'on_territory')->first();
+
+            if (!$statusRow) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Status on_territory not found',
+                    'message' => 'Status "on_territory" not found',
                 ], 404);
             }
+
+            $status = $statusRow->id;
+
             if ($request->truck_model_name) {
                 $truck_model = DB::table('truck_models')->where('name', $request->truck_model_name)->first();
                 if (!$truck_model) {
@@ -103,11 +107,11 @@ class VisitorsCotroller extends Controller
                         '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
                             ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
                         '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                        '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')). "\n" .
+                        '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
                         '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
                 );
 
-               // MessageSent::dispatch('На територию въехало транспортное средство ' . $request->plate_number . ', для рейса ' . $task->name);
+                // MessageSent::dispatch('На територию въехало транспортное средство ' . $request->plate_number . ', для рейса ' . $task->name);
             }
 
             return response()->json([
@@ -122,7 +126,7 @@ class VisitorsCotroller extends Controller
             ], 500);
         }
     }
-    
+
     public function getVisitors(Request $request)
     {
 
