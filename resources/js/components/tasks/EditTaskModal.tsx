@@ -478,7 +478,7 @@ const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     };
     console.log('Payload:', payload);
 
-    await axios.post('/task/addapitask', payload);
+    await axios.post('/api/task/addapitask', payload);
 
     alert('Задача успешно добавлена');
     onClose();

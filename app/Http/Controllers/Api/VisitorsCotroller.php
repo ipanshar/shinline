@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\TelegramController;
 use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Task;
@@ -29,7 +30,7 @@ class VisitorsCotroller extends Controller
                         'name' => $request->truck_model_name,
                     ]);
                 }
-                
+
                 if ($truck_model) {
                     $truck = Truck::create([
                         'plate_number' => $request->plate_number,
@@ -44,13 +45,13 @@ class VisitorsCotroller extends Controller
                 if (!$truck) {
                     logger()->error('Ошибка создания truck!');
                 }
-                
-                
             }
             $permit = $truck ? EntryPermit::where('truck_id', $truck ? $truck->id : null)
                 ->where('yard_id', $request->yard_id)
                 ->where('status_id', '=', Status::where('key', 'active')->first()->id)
-                ->first(): null;
+                ->first() : null;
+
+            $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
             $task = $permit ? DB::table('tasks')->where('id', $permit->task_id)->first() : null;
 
             $status = DB::table('statuses')->where('key', 'on_territory')->first();
@@ -81,13 +82,26 @@ class VisitorsCotroller extends Controller
             ]);
             $Visitor->save();
             if ($task) {
-
+                $yard = DB::table('yards')->where('id', $request->yard_id)->first();
                 Task::where('id', $task->id)->update([
                     'begin_date' => now(),
                     'yard_id' => $request->yard_id,
                     'status_id' => $status->id,
                 ]);
-                MessageSent::dispatch('На територию въехало транспортное средство '.$request->plate_number.', для рейса '.$task->name);
+                $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $request->yard_id)->select('warehouses.name as name')->get();
+                (new TelegramController())->sendNotification(
+                    '<b>🚛 Въезд на территорию ' . e($yard->name) .  "</b>\n\n" .
+                        '<b>🏷️ ТС:</b> '  . e($request->plate_number) . "\n" .
+                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                        '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                        '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
+                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                        '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')). "\n" .
+                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
+                );
+
+               // MessageSent::dispatch('На територию въехало транспортное средство ' . $request->plate_number . ', для рейса ' . $task->name);
             }
 
             return response()->json([
@@ -113,7 +127,7 @@ class VisitorsCotroller extends Controller
             ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
             ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
             ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
-            
+
             ->select(
                 'visitors.*',
                 'truck_categories.name as truck_category_name',
@@ -183,23 +197,45 @@ class VisitorsCotroller extends Controller
                 'status_id' => $status->id,
             ]);
             $task = Task::where('id', $visitor->task_id)->first();
-            if ($task) {
-                $task->update([
-                    'end_date' => now(),
-                    'status_id' => $status->id,
-                ]);
-            }
+
+            $PermitText = 'Многоразовое';
+
             $permit = EntryPermit::where('truck_id', $visitor->truck_id)
                 ->where('yard_id', $visitor->yard_id)
                 ->where('one_permission', true)
-                ->where('status_id', '=', Status::where('key', 'active')->first()->id)
+                ->where('status_id', Status::where('key', 'active')->first()->id)
                 ->first();
+
             if ($permit) {
                 $permit->update([
                     'end_date' => now(),
                     'status_id' => Status::where('key', 'not_active')->first()->id,
                 ]);
+                $PermitText = 'Аннулировано';
             }
+
+
+            if ($task) {
+                $task->update([
+                    'end_date' => now(),
+                    'status_id' => $status->id,
+                ]);
+                (new TelegramController())->sendNotification(
+                    '<b>🚛 Выезд с территории: ' .
+                        ($visitor->yard_id ? e(DB::table('yards')->where('id', $visitor->yard_id)->value('name')) : 'Не указано') .
+                        "</b>\n\n" .
+                        '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
+                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                        '<b>👤 Водитель:</b> ' .
+                        ($task->user_id
+                            ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')'
+                            : 'Не указан') . "\n" .
+                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
+                );
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Visitor Exited Successfully',
@@ -213,85 +249,84 @@ class VisitorsCotroller extends Controller
     }
 
     public function searchTruck(Request $request)
-{
-    $query = Truck::leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
-        ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
-        ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
-        ->select(
-            'trucks.*',
-            'truck_models.name as truck_model_name',
-            'truck_brands.name as truck_brand_name',
-            'truck_categories.name as truck_category_name'
-        );
+    {
+        $query = Truck::leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+            ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
+            ->select(
+                'trucks.*',
+                'truck_models.name as truck_model_name',
+                'truck_brands.name as truck_brand_name',
+                'truck_categories.name as truck_category_name'
+            );
 
-    if ($request->has('plate_number')) {
-        $query->where('trucks.plate_number', 'like', '%' . $request->input('plate_number') . '%');
-    }
-    if ($request->has('truck_model_name')) {
-        $query->where('truck_models.name', 'like', '%' . $request->input('truck_model_name') . '%');
-    }
-    if ($request->has('truck_brand_name')) {
-        $query->where('truck_brands.name', 'like', '%' . $request->input('truck_brand_name') . '%');
-    }
-    if ($request->has('truck_category_name')) {
-        $query->where('truck_categories.name', 'like', '%' . $request->input('truck_category_name') . '%');
-    }
-    //$data = $query->get();
-    if ($request->has('yard_id')) {
-    $data = $query->get()->map(function ($truck) use ($request) {
-        $permit = EntryPermit::where('truck_id', $truck->id)
-            ->where('yard_id',$request->yard_id)
-            ->where('status_id', Status::where('key', 'active')->first()->id)
-            ->first();
+        if ($request->has('plate_number')) {
+            $query->where('trucks.plate_number', 'like', '%' . $request->input('plate_number') . '%');
+        }
+        if ($request->has('truck_model_name')) {
+            $query->where('truck_models.name', 'like', '%' . $request->input('truck_model_name') . '%');
+        }
+        if ($request->has('truck_brand_name')) {
+            $query->where('truck_brands.name', 'like', '%' . $request->input('truck_brand_name') . '%');
+        }
+        if ($request->has('truck_category_name')) {
+            $query->where('truck_categories.name', 'like', '%' . $request->input('truck_category_name') . '%');
+        }
+        //$data = $query->get();
+        if ($request->has('yard_id')) {
+            $data = $query->get()->map(function ($truck) use ($request) {
+                $permit = EntryPermit::where('truck_id', $truck->id)
+                    ->where('yard_id', $request->yard_id)
+                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->first();
 
-        return array_merge($truck->toArray(), ['permit' =>  $permit ?$permit->id: null]);
-    });
-    }else{
-        $data = $query->get();
+                return array_merge($truck->toArray(), ['permit' =>  $permit ? $permit->id : null]);
+            });
+        } else {
+            $data = $query->get();
+        }
+
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Trucks Retrieved Successfully',
+            'data' => $data,
+        ], 200);
     }
 
-
-    return response()->json([
-        'status' => true,
-        'message' => 'Trucks Retrieved Successfully',
-        'data' => $data,
-    ], 200);
-}
-   
     public function ChatTest(Request $request)
-{
-    MessageSent::dispatch($request->text);
-    return response()->json(['status' => 'Message dispatched']);
-}
-
-public function getActivePermits(Request $request)
-{
-    $query = EntryPermit::leftJoin('trucks', 'entry_permits.truck_id', '=', 'trucks.id')
-        ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
-        ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
-        ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
-        ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
-        ->select(
-            'entry_permits.*',
-            'yards.name as yard_name',
-            'trucks.plate_number',
-            'truck_models.name as truck_model_name',
-            'truck_brands.name as truck_brand_name',
-            'truck_categories.name as truck_category_name'
-        )
-        ->where('entry_permits.status_id', Status::where('key', 'active')->first()->id);
-
-    if ($request->has('yard_id')) {
-        $query->where('entry_permits.yard_id', $request->yard_id);
+    {
+        MessageSent::dispatch($request->text);
+        return response()->json(['status' => 'Message dispatched']);
     }
 
-    $permits = $query->get();
+    public function getActivePermits(Request $request)
+    {
+        $query = EntryPermit::leftJoin('trucks', 'entry_permits.truck_id', '=', 'trucks.id')
+            ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+            ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
+            ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
+            ->select(
+                'entry_permits.*',
+                'yards.name as yard_name',
+                'trucks.plate_number',
+                'truck_models.name as truck_model_name',
+                'truck_brands.name as truck_brand_name',
+                'truck_categories.name as truck_category_name'
+            )
+            ->where('entry_permits.status_id', Status::where('key', 'active')->first()->id);
 
-    return response()->json([
-        'status' => true,
-        'message' => 'Active Permits Retrieved Successfully',
-        'data' => $permits,
-    ], 200);
-}
+        if ($request->has('yard_id')) {
+            $query->where('entry_permits.yard_id', $request->yard_id);
+        }
 
+        $permits = $query->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Active Permits Retrieved Successfully',
+            'data' => $permits,
+        ], 200);
+    }
 }

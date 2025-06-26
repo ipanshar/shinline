@@ -16,7 +16,7 @@ use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\DssController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
-
+use App\Http\Controllers\TelegramController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -137,3 +137,4 @@ Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Доб
 
 Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']); // Список пользователей без ролей для добавление задач
 
+Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
