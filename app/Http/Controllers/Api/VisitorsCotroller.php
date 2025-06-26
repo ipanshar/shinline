@@ -123,6 +123,7 @@ class VisitorsCotroller extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Error Creating Visitor: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ], 500);
         }
     }
