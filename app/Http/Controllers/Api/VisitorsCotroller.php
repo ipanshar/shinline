@@ -54,7 +54,13 @@ class VisitorsCotroller extends Controller
             $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
             $task = $permit ? DB::table('tasks')->where('id', $permit->task_id)->first() : null;
 
-            $status = DB::table('statuses')->where('key', 'on_territory')->first();
+            $status = DB::table('statuses')->where('key', 'on_territory')->first()->id;
+            if (!$status) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Status on_territory not found',
+                ], 404);
+            }
             if ($request->truck_model_name) {
                 $truck_model = DB::table('truck_models')->where('name', $request->truck_model_name)->first();
                 if (!$truck_model) {
@@ -75,7 +81,7 @@ class VisitorsCotroller extends Controller
                 'company' => $request->company ? $request->company : null,
                 'entry_date' => now(),
                 'user_id' => $request->user_id ? $request->user_id : null,
-                'status_id' => $status->id,
+                'status_id' => $status,
                 'yard_id' => $request->yard_id ? $request->yard_id : null,
                 'truck_id' => $truck ? $truck->id : null,
                 'task_id' => $task ? $task->id : null,
@@ -86,7 +92,7 @@ class VisitorsCotroller extends Controller
                 Task::where('id', $task->id)->update([
                     'begin_date' => now(),
                     'yard_id' => $request->yard_id,
-                    'status_id' => $status->id,
+                    'status_id' => $status,
                 ]);
                 $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $request->yard_id)->select('warehouses.name as name')->get();
                 (new TelegramController())->sendNotification(
@@ -116,6 +122,7 @@ class VisitorsCotroller extends Controller
             ], 500);
         }
     }
+    
     public function getVisitors(Request $request)
     {
 
