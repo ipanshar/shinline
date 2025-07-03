@@ -232,20 +232,20 @@ class VisitorsCotroller extends Controller
                     'end_date' => now(),
                     'status_id' => $status->id,
                 ]);
-                (new TelegramController())->sendNotification(
-                    '<b>🚛 Выезд с территории: ' .
-                        ($visitor->yard_id ? e(DB::table('yards')->where('id', $visitor->yard_id)->value('name')) : 'Не указано') .
-                        "</b>\n\n" .
-                        '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
-                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
-                        '<b>👤 Водитель:</b> ' .
-                        ($task->user_id
-                            ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
-                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')'
-                            : 'Не указан') . "\n" .
-                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
-                );
+                // (new TelegramController())->sendNotification(
+                //     '<b>🚛 Выезд с территории: ' .
+                //         ($visitor->yard_id ? e(DB::table('yards')->where('id', $visitor->yard_id)->value('name')) : 'Не указано') .
+                //         "</b>\n\n" .
+                //         '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
+                //         '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                //         '<b>👤 Водитель:</b> ' .
+                //         ($task->user_id
+                //             ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                //             ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')'
+                //             : 'Не указан') . "\n" .
+                //         '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                //         '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
+                // );
             }
 
             return response()->json([
