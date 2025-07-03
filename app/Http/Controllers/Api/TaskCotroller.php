@@ -498,6 +498,7 @@ class TaskCotroller extends Controller
                 ->first();
             if ($visitor) {
                 $status = $on_territory;
+                 $yard = Yard::where('id', '=', $visitor->yard_id )->first(); // Получаем двор из посетителя
             } else {
                 $status = $statusNew;
             }
@@ -511,12 +512,18 @@ class TaskCotroller extends Controller
                 $validate['phone'],
                 $validate['description'],
                 $validate['plan_date'],
-                $yard ? $visitor->yard_id : null,
+                $yard ? $yard->id : 1,
                 $status ? $status->id : null,
                 $visitor ? $visitor->entry_date : null,
                 $visitor ? $visitor->exit_date : null,
                 $request->has('create_user_id') ? $request->create_user_id : null
             );
+
+            if ($task && $visitor) {
+                $visitor->update([
+                    'task_id' => $task->id,
+                ]);
+            }
 
             if ($yard && $truck && $task) {
                 // Проверяем или создаем разрешение на въезд
