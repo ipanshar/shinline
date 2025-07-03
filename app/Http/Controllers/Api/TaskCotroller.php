@@ -24,6 +24,7 @@ use App\Http\Controllers\TelegramController;
 use App\Models\EntryPermit;
 use App\Models\Visitor;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 class TaskCotroller extends Controller
@@ -519,11 +520,7 @@ class TaskCotroller extends Controller
                 $request->has('create_user_id') ? $request->create_user_id : null
             );
 
-            if ($task && $visitor) {
-                $visitor->update([
-                    'task_id' => $task->id,
-                ]);
-            }
+            
 
             if ($yard && $truck && $task) {
                 // Проверяем или создаем разрешение на въезд
@@ -616,7 +613,26 @@ class TaskCotroller extends Controller
                 $notActive->delete();
             }
             //--
-
+            // Отправляем уведомление в Telegram
+            if ($task && $visitor ) {
+                if($visitor->task_id == null) {
+                     $visitor->update([
+                    'task_id' => $task->id,
+                ]);
+                $ActualWarehouse = Warehouse::whereIn('id', $warehouseActive)->get();
+                    (new TelegramController())->sendNotification(
+                    '<b>🚛 Уже на территории ' . e($yard->name) .  "</b>\n\n" .
+                        '<b>🏷️ ТС:</b> '  . e($request->plate_number) . "\n" .
+                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                        '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                        '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
+                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                        '<b>🏬 Склады:</b> ' . e($ActualWarehouse->pluck('name')->implode(', ')) . "\n" 
+                );
+                }
+               
+            }
             return response()->json([
                 'status' => true,
                 'message' => 'Task created successfully',
