@@ -107,12 +107,12 @@ class DatabaseSeeder extends Seeder
         // Status::create([
         //     'name' => 'На взвешивании', 'key' => 'on_weighing'
         // ]);
-        Status::create([
-            'name' => 'Активный ', 'key' => 'active'
-         ]);
-        Status::create([
-            'name' => 'Не активный', 'key' => 'not_active'
-        ]);
+        // Status::create([
+        //     'name' => 'Активный ', 'key' => 'active'
+        //  ]);
+        // Status::create([
+        //     'name' => 'Не активный', 'key' => 'not_active'
+        // ]);
 
         // TrailerType::create([
         //     'name' => 'Тент',
@@ -227,6 +227,11 @@ class DatabaseSeeder extends Seeder
     //         'request_url' => '/brms/api/v1.0/accounts/unauthorize',
     //         'dss_setings_id' => $dssAdd->id,
     //     ]);
-
+    DssApi::create([
+        'api_name' => 'VehicleCapture',
+        'method' => 'POST',
+        'request_url' => '/ipms/api/v1.1/entrance/vehicle-capture/record/fetch/page',
+        'dss_setings_id' => 1,
+    ]);
     }
 }

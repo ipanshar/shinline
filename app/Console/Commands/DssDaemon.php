@@ -12,28 +12,42 @@ class DssDaemon extends Command
 
     public function handle()
     {
-        $this->info("Запущен DSS Daemon (KeepAlive каждые 22 секунды, UpdateToken каждые 28 минут)");
+        $this->info("Запущен DSS Daemon (KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
 
         $service = new DssService();
 
+        
+        $Newsession = $service->dssAutorize();
+        $this->logResult('KeepAlive new session', $Newsession);
+       
+        $lastKeepAlive = time();
         $lastTokenUpdate = time();
 
         while (true) {
             $start = microtime(true);
+            // Вызов VehicleCapture
+            try {
+            $VehicleCaptureResult = $service->dssVehicleCapture();
+            $this->logResult('VehicleCapture', $VehicleCaptureResult);
+            } catch (\Exception $e) {
+                $this->error(now()->toDateTimeLocalString() . " Ошибка при вызове VehicleCapture: " . $e->getMessage());
+            }
+            // Вызов KeepAlive если прошло 22 секунды
+            if ((time() - $lastKeepAlive) >= 22) {
+                $keepAliveResult = $service->dssKeepAlive();
+                $this->logResult('KeepAlive update session', $keepAliveResult);
+                $lastKeepAlive = time();
+            }
 
-            // Вызов KeepAlive
-            $keepAliveResult = $service->dssKeepAlive();
-            $this->logResult('KeepAlive', $keepAliveResult);
-
-            // Вызов UpdateToken если прошло 30 минут
+            // Вызов NewToken если прошло 30 минут
             if ((time() - $lastTokenUpdate) >= (30 * 60)) {
-                $tokenUpdateResult = $service->dssUpdateToken();
-                $this->logResult('UpdateToken', $tokenUpdateResult);
+                $tokenUpdateResult = $service->dssAutorize();
+                $this->logResult('NewToken', $tokenUpdateResult);
                 $lastTokenUpdate = time();
             }
 
             $elapsed = microtime(true) - $start;
-            $sleep = max(22 - $elapsed, 0); // учесть время выполнения
+            $sleep = max(10 - $elapsed, 0); // учесть время выполнения
             sleep((int) $sleep);
         }
     }
@@ -41,9 +55,9 @@ class DssDaemon extends Command
     protected function logResult($operation, $result)
     {
         if (isset($result['success'])) {
-            $this->info(now()->toDateTimeLocalString()." $operation успешно выполнен.");
+            $this->info(now()->toDateTimeLocalString() . " $operation успешно выполнен.");
         } else {
-            $this->error(now()->toDateTimeLocalString()." $operation завершился с ошибкой: " . json_encode($result));
+            $this->error(now()->toDateTimeLocalString() . " $operation завершился с ошибкой: " . json_encode($result));
         }
     }
 }

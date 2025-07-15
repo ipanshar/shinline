@@ -14,8 +14,14 @@
 // Этот сервис используется в контроллере DssController для обработки запросов, связанных с DSS.
 namespace App\Services;
 
+use App\Models\Devaice;
 use App\Models\DssApi;
 use App\Models\DssSetings;
+use App\Models\Truck;
+use App\Models\TruckBrand;
+use App\Models\TruckCategory;
+use App\Models\TruckModel;
+use App\Models\VehicleCapture;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Facades\Hash;
@@ -230,6 +236,121 @@ class DssService
                 return ['error' => 'Ошибка запроса: ' . $response->getStatusCode()];
             }
         }
+    }
+
+    public function dssVehicleCapture() {
+     
+        if (!$this->dssSettings->token) {
+            return ['error' => 'Токен не установлен!'];
+        }
+        // Получаем API-метод из базы данных
+        $dssApi = DssApi::where('api_name', 'VehicleCapture')->where('dss_setings_id', $this->dssSettings->id)->first();
+        $currentTimestamp = time();
+        // Отправка запроса
+        $response = $this->client->post($this->baseUrl . $dssApi->request_url, [
+            'headers' => [
+                'X-Subject-Token' =>  $this->token,
+                'Content-Type' => 'application/json',
+                'Charset' => 'utf-8'
+            ],
+            'json' => [
+                'startTime' => $currentTimestamp - 10, // 10 секунд назад
+                'endTime' => $currentTimestamp, // Текущее время
+                'page' => 1,
+                'currentPage' => 1,
+                'pageSize' => 200,
+                 'orderDirection' => 'asc',
+            ]
+        ]);
+
+        // Проверяем успешность ответа
+        if ($response->getStatusCode() == 200 && $response->getBody()) {
+            $responseData = json_decode($response->getBody(), true);
+
+            // Проверяем код ответа
+            if (isset($responseData['code']) && $responseData['code'] === 1000) {
+                $pageData = $responseData['data']['pageData'] ?? [];
+                if (empty($pageData)) {
+                    return ['error' => 'Нет данных для отображения'];
+                }
+                foreach ($pageData as $item) {
+                    // Проверяем, существует ли устройство с таким channelId
+                    $device = Devaice::where('channelId', $item['channelId'])->first();
+                    if (!$device) {
+                        // Если устройство не найдено, создаем новое
+                        Devaice::create([
+                            'channelId' => $item['channelId'],
+                            'channelName' => $item['channelName']
+                        ]);
+                    }
+                    // Если устройство найдено, обновляем его имя
+                    else {
+                        $device->channelName = $item['channelName'];
+                        $device->save();
+                    }
+                    $truck_brand_id = TruckBrand::where('name', $item['vehicleBrandName'])->first()->id ?? null;
+                    if (!$truck_brand_id) {
+                        $truck_brand_id = TruckBrand::create([
+                            'name' => $item['vehicleBrandName']
+                        ])->id;
+                    }
+                    $truck_category = TruckCategory::where('name', $item['vehicleModelName'])->first() ?? null;
+                    if (!$truck_category) {
+                        $truck_category = TruckCategory::create([
+                            'name' => $item['vehicleModelName'],
+                            'ru_name' => $item['vehicleModelName']
+                        ]);
+                    }
+                    $truck_model = TruckModel::where('name', $truck_category->ru_name)->first() ?? null;
+                    if (!$truck_model) {
+                        $truck_model = TruckModel::create([
+                            'name' => $truck_category->ru_name,
+                            'truck_brand_id' => $truck_brand_id,
+                            'truck_category_id' => $truck_category->id
+                        ]);
+                    }
+                    $truk = Truck::where('plateNo', $item['plateNo'])->first();
+                    if (!$truk) {
+                        // Если грузовик не найден, создаем новый
+                        Truck::create([
+                            'plate_number' => $item['plateNo'],
+                            'color' => $item['vehicleBrandName'] ?? null,
+                            'truck_brand_id' => $truck_brand_id,
+                            'truck_model_id' => $truck_model->id ?? null,
+                            'truck_category_id' => $truck_category->id ?? null,
+                        ]);
+                    } else {
+                        // Если грузовик найден, обновляем его данные
+                        $truk->plate_number = $item['plateNo'];
+                        $truk->color = $item['vehicleBrandName'] ?? null;
+                        $truk->truck_brand_id = $truck_brand_id;
+                        $truk->truck_model_id = $truck_model->id ?? null;
+                        $truk->truck_category_id = $truck_category->id ?? null;
+                        $truk->save();
+                    }
+                    VehicleCapture::updateOrCreate(
+                        ['devaice_id' => $device->id, 'captureTime' => $item['captureTime'], 'plateNo' => $item['plateNo']],
+                        [
+                            'devaice_id' => $device->id,
+                            'truck_id' =>   $truk->id ?? null,
+                            'plateNo' => $item['plateNo'],
+                            'capturePicture' => $item['capturePicture'] ?? null,
+                            'plateNoPicture' => $item['plateNoPicture'] ?? null,
+                            'vehicleBrandName' => $item['vehicleBrandName'] ?? null,
+                            'captureTime' => $item['captureTime'],
+                            'vehicleColorName' => $item['vehicleColorName'] ?? null,
+                            'vehicleModelName' => $item['vehicleModelName'] ?? null
+                        ]
+                    );
+                }
+                return ['success' => true];
+            } else {
+                return ['error' => 'Неверный код ответа: ' . $responseData['code']];
+            }
+        } else {
+            return ['error' => 'Ошибка запроса: ' . $response->getStatusCode()];
+        }
+
     }
 
     // Выход из системы DSS
