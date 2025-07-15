@@ -254,6 +254,7 @@ class DssService
                 'Charset' => 'utf-8'
             ],
             'json' => [
+                'plateNoMatchMode' => 0, // 1 - точное совпадение, 0 - частичное совпадение
                 'startTime' => $currentTimestamp - 10*60, // 10 минут назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
