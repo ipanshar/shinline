@@ -255,7 +255,7 @@ class DssService
             ],
             'json' => [
                 'plateNoMatchMode' => 0, // 1 - точное совпадение, 0 - частичное совпадение
-                'startTime' => $currentTimestamp - 10*60, // 10 минут назад
+                'startTime' => $currentTimestamp - 60*60, // 1 час назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
                 'currentPage' => 1,
@@ -272,7 +272,7 @@ class DssService
             if (isset($responseData['code']) && $responseData['code'] === 1000) {
                 $pageData = $responseData['data']['pageData'] ?? [];
                 if (empty($pageData)) {
-                    return ['error' => 'Нет данных для отображения'];
+                    return ['error' => 'Нет данных для отображения', 'data' => $responseData];
                 }
                 foreach ($pageData as $item) {
                     // Проверяем, существует ли устройство с таким channelId
