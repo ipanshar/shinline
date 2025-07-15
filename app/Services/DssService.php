@@ -254,7 +254,7 @@ class DssService
                 'Charset' => 'utf-8'
             ],
             'json' => [
-                'startTime' => $currentTimestamp - 10, // 10 секунд назад
+                'startTime' => $currentTimestamp - 10*60, // 10 минут назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
                 'currentPage' => 1,
@@ -345,7 +345,7 @@ class DssService
                 }
                 return ['success' => true];
             } else {
-                return ['error' => 'Неверный код ответа: ' . $responseData['code']];
+                return ['error' => 'Неверный код ответа: ' . $responseData['code'], 'data' => $responseData];
             }
         } else {
             return ['error' => 'Ошибка запроса: ' . $response->getStatusCode()];
