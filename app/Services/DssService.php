@@ -310,7 +310,7 @@ class DssService
                             'truck_category_id' => $truck_category->id
                         ]);
                     }
-                    $truk = Truck::where('plateNo', $item['plateNo'])->first();
+                    $truk = Truck::where('plate_number', $item['plateNo'])->first();
                     if (!$truk) {
                         // Если грузовик не найден, создаем новый
                         Truck::create([

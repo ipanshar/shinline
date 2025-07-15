@@ -230,7 +230,7 @@ class DatabaseSeeder extends Seeder
     DssApi::create([
         'api_name' => 'VehicleCapture',
         'method' => 'POST',
-        'request_url' => '/ipms/api/v1.1/entrance/vehicle-capture/record/fetch/page',
+        'request_url' => '/ipms/api/v1.1/fusion/vehicle-capture/record/fetch/page',
         'dss_setings_id' => 1,
     ]);
     }
