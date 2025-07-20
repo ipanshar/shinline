@@ -359,7 +359,7 @@ class DssService
                         $imageData = $ResponseCapturePicture->body();
                         $fileName = $Vehicle->id.'.jpg';
                         Storage::disk('public')->put("images/vehicle/capture/{$fileName}", $imageData);
-                        $Vehicle->capturePicture = "images/vehicle/capture/{$fileName}";
+                        $Vehicle->local_capturePicture = "images/vehicle/capture/{$fileName}";
                         $Vehicle->imageDownload = 1; // Устанавливаем флаг, что изображение загружено
                         $Vehicle->save();
                        }
@@ -381,8 +381,8 @@ class DssService
         $oldCaptures = VehicleCapture::where('captureTime', '<', $threshold)->get();    
         foreach ($oldCaptures as $capture) {
             // Удаляем изображение из хранилища, если оно существует
-            if ($capture->capturePicture && Storage::disk('public')->exists($capture->capturePicture)) {
-                Storage::disk('public')->delete($capture->capturePicture);
+            if ($capture->local_capturePicture && Storage::disk('public')->exists($capture->local_capturePicture)) {
+                Storage::disk('public')->delete($capture->local_capturePicture);
             }
             // Удаляем запись из базы данных
             $capture->delete();
