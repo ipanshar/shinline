@@ -350,7 +350,7 @@ class DssService
                             'vehicleModelName' => $item['vehicleModelName'] ?? null
                         ]
                     );
-                    if($Vehicle->imageDownload === false ){
+                    if($Vehicle->imageDownload == 0 ){
                        $capturePicture = $Vehicle->capturePicture.'?token='.$this->credential;
                        $ResponseCapturePicture = Http::withoutVerifying()->get($capturePicture);
                        if($ResponseCapturePicture->successful()){
