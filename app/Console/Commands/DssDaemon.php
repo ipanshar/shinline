@@ -22,6 +22,7 @@ class DssDaemon extends Command
        
         $lastKeepAlive = time();
         $lastTokenUpdate = time();
+       $lastOldCapturesDelete = time();
 
         while (true) {
             $start = microtime(true);
@@ -46,7 +47,12 @@ class DssDaemon extends Command
                 $lastTokenUpdate = time();
             }
 
-            $elapsed = microtime(true) - $start;
+           if ((time() - $lastOldCapturesDelete) >= (30 * 60)) {
+               $service->deleteOldVehicleCaptures();
+                $this->info(now()->toDateTimeLocalString() . " Удалены старые захваты транспортных средств.");
+                $lastOldCapturesDelete = time();
+           }
+           $elapsed = microtime(true) - $start;
             $sleep = max(10 - $elapsed, 0); // учесть время выполнения
             sleep((int) $sleep);
         }

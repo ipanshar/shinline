@@ -359,14 +359,9 @@ class DssService
                         $imageData = $ResponseCapturePicture->body();
                         $fileName = $Vehicle->id.'.jpg';
                         Storage::disk('public')->put("images/vehicle/capture/{$fileName}", $imageData);
-                       }
-                       $plateNoPicture = $Vehicle->plateNoPicture.'?token='.$this->dssSettings->credential;
-                          Log::info('Plate number picture URL: ' . $plateNoPicture);
-                       $ResponseplateNoPicture = Http::withoutVerifying()->get($plateNoPicture);
-                       if($ResponseplateNoPicture->successful()){
-                        $imageData = $ResponseplateNoPicture->body();
-                        $fileName = $Vehicle->id.'.jpg';
-                        Storage::disk('public')->put("images/vehicle/plateno/{$fileName}", $imageData);
+                        $Vehicle->capturePicture = "images/vehicle/capture/{$fileName}";
+                        $Vehicle->imageDownload = 1; // Устанавливаем флаг, что изображение загружено
+                        $Vehicle->save();
                        }
                     }
                 }
@@ -379,6 +374,23 @@ class DssService
         }
 
     }
+// Удаляем записи о захватах транспортных средств старше 24 часов
+    public function deleteOldVehicleCaptures()
+    {
+        $threshold = now()->subHours(24);
+        $oldCaptures = VehicleCapture::where('captureTime', '<', $threshold)->get();    
+        foreach ($oldCaptures as $capture) {
+            // Удаляем изображение из хранилища, если оно существует
+            if ($capture->capturePicture && Storage::disk('public')->exists($capture->capturePicture)) {
+                Storage::disk('public')->delete($capture->capturePicture);
+            }
+            // Удаляем запись из базы данных
+            $capture->delete();
+        }
+        return ['success' => true, 'deleted_count' => $oldCaptures->count()];
+    }
+
+
 
     // Выход из системы DSS
     public function dssUnauthorize()

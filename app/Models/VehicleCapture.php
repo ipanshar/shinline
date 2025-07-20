@@ -19,5 +19,6 @@ class VehicleCapture extends Model
         'vehicleModelName',
         'views',
         'imageDownload',
+        'image_url'
     ];        
 }
