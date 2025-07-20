@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('dss_settings', function (Blueprint $table) {
+        Schema::table('dss_setings', function (Blueprint $table) {
             $table->string('credential')->nullable()->after('token')->comment('Credential for accessing DSS API');
         });
     }
@@ -21,7 +21,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('dss_settings', function (Blueprint $table) {
+        Schema::table('dss_setings', function (Blueprint $table) {
             $table->dropColumn('credential');
         });
     }

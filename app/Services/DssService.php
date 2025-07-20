@@ -114,6 +114,7 @@ class DssService
 
         if (!isset($secondLogin['error']) && isset($secondLogin['token'])) {
             $this->dssSettings->token = $secondLogin['token'];
+            $this->dssSettings->credential = $secondLogin['credential'] ?? null; // Обновляем учетные данные, если они есть
             $this->dssSettings->begin_session = now(); // Устанавливаем время начала сессии
             $this->dssSettings->update_token = null; // Сбрасываем время обновления токена
             $this->dssSettings->update_token_count = 0; // Сбрасываем счетчик обновлений токена  
