@@ -8,6 +8,8 @@ class Devaice extends Model
 {
      protected $fillable = [
         'channelId',
-        'channelName'
+        'channelName',
+        'checkpoint_id',
+        'type',
     ];
 }

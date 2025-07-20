@@ -25,6 +25,8 @@ use App\Models\VehicleCapture;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 class DssService
 {
@@ -33,11 +35,13 @@ class DssService
     protected $baseUrl;
     protected $token;
     protected $dssApi;
+    protected $credential;
     public function __construct()
     {
         $this->dssSettings = DssSetings::first();
         $this->baseUrl = $this->dssSettings->base_url;
         $this->token = $this->dssSettings->token;
+        $this->credential = $this->dssSettings->credential; // Добавляем учетные данные
         $this->client = new Client();
     }
     // Первый этап авторизации
@@ -115,6 +119,7 @@ class DssService
             $this->dssSettings->update_token_count = 0; // Сбрасываем счетчик обновлений токена  
             $this->dssSettings->save();
             $this->token = $secondLogin['token']; // Обновляем токен в сервисе
+            $this->credential = $secondLogin['credential']; // Обновляем учетные данные в сервисе
             return ['success' => true, 'token' => $this->token];
         } else {
             return ['error' => 'Ошибка: токен не установлен', 'firstLogin' => $firstLogin, 'secondLogin' => $secondLogin];
@@ -217,6 +222,7 @@ class DssService
                         $newToken = $responseData['data']['token'];
                         // Обновляем токен в настройках DSS
                         $this->dssSettings->token = $newToken;
+                        $this->dssSettings->credential = $responseData['data']['credential'] ?? $this->dssSettings->credential; // Обновляем учетные данные, если они есть
                         $this->dssSettings->update_token = now(); // Устанавливаем время обновления токена
                         $this->dssSettings->update_token_count += 1; // Увеличиваем счетчик обновлений токена
                         $this->dssSettings->save();
@@ -329,7 +335,7 @@ class DssService
                         $truk->truck_category_id = $truck_category->id ?? null;
                         $truk->save();
                     }
-                    VehicleCapture::updateOrCreate(
+                    $Vehicle = VehicleCapture::updateOrCreate(
                         ['devaice_id' => $device->id, 'captureTime' => $item['captureTime'], 'plateNo' => $item['plateNo']],
                         [
                             'devaice_id' => $device->id,
@@ -343,6 +349,22 @@ class DssService
                             'vehicleModelName' => $item['vehicleModelName'] ?? null
                         ]
                     );
+                    if($Vehicle->imageDownload === false ){
+                       $capturePicture = $Vehicle->capturePicture.'?token='.$this->credential;
+                       $ResponseCapturePicture = Http::withoutVerifying()->get($capturePicture);
+                       if($ResponseCapturePicture->successful()){
+                        $imageData = $ResponseCapturePicture->body();
+                        $fileName = $Vehicle->id.'.jpg';
+                        Storage::disk('public')->put("images/vehicle/capture/{$fileName}", $imageData);
+                       }
+                       $plateNoPicture = $Vehicle->plateNoPicture.'?token='.$this->credential;
+                       $ResponseplateNoPicture = Http::withoutVerifying()->get($plateNoPicture);
+                       if($ResponseplateNoPicture->successful()){
+                        $imageData = $ResponseplateNoPicture->body();
+                        $fileName = $Vehicle->id.'.jpg';
+                        Storage::disk('public')->put("images/vehicle/plateno/{$fileName}", $imageData);
+                       }
+                    }
                 }
                 return ['success' => true];
             } else {

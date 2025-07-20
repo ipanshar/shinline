@@ -16,6 +16,8 @@ class VehicleCapture extends Model
         'vehicleBrandName',
         'captureTime',
         'vehicleColorName',
-        'vehicleModelName'
+        'vehicleModelName',
+        'views',
+        'imageDownload',
     ];        
 }
