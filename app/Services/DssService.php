@@ -26,6 +26,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class DssService
@@ -351,14 +352,16 @@ class DssService
                         ]
                     );
                     if($Vehicle->imageDownload == 0 ){
-                       $capturePicture = $Vehicle->capturePicture.'?token='.$this->credential;
+                       $capturePicture = $Vehicle->capturePicture.'?token='.$this->dssSettings->credential;
+                       Log::info('Capture picture URL: ' . $capturePicture);
                        $ResponseCapturePicture = Http::withoutVerifying()->get($capturePicture);
                        if($ResponseCapturePicture->successful()){
                         $imageData = $ResponseCapturePicture->body();
                         $fileName = $Vehicle->id.'.jpg';
                         Storage::disk('public')->put("images/vehicle/capture/{$fileName}", $imageData);
                        }
-                       $plateNoPicture = $Vehicle->plateNoPicture.'?token='.$this->credential;
+                       $plateNoPicture = $Vehicle->plateNoPicture.'?token='.$this->dssSettings->credential;
+                          Log::info('Plate number picture URL: ' . $plateNoPicture);
                        $ResponseplateNoPicture = Http::withoutVerifying()->get($plateNoPicture);
                        if($ResponseplateNoPicture->successful()){
                         $imageData = $ResponseplateNoPicture->body();
