@@ -175,6 +175,7 @@ class DssService
                 if (isset($responseData['data']['token'])) {
                     $token = $responseData['data']['token'];
                     $this->dssSettings->keepalive = now(); // Устанавливаем время последнего keepalive
+                    $this->dssSettings->save();
                     return ['success' => true, 'live_token' => $token];
                 } else {
                     return ['error' => 'Токен отсутствует в ответе!'];
@@ -378,7 +379,7 @@ class DssService
     public function deleteOldVehicleCaptures()
     {
         $threshold = now()->subHours(24);
-        $oldCaptures = VehicleCapture::where('captureTime', '<', $threshold)->get();    
+        $oldCaptures = VehicleCapture::where('captureTime', '<', $threshold->timestamp)->get();
         foreach ($oldCaptures as $capture) {
             // Удаляем изображение из хранилища, если оно существует
             if ($capture->local_capturePicture && Storage::disk('public')->exists($capture->local_capturePicture)) {
