@@ -27,6 +27,7 @@ class TruckCotroller extends Controller
                 'trailer_height' => 'numeric',
                 'trailer_width' => 'numeric',
                 'trailer_length' => 'numeric',
+                'own' => 'boolean',
                 'trailer_load_capacity' => 'numeric'
             ]);
             $truck = Truck::create($validate);
@@ -63,6 +64,7 @@ class TruckCotroller extends Controller
                 'trailer_width' => 'numeric',
                 'trailer_length' => 'numeric',
                 'trailer_load_capacity' => 'numeric',
+                'own' => 'boolean',
                 'truck_category_id' => 'integer'
             ]);
             $truck = Truck::find($validate['id']);
@@ -128,13 +130,14 @@ class TruckCotroller extends Controller
             if ($request->has('trailer_type_id')) {
                 $query->where('trailer_type_id', $request->input('trailer_type_id'));
             }
+            
             $query->leftJoin('users', 'trucks.user_id', '=', 'users.id')
                 ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
                 ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
                 ->leftJoin('truck_categories', 'trucks.truck_category_id', '=', 'truck_categories.id')
                 ->leftJoin('trailer_types', 'trucks.trailer_type_id', '=', 'trailer_types.id')
                 ->leftJoin('trailer_models', 'trucks.trailer_model_id', '=', 'trailer_models.id')
-                ->select('trucks.*', 'users.name as user_name', 'truck_brands.name as truck_brand_name', 'truck_models.name as truck_model_name', 'truck_categories.ru_name as truck_categories_name', 'trailer_types.name as trailer_type_name', 'trailer_models.name as trailer_model_name')
+                ->select('trucks.*', 'users.name as user_name', 'truck_brands.name as truck_brand_name', 'truck_models.name as truck_model_name', 'truck_categories.ru_name as truck_categories_name', 'trailer_types.name as trailer_type_name', 'trailer_models.name as trailer_model_name', 'trucks.own as truck_own')
                 ->orderBy('trucks.created_at', 'desc');
             if ($request->has('limit')) {
                 $query->limit($request->input('limit'));

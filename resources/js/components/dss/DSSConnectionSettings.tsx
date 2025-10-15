@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { colors } from '@mui/material';
 
 type DSSConfig = {
   id: number;
@@ -8,9 +9,9 @@ type DSSConfig = {
   password: string;
   client_type?: string;
   token?: string;
-  begin_session?: string;
-  created_at: string;
-  updated_at: string;
+  keepalive?: string;
+  credential?: string;
+  subhour?: number;
 };
 
 const DSSConnectionSettings = () => {
@@ -19,6 +20,7 @@ const DSSConnectionSettings = () => {
     base_url: '',
     user_name: '',
     password: '',
+    subhour: 0,
   });
 
   const [isEditing, setIsEditing] = useState(false);
@@ -37,6 +39,7 @@ const DSSConnectionSettings = () => {
           base_url: data.base_url,
           user_name: data.user_name,
           password: data.password,
+          subhour: data.subhour || 0,
         });
       } catch (error) {
         console.error('Ошибка загрузки настроек:', error);
@@ -82,6 +85,20 @@ const DSSConnectionSettings = () => {
       setSaving(false);
     }
   };
+  const timeAgo = (date: Date): string => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSeconds < 60) return `${diffSeconds} сек. назад`;
+    if (diffMinutes < 60) return `${diffMinutes} мин. назад`;
+    if (diffHours < 24) return `${diffHours} ч. назад`;
+    return `${diffDays} дн. назад`;
+  };
 
   if (loading) {
     return <div style={styles.container}>Загрузка настроек...</div>;
@@ -98,8 +115,8 @@ const DSSConnectionSettings = () => {
       <table style={styles.table}>
         <tbody>
           <tr>
-            <td><strong>Базовый URL</strong></td>
-            <td>
+            <td style={styles.td}><strong>Базовый URL</strong></td>
+            <td style={styles.td}>
               {isEditing ? (
                 <input
                   name="base_url"
@@ -113,8 +130,8 @@ const DSSConnectionSettings = () => {
             </td>
           </tr>
           <tr>
-            <td><strong>Логин</strong></td>
-            <td>
+            <td style={styles.td}><strong>Логин</strong></td>
+            <td style={styles.td}>
               {isEditing ? (
                 <input
                   name="user_name"
@@ -128,8 +145,8 @@ const DSSConnectionSettings = () => {
             </td>
           </tr>
           <tr>
-            <td><strong>Пароль</strong></td>
-            <td>
+            <td style={styles.td}><strong>Пароль</strong></td>
+            <td style={styles.td}>
               {isEditing ? (
                 <input
                   name="password"
@@ -144,24 +161,35 @@ const DSSConnectionSettings = () => {
             </td>
           </tr>
           <tr>
-            <td><strong>Тип клиента</strong></td>
-            <td>{config.client_type}</td>
+            <td style={styles.td}><strong>Часы хранения</strong></td>
+            <td style={styles.td}>
+              {isEditing ? (
+                <input
+                  name="subhour"
+                  value={formData.subhour}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              ) : (
+                config.subhour || '—'
+              )}
+            </td>
           </tr>
           <tr>
-            <td><strong>Токен</strong></td>
-            <td>{config.token || '—'}</td>
+            <td style={styles.td}><strong>Тип клиента</strong></td>
+            <td style={styles.td}>{config.client_type}</td>
           </tr>
           <tr>
-            <td><strong>Сессия началась</strong></td>
-            <td>{config.begin_session || '—'}</td>
+            <td style={styles.td}><strong>Токен</strong></td>
+            <td style={styles.td}>{config.token || '—'}</td>
           </tr>
           <tr>
-            <td><strong>Создано</strong></td>
-            <td>{new Date(config.created_at).toLocaleString()}</td>
+            <td style={styles.td}><strong>Токен учета</strong></td>
+            <td style={styles.td}>{config.credential || '—'}</td>
           </tr>
           <tr>
-            <td><strong>Обновлено</strong></td>
-            <td>{new Date(config.updated_at).toLocaleString()}</td>
+            <td style={styles.td}><strong>Активность</strong></td>
+            <td style={styles.td}>{config.keepalive ? timeAgo(new Date(config.keepalive)) : '—'}</td>
           </tr>
         </tbody>
       </table>
@@ -204,7 +232,15 @@ const styles = {
     borderCollapse: 'collapse' as const,
     marginBottom: '20px'
   },
+  td: {
+    padding: '10px',
+    borderBottom: '1px solid #ddd',
+  },
+
   input: {
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    backgroundColor: colors.common.white,
     width: '100%',
     padding: '6px',
     fontSize: '14px',

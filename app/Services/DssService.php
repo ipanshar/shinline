@@ -37,12 +37,14 @@ class DssService
     protected $token;
     protected $dssApi;
     protected $credential;
+    protected $subhour;
     public function __construct()
     {
         $this->dssSettings = DssSetings::first();
         $this->baseUrl = $this->dssSettings->base_url;
         $this->token = $this->dssSettings->token;
         $this->credential = $this->dssSettings->credential; // Добавляем учетные данные
+        $this->subhour = $this->dssSettings->subhour; // Добавляем значение subhour
         $this->client = new Client();
     }
     // Первый этап авторизации
@@ -264,7 +266,7 @@ class DssService
             ],
             'json' => [
                 'plateNoMatchMode' => 0, // 1 - точное совпадение, 0 - частичное совпадение
-                'startTime' => $currentTimestamp - 60*60, // 1 час назад
+                'startTime' => $currentTimestamp - 15*60, // 15 минут назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
                 'currentPage' => 1,
@@ -378,7 +380,7 @@ class DssService
 // Удаляем записи о захватах транспортных средств старше 24 часов
     public function deleteOldVehicleCaptures()
     {
-        $threshold = now()->subHours(24);
+        $threshold = now()->subHours($this->subhour); // Устанавливаем порог времени
         $oldCaptures = VehicleCapture::where('captureTime', '<', $threshold->timestamp)->get();
         foreach ($oldCaptures as $capture) {
             // Удаляем изображение из хранилища, если оно существует

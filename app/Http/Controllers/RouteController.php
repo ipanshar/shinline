@@ -40,6 +40,15 @@ class RouteController extends Controller
     public function warehouseGate(){
         return Inertia::render('warehouseGate');
     }
+     public function warehouseKPP(){
+        return Inertia::render('warehouseKPP');
+    }
+    public function dssSettings(){
+        return Inertia::render('integration_dss_settings');
+    }
+    public function dssDevices(){
+        return Inertia::render('integration_dss_devices');
+    }
 
 
 }

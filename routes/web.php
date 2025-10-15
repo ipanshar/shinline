@@ -20,6 +20,7 @@ use App\Http\Controllers\RouteController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
+use App\Http\Controllers\Api\EntryPermitController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -42,6 +43,9 @@ Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
 Route::get('/chat', [RouteController::class, 'chat']);
 Route::get('/statistics', [RouteController::class, 'statistics']);
 route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
+route::get('/warehouses/kpp', [RouteController::class, 'warehouseKPP']);
+Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings']);
+Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices']);
 
 //Settings roles
 Route::get('/roles', [RoleController::class, 'index']);
@@ -75,6 +79,11 @@ Route::post('/trucs/gettrucks', [TruckCotroller::class,'getTrucks']); //Полу
 Route::post('/trucs/addtruck', [TruckCotroller::class,'addTruck']); //Добавить грузовик
 Route::post('/trucs/updatetruck', [TruckCotroller::class,'updateTruck']); //Обновить грузовик
 Route::post('/trucs/deletetruck', [TruckCotroller::class,'deleteTruck']); //Удалить грузовик
+
+Route::post('/trucs/getcategories', [TruckCotroller::class,'getCategories']); //Получить все категории грузовиков
+Route::post('/trucs/addcategory', [TruckCotroller::class,'addCategory']); //Добавить категорию грузовика
+Route::post('/trucs/updatecategory', [TruckCotroller::class,'updateCategory']); //Обновить категорию грузовика
+Route::post('/trucs/deletecategory', [TruckCotroller::class,'deleteCategory']); //Удалить категорию грузовика
 
 Route::get('/trucs/search',      [TruckCotroller::class, 'searchByPlate']); // Поиск по номеру ТС для добавление задач
 
@@ -142,8 +151,14 @@ Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])
 Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
 Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS  
+Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
+Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
 
 
+Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint']);
+Route::post('/entrance-permit/getcheckpoint', [EntryPermitController::class, 'getCheckpoint']);
+Route::post('/entrance-permit/updatecheckpoint', [EntryPermitController::class, 'updateCheckpoint']);
+Route::post('/entrance-permit/deletecheckpoint', [EntryPermitController::class, 'deleteCheckpoint']);
 
 Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']);
 

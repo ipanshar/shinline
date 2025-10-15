@@ -133,21 +133,25 @@ class VisitorsCotroller extends Controller
 
         $query = DB::table('visitors')
             ->leftJoin('truck_categories', 'visitors.truck_category_id', '=', 'truck_categories.id')
+            ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
             ->leftJoin('truck_brands', 'visitors.truck_brand_id', '=', 'truck_brands.id')
-            ->leftJoin('users', 'visitors.user_id', '=', 'users.id')
+            ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
             ->leftJoin('statuses', 'visitors.status_id', '=', 'statuses.id')
             ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
             ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
             ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
-
             ->select(
                 'visitors.*',
+                'tasks.name as name',
+                'tasks.description as description',
                 'truck_categories.name as truck_category_name',
                 'truck_brands.name as truck_brand_name',
                 'users.name as user_name',
+                'users.phone as user_phone',
                 'statuses.name as status_name',
                 'yards.name as yard_name',
                 'trucks.name as truck_name',
+                'trucks.own as truck_own',
                 'truck_models.name as truck_model_name'
             )
             ->orderBy('visitors.id', 'desc');

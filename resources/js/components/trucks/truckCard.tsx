@@ -1,5 +1,6 @@
 import React from "react";
 import PropTypes from "prop-types";
+import { Button } from "@mui/material";
 
 // Отдельный компонент для строки информации
 interface InfoRowProps {
@@ -20,6 +21,7 @@ InfoRow.propTypes = {
 
 // Типизация пропсов грузовика
 interface Truck {
+    truck_own: any;
     truck_model_name?: string;
     plate_number?: string;
     truck_brand_name?: string;
@@ -46,6 +48,7 @@ const TruckCard: React.FC<{ truck: Truck }> = ({ truck }) => (
             {truck.truck_model_name || "Без модели"}
         </h2>
         <InfoRow label="Гос. номер" value={truck.plate_number} />
+        <InfoRow label="Владелец" value={truck.truck_own ? "Собственный" : "Чужой"} />
         <InfoRow label="Марка" value={truck.truck_brand_name} />
         <InfoRow label="Категория" value={truck.truck_categories_name} />
         <InfoRow label="Цвет" value={truck.color} />
@@ -55,6 +58,8 @@ const TruckCard: React.FC<{ truck: Truck }> = ({ truck }) => (
         <div style={{ fontSize: 12, color: "#888" }}>
             Добавлен: {new Date(truck.created_at).toLocaleDateString()}
         </div>
+        <Button variant="contained" color="primary">Редактировать</Button>
+        <Button variant="contained" color="secondary" style={{ marginLeft: 8 }}>Удалить</Button>
     </div>
 );
 

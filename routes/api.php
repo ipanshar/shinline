@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\DssController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
+use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\TelegramController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +63,11 @@ Route::post('/trucs/addtruck', [TruckCotroller::class,'addTruck'])->middleware('
 Route::post('/trucs/updatetruck', [TruckCotroller::class,'updateTruck'])->middleware('auth:sanctum'); //Обновить грузовик
 Route::post('/trucs/deletetruck', [TruckCotroller::class,'deleteTruck'])->middleware('auth:sanctum'); //Удалить грузовик
 Route::get('/trucs/search',      [TruckCotroller::class, 'searchByPlate']);
+
+route::post('/trucs/getcategories', [TruckCotroller::class,'getCategories'])->middleware('auth:sanctum'); //Получить все категории грузовиков
+Route::post('/trucs/addcategory', [TruckCotroller::class,'addCategory'])->middleware('auth:sanctum'); //Добавить категорию грузовика
+Route::post('/trucs/updatecategory', [TruckCotroller::class,'updateCategory'])->middleware('auth:sanctum'); //Обновить категорию грузовика
+Route::post('/trucs/deletecategory', [TruckCotroller::class,'deleteCategory'])->middleware('auth:sanctum'); //Удалить категорию грузовика
 
 Route::post('/trucks/attachtruckuser', [TruckCotroller::class,'attachTruckUser'])->middleware('auth:sanctum'); //Привязать грузовик к пользователю
 Route::post('/trucks/detachtruckuser', [TruckCotroller::class,'detachTruckUser'])->middleware('auth:sanctum'); //Отвязать грузовик от пользователя
@@ -133,7 +139,10 @@ Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->midd
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('auth:sanctum'); //Выход из DSS  
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Добавление тревоги в DSS
 
-
+Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint'])->middleware('auth:sanctum'); // Добавление контрольного пункта
+Route::post('/entrance-permit/getcheckpoint', [EntryPermitController::class, 'getCheckpoint'])->middleware('auth:sanctum'); // Получение контрольных пунктов
+Route::post('/entrance-permit/updatecheckpoint', [EntryPermitController::class, 'updateCheckpoint'])->middleware('auth:sanctum'); // Обновление контрольного пункта
+Route::post('/entrance-permit/deletecheckpoint', [EntryPermitController::class, 'deleteCheckpoint'])->middleware('auth:sanctum'); // Удаление контрольного пункта
 
 Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']); // Список пользователей без ролей для добавление задач
 

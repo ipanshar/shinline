@@ -15,7 +15,8 @@ class DssSetings extends Model
         'client_type',
         'keepalive',
         'update_token',
-        'update_token_count'
+        'update_token_count',
+        'subhour'
     ];
     
     public function dssApis()

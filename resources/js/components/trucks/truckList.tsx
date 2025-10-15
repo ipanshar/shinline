@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import TruckCard from "@/components/trucks/truckCard";
 import Pagination from "@/components/pagination"
+import AddTruckModal from "./AddTruckModal";
+import { Button } from "@mui/material";
 
 interface Truck {
     id: number;
@@ -28,6 +30,7 @@ interface Truck {
     truck_categories_name: string | undefined;
     trailer_type_name: string | undefined;
     trailer_model_name: string | undefined;
+    truck_own: any;
 }
 
 const TruckList: React.FC = () => {
@@ -35,23 +38,34 @@ const TruckList: React.FC = () => {
     const [loading, setLoading] = useState<boolean>(true);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [lastPage, setLastPage] = useState<number>(1);
+    const [plate_number, setPlate_number] = useState<string>('');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const fetchTrucksData = async () => {
+        setLoading(true); // Начинаем загрузку
+        try {
+            const response = await axios.post("/trucs/gettrucks", { 
+                page: currentPage, 
+                plate_number: plate_number 
+            });
+            
+            if (response.data && response.data.status && Array.isArray(response.data.data)) {
+                setTrucks(response.data.data); 
+                if (typeof response.data.last_page === "number") {
+                    setLastPage(response.data.last_page); 
+                }
+            }
+        } catch (error) {
+           console.error("Error fetching trucks:", error);
+        } finally {
+            setLoading(false); // Завершаем загрузку
+        }
+    };
 
     useEffect(() => {
-        setLoading(true);
-        axios
-            .post("/trucs/gettrucks", { page: currentPage })
-            .then((response) => {
-                if (response.data && response.data.status && Array.isArray(response.data.data)) {
-                    setTrucks(response.data.data);
-                    if (typeof response.data.last_page === "number") {
-                        setLastPage(response.data.last_page);
-                    }
-                }
-            })
-            .catch((error) => {
-            })
-            .finally(() => setLoading(false));
+        fetchTrucksData();
     }, [currentPage]);
+
+       
 
     const setPage = (page: number) => {
         setCurrentPage(page);
@@ -61,7 +75,35 @@ const TruckList: React.FC = () => {
 
     return (
         <div>
+            <div className="mb-4">
+                <input
+                    type="text"
+                    value={plate_number}
+                    onChange={(e) => setPlate_number(e.target.value)}
+                    placeholder="Поиск по номеру"
+                    className="border p-1 rounded w-full max-w-sm"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            fetchTrucksData();
+                        }
+                    }}
+                />
+            </div>
+            {trucks.length === 0 ? (
+                <div>Грузовики не найдены.</div>
+            ) : null}
              <div className="grid auto-rows-min gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="col-span-full flex justify-end mb-4">
+            <Button variant="contained" color="primary" onClick={() => setIsModalOpen(true)}>Добавить грузовик</Button>
+            <AddTruckModal 
+                isOpen={isModalOpen} 
+                onClose={() => setIsModalOpen(false)} 
+                onTruckAdded={() => {
+                    setIsModalOpen(false);
+                    fetchTrucksData();
+                }} 
+            />
+            </div>
             {trucks.map((truck) => (
                 <TruckCard key={truck.id} truck={truck} />
             ))}

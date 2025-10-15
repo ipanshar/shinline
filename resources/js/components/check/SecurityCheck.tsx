@@ -33,6 +33,11 @@ interface Visitor {
   entry_date: string;
   exit_date?: string;
   truck: Truck;
+  user_name?: string;
+  user_phone?: string;
+  description?: string;
+  name?: string;
+  truck_own: any;
 }
 
 const SecurityCheck = () => {
@@ -66,7 +71,11 @@ const SecurityCheck = () => {
       .catch(err => console.error('Ошибка при загрузке посетителей:', err))
       .finally(() => setLoading(false));
   };
-
+useEffect(() => {
+  if (selectedYardId !== null) {
+    setVisitors([]);
+  }
+}, [selectedYardId]);
   useEffect(() => {
     loadVisitors();
     const interval = setInterval(loadVisitors, 15000);
@@ -244,9 +253,14 @@ const SecurityCheck = () => {
   </div>
 
   {/* Заголовок "таблицы" */}
-  <div className="grid grid-cols-6 gap-2 px-2 py-1 bg-gray-100 font-semibold text-sm rounded">
+  <div className="grid grid-cols-11 gap-2 px-2 py-1 bg-gray-100 font-semibold text-sm rounded">
     <div>Номер</div>
+    <div>Владелец</div>
     <div>Модель</div>
+    <div>Задание</div>
+    <div>Пояснение</div>
+    <div>Водитель</div>
+    <div>Телефон</div>
     <div>Статус</div>
     <div>Въезд</div>
     <div>Выезд</div>
@@ -258,10 +272,15 @@ const SecurityCheck = () => {
   {filteredVisitors.map(visitor => (
     <div
       key={visitor.id}
-      className="grid grid-cols-6 gap-2 items-center px-2 py-2 border-b text-sm hover:bg-gray-50"
+      className="grid grid-cols-11 gap-2 items-center px-2 py-2 border-b text-sm hover:bg-gray-50"
     >
       <div className="font-bold">{visitor.plate_number}</div>
+      <div>{visitor.truck_own ? "Собственный" : "Чужой"}</div>
       <div>{visitor.truck_model_name || '-'}</div>
+      <div>{visitor.name || '-'}</div>
+      <div>{visitor.description || '-'}</div>
+      <div>{visitor.user_name || '-'}</div>
+      <div>{visitor.user_phone || '-'}</div>
       <div
         className={`px-2 py-1 rounded text-center font-medium ${
           visitor.exit_date ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'

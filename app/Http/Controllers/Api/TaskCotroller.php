@@ -284,6 +284,8 @@ class TaskCotroller extends Controller
                 ->leftJoin('yards', 'tasks.yard_id', '=', 'yards.id')
                 ->select(
                     'tasks.plan_date',
+                    'tasks.name',
+                    'tasks.description',
                     'statuses.name as status_name',
                     'users.name as user_name',
                     'users.phone as user_phone',
@@ -312,6 +314,8 @@ class TaskCotroller extends Controller
                     'truck_plate_number' => $task->truck_plate_number,
                     'truck_model_name' => $truckModels[$task->truck_model_id] ?? 'Неизвестно',
                     'user_name' => $task->user_name,
+                    'name' => $task->name,
+                    'description' => $task->description,
                     'user_phone' => $task->user_phone,
                     'status_name' => $task->status_name,
                     'plan_date' => $task->plan_date,

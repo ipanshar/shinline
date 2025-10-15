@@ -19,6 +19,12 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
         role:'',
     },
+    {
+        title:  'КПП',
+        href: '/warehouses/kpp',
+        icon: null,
+        role:'',
+    },
 ];
 
 export default function SettingsLayout({ children }: PropsWithChildren) {

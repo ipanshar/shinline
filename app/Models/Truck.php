@@ -12,6 +12,7 @@ class Truck extends Model
             'truck_brand_id',
             'truck_category_id',
             'vin',
+            'own',
             'plate_number',
             'truck_model_id',
             'color',

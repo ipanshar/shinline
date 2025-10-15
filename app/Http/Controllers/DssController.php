@@ -8,6 +8,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Devaice;
 use App\Models\DssSetings;
 use App\Services\DssService;
 use Illuminate\Http\Request;
@@ -23,14 +24,14 @@ class DssController extends Controller
 
     public function dssAutorization()
     {
-       $dssSeting = DssSetings::first();
-       if (!$dssSeting) {
-           return response()->json(['error' => 'DSS settings not found'], 404);
-       }
-         $username = $dssSeting->user_name;
-         $password = $dssSeting->password;
-          $firstLoginResponse = $this->dssService->firstLogin($username);
-          if (!isset($firstLoginResponse['realm'], $firstLoginResponse['randomKey'])) {
+        $dssSeting = DssSetings::first();
+        if (!$dssSeting) {
+            return response()->json(['error' => 'DSS settings not found'], 404);
+        }
+        $username = $dssSeting->user_name;
+        $password = $dssSeting->password;
+        $firstLoginResponse = $this->dssService->firstLogin($username);
+        if (!isset($firstLoginResponse['realm'], $firstLoginResponse['randomKey'])) {
             return response()->json(['error' => 'Ошибка первого этапа авторизации'], 401);
         }
 
@@ -44,7 +45,6 @@ class DssController extends Controller
             return response()->json(['error' => 'Токен не получен, ошибка второго этапа авторизации'], 401);
         }
         return response()->json($secondLoginResponse);
-
     }
 
     //Получение настроек DSS
@@ -117,17 +117,34 @@ class DssController extends Controller
     }
 
     public function dssAlarmAdd(Request $request)
-{
-   try {
-    $data = json_encode($request->all(), JSON_PRETTY_PRINT) . "\n";
-    Storage::disk('local')->append('dss_alarm_log.txt', $data);
-    return response()->json(['message' => 'Запись успешно добавлена', 'data' => $request->all()], 201);
-} catch (\Exception $e) {
-    return response()->json(['error' => 'Ошибка при записи в файл', 'data'=>$e->getMessage()], 500);
-}
+    {
+        try {
+            $data = json_encode($request->all(), JSON_PRETTY_PRINT) . "\n";
+            Storage::disk('local')->append('dss_alarm_log.txt', $data);
+            return response()->json(['message' => 'Запись успешно добавлена', 'data' => $request->all()], 201);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Ошибка при записи в файл', 'data' => $e->getMessage()], 500);
+        }
+    }
 
-}
+    public function dssDevicesUpdate(Request $request)
+    {
+        $devaices = Devaice::where('id', $request->id)->get();
+        if ($devaices->isEmpty()) {
+            return response()->json(['error' => 'Устройства не найдены'], 404);
+        }
+        foreach ($devaices as $device) {
+            $device->update($request->all());
+        }
+        return response()->json(['status' => true, 'message' => 'Устройства успешно обновлены', 'data' => $devaices], 200);
+    }
 
-  
-
+    public function dssDevices(Request $request)
+    {
+        $devaices = Devaice::all();
+        if ($devaices->isEmpty()) {
+            return response()->json(['error' => 'Устройства не найдены'], 404);
+        }
+        return response()->json(['status' => true, 'message' => 'Устройства успешно получены', 'data' => $devaices], 200);
+    }
 }
