@@ -155,6 +155,13 @@ class TaskCotroller extends Controller
             if ($request->has('end_date')) {
                 $tasks->where('tasks.end_date', '<=', $request->end_date);
             }
+            if ($request->has('warehouse_id')) {
+                $tasks->whereExists(function ($query) use ($request) {
+                    $query->from('task_loadings')
+                          ->whereRaw('task_loadings.task_id = tasks.id')
+                          ->where('task_loadings.warehouse_id', $request->warehouse_id);
+                });
+            }
             if ($request->has('search')) {
                 $tasks->where(function ($q) use ($request) {
                     $q->where('tasks.name', 'like', '%' . $request->search . '%')

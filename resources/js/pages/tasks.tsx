@@ -1,4 +1,5 @@
 import AppLayout from '@/layouts/app-layout';
+import TaskLayouts from '@/layouts/task-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import { Tascks } from '@/components/tasks/task';
@@ -23,8 +24,11 @@ export default function Tasks() {
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
              <Head title={t('tasks')} />
+            <TaskLayouts>
+            
             <TascksMiddle />
-                
+            
+             </TaskLayouts>   
            
         </AppLayout>
     );
