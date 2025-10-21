@@ -275,7 +275,7 @@ useEffect(() => {
       className="grid grid-cols-11 gap-2 items-center px-2 py-2 border-b text-sm hover:bg-gray-50"
     >
       <div className="font-bold">{visitor.plate_number}</div>
-      <div>{visitor.truck_own ? "Собственный" : "Чужой"}</div>
+      <div>{visitor.truck_own || "Не указано"}</div>
       <div>{visitor.truck_model_name || '-'}</div>
       <div>{visitor.name || '-'}</div>
       <div>{visitor.description || '-'}</div>

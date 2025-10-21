@@ -78,7 +78,7 @@ export default function TrucksTable() {
               >
                 <td className="py-1 px-3 whitespace-nowrap">{task.truck_plate_number || "-"}</td>
                 <td className="py-1 px-3 whitespace-nowrap">{task.truck_model_name || "-"}</td>
-                <td className="py-1 px-3 whitespace-nowrap">{task.truck_own ? "Собственный" : "Чужой"}</td>
+                <td className="py-1 px-3 whitespace-nowrap">{task.truck_own || "Не указано"}</td>
                 <td className="py-1 px-3 whitespace-nowrap">{task.name || "-"}</td>
                 <td className="py-1 px-3 whitespace-nowrap">{task.description || "-"}</td>
                 <td className="py-1 px-3 whitespace-nowrap">{task.user_name || "-"}</td>

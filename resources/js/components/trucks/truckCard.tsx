@@ -49,7 +49,7 @@ const TruckCard: React.FC<TruckCardProps> = ({ truck, onEdit }) => (
         </h2>
         <div className="space-y-2 mb-4">
             <InfoRow label="Гос. номер" value={truck.plate_number} />
-            <InfoRow label="Владелец" value={truck.truck_own ? "Собственный" : "Чужой"} />
+            <InfoRow label="Собственность" value={truck.truck_own || "Не указано"} />
             <InfoRow label="Марка" value={truck.truck_brand_name} />
             <InfoRow label="Категория" value={truck.truck_categories_name} />
             <InfoRow label="Цвет" value={truck.color} />

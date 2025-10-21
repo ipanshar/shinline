@@ -29,7 +29,7 @@ class TruckCotroller extends Controller
                 'trailer_height' => 'nullable|numeric',
                 'trailer_width' => 'nullable|numeric',
                 'trailer_length' => 'nullable|numeric',
-                'own' => 'nullable|boolean',
+                'own' => 'nullable|string|in:не указано,собственный,арендованный,личный,государственный',
                 'trailer_load_capacity' => 'nullable|numeric'
             ]);
             $truck = Truck::create($validate);
@@ -66,7 +66,7 @@ class TruckCotroller extends Controller
                 'trailer_width' => 'nullable|numeric',
                 'trailer_length' => 'nullable|numeric',
                 'trailer_load_capacity' => 'nullable|numeric',
-                'own' => 'nullable|boolean',
+                'own' => 'nullable|string|in:не указано,собственный,арендованный,личный,государственный',
                 'truck_category_id' => 'nullable|integer'
             ]);
             $truck = Truck::find($validate['id']);

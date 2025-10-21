@@ -63,7 +63,7 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     trailer_height: undefined,
     trailer_width: undefined,
     trailer_length: undefined,
-    own: false,
+    own: 'не указано',
     trailer_load_capacity: undefined,
   });   
     const [loading, setLoading] = useState(false);
@@ -295,15 +295,20 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
           className="w-full border border-gray-300 rounded px-3 py-2"
         />
       </div>
-      <div className="flex items-center col-span-2">
-        <input
-          type="checkbox"
+      <div>
+        <label className="block mb-1 font-medium">Собственность</label>
+        <select
           name="own"
-          checked={formData.own}
+          value={formData.own}
           onChange={handleChange}
-          className="mr-2"
-        />
-        <label className="font-medium">Собственный</label>
+          className="w-full border border-gray-300 rounded px-3 py-2"
+        >
+          <option value="не указано">Не указано</option>
+          <option value="собственный">Собственный</option>
+          <option value="арендованный">Арендованный</option>
+          <option value="личный">Личный</option>
+          <option value="государственный">Государственный</option>
+        </select>
       </div>
       <div className="flex justify-end col-span-2">
         <button

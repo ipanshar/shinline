@@ -80,7 +80,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
     trailer_height: truck.trailer_height,
     trailer_width: truck.trailer_width,
     trailer_length: truck.trailer_length,
-    own: truck.truck_own ? true : false,
+    own: truck.truck_own || 'не указано',
     trailer_load_capacity: truck.trailer_load_capacity,
   });
   
@@ -136,7 +136,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
       trailer_height: truck.trailer_height,
       trailer_width: truck.trailer_width,
       trailer_length: truck.trailer_length,
-      own: truck.truck_own ? true : false,
+      own: truck.truck_own || 'не указано',
       trailer_load_capacity: truck.trailer_load_capacity,
     });
   }, [truck]);
@@ -386,15 +386,20 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
             />
           </div>
           
-          <div className="flex items-center col-span-2">
-            <input
-              type="checkbox"
+          <div>
+            <label className="block text-sm font-medium mb-2">Собственность</label>
+            <select
               name="own"
-              checked={formData.own}
+              value={formData.own}
               onChange={handleChange}
-              className="mr-2 h-4 w-4 rounded border-input"
-            />
-            <label className="text-sm font-medium">Собственный</label>
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value="не указано">Не указано</option>
+              <option value="собственный">Собственный</option>
+              <option value="арендованный">Арендованный</option>
+              <option value="личный">Личный</option>
+              <option value="государственный">Государственный</option>
+            </select>
           </div>
           
           <div className="flex justify-end gap-3 col-span-2">
