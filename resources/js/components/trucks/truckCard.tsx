@@ -23,6 +23,7 @@ InfoRow.propTypes = {
 
 // Типизация пропсов грузовика
 interface Truck {
+    id: number;
     truck_own: any;
     truck_model_name?: string;
     plate_number?: string;
@@ -35,8 +36,13 @@ interface Truck {
     created_at: string | number | Date;
 }
 
+interface TruckCardProps {
+    truck: Truck;
+    onEdit?: (truck: Truck) => void;
+}
+
 // Основная карточка грузовика
-const TruckCard: React.FC<{ truck: Truck }> = ({ truck }) => (
+const TruckCard: React.FC<TruckCardProps> = ({ truck, onEdit }) => (
     <div className="border rounded-lg p-5 bg-card shadow-sm hover:shadow-md transition-shadow">
         <h2 className="text-xl font-semibold mb-3 text-foreground">
             {truck.truck_model_name || "Без модели"}
@@ -54,7 +60,12 @@ const TruckCard: React.FC<{ truck: Truck }> = ({ truck }) => (
         <div className="text-xs text-muted-foreground mb-4">
             Добавлен: {new Date(truck.created_at).toLocaleDateString()}
         </div>
-        <Button variant="outline" size="sm" className="w-full">
+        <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full"
+            onClick={() => onEdit && onEdit(truck)}
+        >
             <Pencil className="mr-2 h-4 w-4" />
             Редактировать
         </Button>

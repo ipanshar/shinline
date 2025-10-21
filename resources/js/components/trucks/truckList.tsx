@@ -3,6 +3,7 @@ import axios from "axios";
 import TruckCard from "@/components/trucks/truckCard";
 import Pagination from "@/components/pagination"
 import AddTruckModal from "./AddTruckModal";
+import EditTruckModal from "./EditTruckModal";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
@@ -41,6 +42,8 @@ const TruckList: React.FC = () => {
     const [lastPage, setLastPage] = useState<number>(1);
     const [plate_number, setPlate_number] = useState<string>('');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
     const fetchTrucksData = async () => {
         setLoading(true); // Начинаем загрузку
         try {
@@ -70,6 +73,17 @@ const TruckList: React.FC = () => {
 
     const setPage = (page: number) => {
         setCurrentPage(page);
+    };
+
+    const handleEdit = (truck: Truck) => {
+        setSelectedTruck(truck);
+        setIsEditModalOpen(true);
+    };
+
+    const handleTruckUpdated = () => {
+        setIsEditModalOpen(false);
+        setSelectedTruck(null);
+        fetchTrucksData();
     };
 
     if (loading) return <div className="flex items-center justify-center p-8 text-muted-foreground">Загрузка...</div>;
@@ -109,8 +123,19 @@ const TruckList: React.FC = () => {
             />
             </div>
             {trucks.map((truck) => (
-                <TruckCard key={truck.id} truck={truck} />
+                <TruckCard key={truck.id} truck={truck} onEdit={handleEdit} />
             ))}
+            {selectedTruck && (
+                <EditTruckModal
+                    isOpen={isEditModalOpen}
+                    onClose={() => {
+                        setIsEditModalOpen(false);
+                        setSelectedTruck(null);
+                    }}
+                    onTruckUpdated={handleTruckUpdated}
+                    truck={selectedTruck}
+                />
+            )}
             <div className="col-span-full flex justify-center mt-4">
            <Pagination currentPage={currentPage} lastPage={lastPage} setPage={setPage}/>
             </div>
