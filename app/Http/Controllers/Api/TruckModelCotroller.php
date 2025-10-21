@@ -33,17 +33,18 @@ class TruckModelCotroller extends Controller
     }
     public function getTruckModels(Request $request)
     {
-        $truckModels = TruckModel::all();
-        $truckModels->leftJoin('truck_brands', 'truck_models.truck_brand_id', '=', 'truck_brands.id')
+        $truckModels = TruckModel::leftJoin('truck_brands', 'truck_models.truck_brand_id', '=', 'truck_brands.id')
             ->leftJoin('truck_categories', 'truck_models.truck_category_id', '=', 'truck_categories.id')
             ->select('truck_models.*', 'truck_brands.name as truck_brand_name', 'truck_categories.name as truck_category_name')
             ->get();
+        
         if ($truckModels->isEmpty()) {
             return response()->json([
                 'status' => false,
                 'message' => 'No truck models found'
             ], 404);
         }
+        
         return response()->json([
             'status' => true,
             'message' => 'Truck models retrieved successfully',

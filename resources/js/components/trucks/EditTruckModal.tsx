@@ -18,7 +18,7 @@ interface Truck {
   trailer_height: number | undefined;
   trailer_width: number | undefined;
   trailer_length: number | undefined;
-  own: boolean | undefined;
+  truck_own: any;
   trailer_load_capacity: number | undefined;
   truck_category_id: number | undefined;
 }
@@ -80,9 +80,14 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
     trailer_height: truck.trailer_height,
     trailer_width: truck.trailer_width,
     trailer_length: truck.trailer_length,
-    own: truck.own || false,
+    own: truck.truck_own ? true : false,
     trailer_load_capacity: truck.trailer_load_capacity,
   });
+  
+  // Логирование для диагностики
+  console.log('EditTruckModal - Полученный truck:', truck);
+  console.log('EditTruckModal - truck.truck_own:', truck.truck_own);
+  console.log('EditTruckModal - Начальный formData:', formData);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,18 +96,18 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
     const fetchReferenceData = async () => {
       try {
         const [modelsRes, brandsRes, categoriesRes, trailerModelsRes, trailerTypesRes] = await Promise.all([
-          axios.post('/trucs/gettruckmodels'),
-          axios.post('/trucs/gettruckbrands'),
+          axios.post('/trucks/gettruckmodels'),
+          axios.post('/trucks/gettruckbrands'),
           axios.post('/trucs/getcategories'),
           axios.post('/trailer/gettrailermodels'),
           axios.post('/trailer/gettrailertypes'),
         ]);
 
-        setTruckModels(modelsRes.data);
-        setTruckBrands(brandsRes.data);
-        setTruckCategories(categoriesRes.data);
-        setTrailerModels(trailerModelsRes.data);
-        setTrailerTypes(trailerTypesRes.data);
+        setTruckModels(modelsRes.data.data);
+        setTruckBrands(brandsRes.data.data);
+        setTruckCategories(categoriesRes.data.data);
+        setTrailerModels(trailerModelsRes.data.data);
+        setTrailerTypes(trailerTypesRes.data.data);
       } catch (error) {
         setError('Ошибка при загрузке данных');
       }
@@ -131,7 +136,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
       trailer_height: truck.trailer_height,
       trailer_width: truck.trailer_width,
       trailer_length: truck.trailer_length,
-      own: truck.own || false,
+      own: truck.truck_own ? true : false,
       trailer_load_capacity: truck.trailer_load_capacity,
     });
   }, [truck]);
@@ -152,11 +157,21 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
     setError(null);
     
     try {
-      await axios.post('/trucs/updatetruck', formData);
+      // Отправляем все поля, заменяя undefined на null
+      const dataToSend: any = {};
+      Object.entries(formData).forEach(([key, value]) => {
+        dataToSend[key] = value === undefined ? null : value;
+      });
+      
+      console.log('Отправляемые данные:', dataToSend);
+      const response = await axios.post('/trucs/updatetruck', dataToSend);
+      console.log('Ответ сервера:', response.data);
       onTruckUpdated();
       onClose();
-    } catch (error) {
-      setError('Ошибка при обновлении грузовика');
+    } catch (error: any) {
+      console.error('Ошибка при обновлении:', error);
+      console.error('Ответ сервера:', error.response?.data);
+      setError(error.response?.data?.message || 'Ошибка при обновлении грузовика');
     } finally {
       setLoading(false);
     }

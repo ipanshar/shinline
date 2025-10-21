@@ -51,6 +51,7 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
   
     const [formData, setFormData] = useState({
     name: '',
+    user_id: 1,
     plate_number: '',
     vin: '',
     truck_model_id: undefined,
@@ -73,18 +74,18 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     const fetchReferenceData = async () => {
       try { 
         const [modelsRes, brandsRes, categoriesRes, trailerModelsRes, trailerTypesRes] = await Promise.all([
-          axios.post('/trucs/gettruckmodels'),
-          axios.post('/trucs/gettruckbrands'),
+          axios.post('/trucks/gettruckmodels'),
+          axios.post('/trucks/gettruckbrands'),
           axios.post('/trucs/getcategories'),
           axios.post('/trailer/gettrailermodels'),
           axios.post('/trailer/gettrailertypes'),
         ]);
 
-        setTruckModels(modelsRes.data);
-        setTruckBrands(brandsRes.data);
-        setTruckCategories(categoriesRes.data);
-        setTrailerModels(trailerModelsRes.data);
-        setTrailerTypes(trailerTypesRes.data);
+        setTruckModels(modelsRes.data.data);
+        setTruckBrands(brandsRes.data.data);
+        setTruckCategories(categoriesRes.data.data);
+        setTrailerModels(trailerModelsRes.data.data);
+        setTrailerTypes(trailerTypesRes.data.data);
       } catch (error) {
         setError('Ошибка при загрузке данных');
       }
@@ -105,11 +106,21 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.post('/trucs/addtruck', formData);
+      // Отправляем все поля, заменяя undefined на null
+      const dataToSend: any = {};
+      Object.entries(formData).forEach(([key, value]) => {
+        dataToSend[key] = value === undefined ? null : value;
+      });
+      
+      console.log('Отправляемые данные:', dataToSend);
+      const response = await axios.post('/trucs/addtruck', dataToSend);
+      console.log('Ответ сервера:', response.data);
       onTruckAdded(response.data);
       onClose();
-    } catch (error) {
-      setError('Ошибка при добавлении грузовика');
+    } catch (error: any) {
+      console.error('Ошибка при добавлении:', error);
+      console.error('Ответ сервера:', error.response?.data);
+      setError(error.response?.data?.message || 'Ошибка при добавлении грузовика');
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Truck;
+use App\Models\TruckCategory;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -14,21 +15,22 @@ class TruckCotroller extends Controller
     {
         try {
             $validate = $request->validate([
-                'name' => 'string|max:255',
+                'name' => 'nullable|string|max:255',
                 'user_id' => 'required|integer',
                 'plate_number' => 'required|string|max:255',
-                'truck_brand_id' => 'integer',
-                'truck_type_id' => 'integer',
-                'truck_model_id' => 'integer',
-                'color' => 'string|max:255',
-                'trailer_model_id' => 'integer',
-                'trailer_type_id' => 'integer',
-                'trailer_number' => 'string|max:255',
-                'trailer_height' => 'numeric',
-                'trailer_width' => 'numeric',
-                'trailer_length' => 'numeric',
-                'own' => 'boolean',
-                'trailer_load_capacity' => 'numeric'
+                'vin' => 'nullable|string|max:255',
+                'truck_brand_id' => 'nullable|integer',
+                'truck_category_id' => 'nullable|integer',
+                'truck_model_id' => 'nullable|integer',
+                'color' => 'nullable|string|max:255',
+                'trailer_model_id' => 'nullable|integer',
+                'trailer_type_id' => 'nullable|integer',
+                'trailer_number' => 'nullable|string|max:255',
+                'trailer_height' => 'nullable|numeric',
+                'trailer_width' => 'nullable|numeric',
+                'trailer_length' => 'nullable|numeric',
+                'own' => 'nullable|boolean',
+                'trailer_load_capacity' => 'nullable|numeric'
             ]);
             $truck = Truck::create($validate);
             $truck->save();
@@ -50,22 +52,22 @@ class TruckCotroller extends Controller
         try {
             $validate = $request->validate([
                 'id' => 'required|integer',
-                'name' => 'string|max:255',
+                'name' => 'nullable|string|max:255',
                 'user_id' => 'required|integer',
                 'plate_number' => 'required|string|max:255',
-                'truck_brand_id' => 'integer',
-                'vin' => 'string|max:255',
-                'truck_model_id' => 'integer',
-                'color' => 'string|max:255',
-                'trailer_model_id' => 'integer',
-                'trailer_type_id' => 'integer',
-                'trailer_number' => 'string|max:255',
-                'trailer_height' => 'numeric',
-                'trailer_width' => 'numeric',
-                'trailer_length' => 'numeric',
-                'trailer_load_capacity' => 'numeric',
-                'own' => 'boolean',
-                'truck_category_id' => 'integer'
+                'truck_brand_id' => 'nullable|integer',
+                'vin' => 'nullable|string|max:255',
+                'truck_model_id' => 'nullable|integer',
+                'color' => 'nullable|string|max:255',
+                'trailer_model_id' => 'nullable|integer',
+                'trailer_type_id' => 'nullable|integer',
+                'trailer_number' => 'nullable|string|max:255',
+                'trailer_height' => 'nullable|numeric',
+                'trailer_width' => 'nullable|numeric',
+                'trailer_length' => 'nullable|numeric',
+                'trailer_load_capacity' => 'nullable|numeric',
+                'own' => 'nullable|boolean',
+                'truck_category_id' => 'nullable|integer'
             ]);
             $truck = Truck::find($validate['id']);
             if ($truck) {
@@ -320,6 +322,17 @@ class TruckCotroller extends Controller
 
         return response()->json([
             'found' => false,
+        ], 200);
+    }
+
+    public function getCategories()
+    {
+        $categories = TruckCategory::orderBy('name')->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Категории грузовиков загружены',
+            'data' => $categories,
         ], 200);
     }
 

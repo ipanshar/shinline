@@ -10,16 +10,17 @@ class TrailerModelCotroller extends Controller
 {
     public function getTrailerModels(Request $request)
     {
-        $trailerModels = \App\Models\TrailerModel::all();
-        $trailerModels->leftJoin('trailer_types', 'trailer_models.trailer_type_id', '=', 'trailer_types.id')
+        $trailerModels = \App\Models\TrailerModel::leftJoin('trailer_types', 'trailer_models.trailer_type_id', '=', 'trailer_types.id')
             ->select('trailer_models.*', 'trailer_types.name as trailer_type_name')
             ->get();
+        
         if ($trailerModels->isEmpty()) {
             return response()->json([
                 'status' => false,
                 'message' => 'No trailer models found',
             ], 404);
         }
+        
         return response()->json([
             'status' => true,
             'message' => 'Trailer models retrieved successfully',
