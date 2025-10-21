@@ -7,6 +7,11 @@ import { initializeTheme } from './hooks/use-appearance';
 import { UserProvider} from './components/UserContext';
 import '@/pages/css/all.css';
 import './i18n';
+import axios from 'axios';
+
+// Настройка axios для отправки cookies (Sanctum токен)
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
 
 

@@ -11,6 +11,9 @@ import { FormControl, InputLabel, MenuItem, Select, SelectChangeEvent } from '@m
 import axios from 'axios';
 import "./HourlySchedule.css";
 import { ru } from 'date-fns/locale';
+import EditTaskTimeModal from '@/components/tasks/EditTaskTimeModal';
+import { Button } from '@/components/ui/button';
+import { Clock } from 'lucide-react';
 
 interface Warehouse {
   id: number;
@@ -42,6 +45,8 @@ const HourlySchedule = () => {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const { t } = useTranslation();
 
@@ -103,6 +108,42 @@ const HourlySchedule = () => {
   // Обработчик изменения даты
   const handleDateChange = (date: Date | null) => {
     setSelectedDate(date);
+  };
+
+  // Открытие модалки редактирования времени
+  const handleEditTime = (task: Task) => {
+    setSelectedTask(task);
+    setIsEditModalOpen(true);
+  };
+
+  // Закрытие модалки
+  const handleCloseModal = () => {
+    setIsEditModalOpen(false);
+    setSelectedTask(null);
+  };
+
+  // Перезагрузка задач после обновления
+  const handleTaskUpdated = () => {
+    if (selectedDate && selectedWarehouse) {
+      setLoading(true);
+      const formattedDate = formatDateForAPI(selectedDate);
+      
+      axios.post('/task/gettasks', {
+        plan_date: formattedDate,
+        warehouse_id: selectedWarehouse
+      })
+        .then(response => {
+          if (response.data.status) {
+            setTasks(response.data.data);
+          }
+        })
+        .catch(error => {
+          console.error('Ошибка при загрузке задач:', error);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
   };
 
   const breadcrumbs: BreadcrumbItem[] = [
@@ -181,9 +222,16 @@ const HourlySchedule = () => {
                             padding: '12px',
                             border: '1px solid #ccc',
                             backgroundColor: '#f5f5f5',
-                            width: '60%',
+                            width: '45%',
                             textAlign: 'center'
                           }}>Примечание</th>
+                          <th style={{
+                            padding: '12px',
+                            border: '1px solid #ccc',
+                            backgroundColor: '#f5f5f5',
+                            width: '15%',
+                            textAlign: 'center'
+                          }}>Действия</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -204,6 +252,20 @@ const HourlySchedule = () => {
                               border: '1px solid #ccc',
                               textAlign: 'left'
                             }}>{task.description || '-'}</td>
+                            <td style={{
+                              padding: '8px',
+                              border: '1px solid #ccc',
+                              textAlign: 'center'
+                            }}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditTime(task)}
+                              >
+                                <Clock className="mr-2 h-4 w-4" />
+                                Изменить время
+                              </Button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -216,6 +278,14 @@ const HourlySchedule = () => {
             ))}
           </div>
         </div>
+
+        {/* Модальное окно редактирования времени */}
+        <EditTaskTimeModal
+          isOpen={isEditModalOpen}
+          onClose={handleCloseModal}
+          task={selectedTask}
+          onTaskUpdated={handleTaskUpdated}
+        />
 
       </TaskLayouts>
 
