@@ -26,6 +26,7 @@ use App\Models\Visitor;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Telegram\Bot\Laravel\Facades\Telegram;
+use Illuminate\Support\Facades\DB as FacadesDB;
 
 class TaskCotroller extends Controller
 {
@@ -148,6 +149,13 @@ class TaskCotroller extends Controller
             }
             if ($request->has('plan_date')) {
                 $tasks->where('tasks.plan_date', '>=', $request->plan_date);
+            }
+            if ($request->has('plan_date_warehouse')) {
+                $tasks->whereExists(function ($query) use ($request) {
+                    $query->from('task_loadings')
+                          ->whereRaw('task_loadings.task_id = tasks.id')
+                          ->where('task_loadings.plane_date', '>=', $request->plan_date_warehouse);
+                });
             }
             if ($request->has('begin_date')) {
                 $tasks->where('tasks.begin_date', '>=', $request->begin_date);
@@ -609,7 +617,12 @@ class TaskCotroller extends Controller
                     $weighing,
                     // $plan_gate ? $plan_gate->id : null, 
                     $warehouse_d['barcode'],
-                    $warehouse_d['document']
+                    $warehouse_d['document'],
+                    null,
+                    0,
+                    0,
+                    $validate['plan_date']
+
                 );
             }
             // Удаляем неактивные склады
@@ -903,13 +916,26 @@ class TaskCotroller extends Controller
         $document = null,
         $comment = null,
         $warehouse_gate_plan_id = 0,
-        $warehouse_gate_fact_id = 0
+        $warehouse_gate_fact_id = 0,
+        $plan_date = null
     ) {
-
         if (!$task_id || !$warehouse_id) {
             return null; // Invalid parameters
         }
         $data = [];
+        
+        // Обработка plan_date для каждого склада
+        if ($plan_date) {
+            if (!$sorting_order || $sorting_order == 1) {
+                // Для первого склада используем исходную дату
+                $data['plane_date'] = $plan_date;
+            } else {
+                // Для последующих складов добавляем по 30 минут к исходной дате
+                $date = Carbon::parse($plan_date);
+                $additional_minutes = ($sorting_order - 1) * 30;
+                $data['plane_date'] = $date->addMinutes($additional_minutes)->format('Y-m-d H:i:s');
+            }
+        }
 
         if ($sorting_order) {
             $data['sorting_order'] = $sorting_order;

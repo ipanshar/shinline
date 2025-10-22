@@ -70,7 +70,7 @@ const HourlySchedule = () => {
       const formattedDate = formatDateForAPI(selectedDate);
       
       axios.post('/task/gettasks', {
-        plan_date: formattedDate,
+        plan_date_warehouse: formattedDate,
         warehouse_id: selectedWarehouse
       })
         .then(response => {

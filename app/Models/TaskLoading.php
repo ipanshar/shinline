@@ -11,6 +11,8 @@ class TaskLoading extends Model
         'warehouse_id',
         'warehouse_gate_plan_id',
         'warehouse_gate_fact_id',
+        'plane_date',
+        'fact_date',
         'sort_order',
         'description',
         'barcode',
