@@ -1079,4 +1079,45 @@ class TaskCotroller extends Controller
 
         return $permit;
     }
+
+    /**
+     * Обновление времени задачи
+     */
+    public function updateTaskTime(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'task_id' => 'required|integer|exists:tasks,id',
+                'plan_date' => 'required|date',
+            ]);
+
+            $task = Task::find($validate['task_id']);
+            
+            if (!$task) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Задача не найдена'
+                ], 404);
+            }
+
+            // Конвертируем ISO формат в MySQL формат
+            $planDate = Carbon::parse($validate['plan_date'])->format('Y-m-d H:i:s');
+            
+            // Обновляем только plan_date
+            $task->plan_date = $planDate;
+            $task->save();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Время задачи успешно обновлено',
+                'data' => $task
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка при обновлении времени: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

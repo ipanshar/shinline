@@ -119,6 +119,7 @@ Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
 Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания 
 Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание 
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
+Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime'])->middleware('auth:sanctum'); //Обновить время задачи
 
 
 

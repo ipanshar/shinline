@@ -51,6 +51,7 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
   
     const [formData, setFormData] = useState({
     name: '',
+    user_id: 1,
     plate_number: '',
     vin: '',
     truck_model_id: undefined,
@@ -62,7 +63,7 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     trailer_height: undefined,
     trailer_width: undefined,
     trailer_length: undefined,
-    own: false,
+    own: 'не указано',
     trailer_load_capacity: undefined,
   });   
     const [loading, setLoading] = useState(false);
@@ -73,18 +74,18 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     const fetchReferenceData = async () => {
       try { 
         const [modelsRes, brandsRes, categoriesRes, trailerModelsRes, trailerTypesRes] = await Promise.all([
-          axios.post('/trucs/gettruckmodels'),
-          axios.post('/trucs/gettruckbrands'),
+          axios.post('/trucks/gettruckmodels'),
+          axios.post('/trucks/gettruckbrands'),
           axios.post('/trucs/getcategories'),
           axios.post('/trailer/gettrailermodels'),
           axios.post('/trailer/gettrailertypes'),
         ]);
 
-        setTruckModels(modelsRes.data);
-        setTruckBrands(brandsRes.data);
-        setTruckCategories(categoriesRes.data);
-        setTrailerModels(trailerModelsRes.data);
-        setTrailerTypes(trailerTypesRes.data);
+        setTruckModels(modelsRes.data.data);
+        setTruckBrands(brandsRes.data.data);
+        setTruckCategories(categoriesRes.data.data);
+        setTrailerModels(trailerModelsRes.data.data);
+        setTrailerTypes(trailerTypesRes.data.data);
       } catch (error) {
         setError('Ошибка при загрузке данных');
       }
@@ -105,11 +106,21 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.post('/trucs/addtruck', formData);
+      // Отправляем все поля, заменяя undefined на null
+      const dataToSend: any = {};
+      Object.entries(formData).forEach(([key, value]) => {
+        dataToSend[key] = value === undefined ? null : value;
+      });
+      
+      console.log('Отправляемые данные:', dataToSend);
+      const response = await axios.post('/trucs/addtruck', dataToSend);
+      console.log('Ответ сервера:', response.data);
       onTruckAdded(response.data);
       onClose();
-    } catch (error) {
-      setError('Ошибка при добавлении грузовика');
+    } catch (error: any) {
+      console.error('Ошибка при добавлении:', error);
+      console.error('Ответ сервера:', error.response?.data);
+      setError(error.response?.data?.message || 'Ошибка при добавлении грузовика');
     } finally {
       setLoading(false);
     }
@@ -284,15 +295,20 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
           className="w-full border border-gray-300 rounded px-3 py-2"
         />
       </div>
-      <div className="flex items-center col-span-2">
-        <input
-          type="checkbox"
+      <div>
+        <label className="block mb-1 font-medium">Собственность</label>
+        <select
           name="own"
-          checked={formData.own}
+          value={formData.own}
           onChange={handleChange}
-          className="mr-2"
-        />
-        <label className="font-medium">Собственный</label>
+          className="w-full border border-gray-300 rounded px-3 py-2"
+        >
+          <option value="не указано">Не указано</option>
+          <option value="собственный">Собственный</option>
+          <option value="арендованный">Арендованный</option>
+          <option value="личный">Личный</option>
+          <option value="государственный">Государственный</option>
+        </select>
       </div>
       <div className="flex justify-end col-span-2">
         <button

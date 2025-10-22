@@ -3,7 +3,9 @@ import axios from "axios";
 import TruckCard from "@/components/trucks/truckCard";
 import Pagination from "@/components/pagination"
 import AddTruckModal from "./AddTruckModal";
-import { Button } from "@mui/material";
+import EditTruckModal from "./EditTruckModal";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 interface Truck {
     id: number;
@@ -40,6 +42,8 @@ const TruckList: React.FC = () => {
     const [lastPage, setLastPage] = useState<number>(1);
     const [plate_number, setPlate_number] = useState<string>('');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
     const fetchTrucksData = async () => {
         setLoading(true); // Начинаем загрузку
         try {
@@ -71,17 +75,28 @@ const TruckList: React.FC = () => {
         setCurrentPage(page);
     };
 
-    if (loading) return <div>Загрузка...</div>;
+    const handleEdit = (truck: Truck) => {
+        setSelectedTruck(truck);
+        setIsEditModalOpen(true);
+    };
+
+    const handleTruckUpdated = () => {
+        setIsEditModalOpen(false);
+        setSelectedTruck(null);
+        fetchTrucksData();
+    };
+
+    if (loading) return <div className="flex items-center justify-center p-8 text-muted-foreground">Загрузка...</div>;
 
     return (
         <div>
-            <div className="mb-4">
+            <div className="mb-6">
                 <input
                     type="text"
                     value={plate_number}
                     onChange={(e) => setPlate_number(e.target.value)}
-                    placeholder="Поиск по номеру"
-                    className="border p-1 rounded w-full max-w-sm"
+                    placeholder="Поиск по номеру..."
+                    className="flex h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             fetchTrucksData();
@@ -90,11 +105,14 @@ const TruckList: React.FC = () => {
                 />
             </div>
             {trucks.length === 0 ? (
-                <div>Грузовики не найдены.</div>
+                <div className="text-center p-8 text-muted-foreground">Грузовики не найдены.</div>
             ) : null}
              <div className="grid auto-rows-min gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <div className="col-span-full flex justify-end mb-4">
-            <Button variant="contained" color="primary" onClick={() => setIsModalOpen(true)}>Добавить грузовик</Button>
+            <Button onClick={() => setIsModalOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Добавить грузовик
+            </Button>
             <AddTruckModal 
                 isOpen={isModalOpen} 
                 onClose={() => setIsModalOpen(false)} 
@@ -105,8 +123,19 @@ const TruckList: React.FC = () => {
             />
             </div>
             {trucks.map((truck) => (
-                <TruckCard key={truck.id} truck={truck} />
+                <TruckCard key={truck.id} truck={truck} onEdit={handleEdit} />
             ))}
+            {selectedTruck && (
+                <EditTruckModal
+                    isOpen={isEditModalOpen}
+                    onClose={() => {
+                        setIsEditModalOpen(false);
+                        setSelectedTruck(null);
+                    }}
+                    onTruckUpdated={handleTruckUpdated}
+                    truck={selectedTruck}
+                />
+            )}
             <div className="col-span-full flex justify-center mt-4">
            <Pagination currentPage={currentPage} lastPage={lastPage} setPage={setPage}/>
             </div>
