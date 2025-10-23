@@ -150,4 +150,5 @@ Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRole
 Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
 
 // WhatsApp routes
-Route::post('/whatsapp/whatsapp-alarm-add', [\App\Http\Controllers\WhatsAppController::class, 'WhatsAppAlarmAdd']); //Добавление тревоги в WhatsApp
+Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'WhatsAppAlarmAdd']); // Логирование тревог из WhatsApp
+Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'verify']); // Верификация вебхука WhatsApp
