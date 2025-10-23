@@ -148,3 +148,6 @@ Route::post('/entrance-permit/deletecheckpoint', [EntryPermitController::class, 
 Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']); // Список пользователей без ролей для добавление задач
 
 Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
+
+// WhatsApp routes
+Route::post('/whatsapp/whatsapp-alarm-add', [\App\Http\Controllers\WhatsAppController::class, 'WhatsAppAlarmAdd']); //Добавление тревоги в WhatsApp
