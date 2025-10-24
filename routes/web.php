@@ -26,12 +26,14 @@ Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']);
+Route::get('/privacy', [RouteController::class, 'privacy']);
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');
     })->name('dashboard');
 
     //Pages
+
 Route::get('/roles_permissions', [RouteController::class, 'rolespermissions']);//Админка
 Route::get('/trucks', [RouteController::class, 'trucks']);
 Route::get('/tasks', [RouteController::class, 'tasks']);
