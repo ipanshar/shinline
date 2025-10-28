@@ -95,7 +95,16 @@ const HourlySchedule = () => {
   // Получение задач для конкретного часа
   const getTasksForHour = (hour: number) => {
     return tasks.filter(task => {
-      const taskHour = new Date(task.plan_date).getHours();
+      // Используем plane_date из task_loadings для выбранного склада
+      const taskLoading = task.task_loadings?.find(
+        (loading: any) => loading.warehouse_id == selectedWarehouse
+      );
+      
+      if (!taskLoading || !taskLoading.plane_date) {
+        return false;
+      }
+      
+      const taskHour = new Date(taskLoading.plane_date).getHours();
       return taskHour === hour;
     });
   };
@@ -129,7 +138,7 @@ const HourlySchedule = () => {
       const formattedDate = formatDateForAPI(selectedDate);
       
       axios.post('/task/gettasks', {
-        plan_date: formattedDate,
+        plan_date_warehouse: formattedDate,
         warehouse_id: selectedWarehouse
       })
         .then(response => {
