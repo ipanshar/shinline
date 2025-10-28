@@ -152,3 +152,7 @@ Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage'])
 // WhatsApp routes
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'WhatsAppAlarmAdd']); // Логирование тревог из WhatsApp
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'verify']); // Верификация вебхука WhatsApp
+
+//whatsapp business settings API
+Route::post('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate'])->middleware('auth:sanctum');
+Route::get('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsGet'])->middleware('auth:sanctum');

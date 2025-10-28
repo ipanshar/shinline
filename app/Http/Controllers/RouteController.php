@@ -55,6 +55,8 @@ class RouteController extends Controller
     public function privacy(){
         return Inertia::render('privacy');
     }
-
+    public function whatsappBusinessSettings(){
+        return Inertia::render('integration_whatsapp_business');
+    }
 
 }

@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck } from 'lucide-react';
+import { MessageCircle,MessageCircleCodeIcon,LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -45,6 +45,12 @@ const mainNavItems: NavItem[] = [
         icon: Boxes,
         role: 'Интегратор', // Доступ  для роль интегратор
     },
+       {
+        title: t('WhatsApp Business Settings'),
+        href: '/integration_whatsapp_business',
+        icon: MessageCircleCodeIcon,
+        role: 'Интегратор', // Доступ  для роль интегратор
+    },
     {
         title: t('warehouses'),
         href: '/warehouses',
@@ -66,7 +72,7 @@ const mainNavItems: NavItem[] = [
     {
         title: t('chat'),
         href: '/chat',
-        icon: ShieldCheck,
+        icon: MessageCircle,
         role: 'Оператор', // Доступ только для администраторов
     },
     {

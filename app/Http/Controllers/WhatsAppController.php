@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\WhatsAppBusinesSeting;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
@@ -39,6 +40,40 @@ class WhatsAppController extends Controller
                 'token' => $token
             ]);
             return response('Forbidden', 403);
+        }
+    }
+
+    public function whatsappBusinessSettingsCreateOrUpdate(Request $request)
+    {
+        // Логика для обработки настроек WhatsApp Business
+        if ($request->isMethod('post')) {
+            $data = $request->validate([
+                'phone_number_id' => 'required|string',
+                'waba_id' => 'required|string',
+                'business_account_id' => 'required|string',
+                'bearer_token' => 'required|string',
+                'host' => 'required|string',
+                'version' => 'required|string',
+            ]);
+
+            WhatsAppBusinesSeting::updateOrCreate(
+                ['phone_number_id' => $data['phone_number_id']],
+                $data
+            );
+
+            return redirect()->back()->with('success', 'Настройки успешно сохранены.');
+        }
+
+        return redirect()->back()->with('error', 'Некорректный метод запроса.');
+    }
+
+    public function whatsappBusinessSettingsGet(Request $request)
+    {
+        $settings = WhatsAppBusinesSeting::first();
+        if ($settings) {
+            return response()->json($settings, Response::HTTP_OK);
+        } else {
+            return response()->json(['message' => 'Настройки не найдены.'], Response::HTTP_NOT_FOUND);
         }
     }
 }

@@ -21,6 +21,7 @@ use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\WhatsAppController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -34,6 +35,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     //Pages
 
+Route::get('/integration_whatsapp_business', [RouteController::class, 'whatsappBusinessSettings']);
 Route::get('/roles_permissions', [RouteController::class, 'rolespermissions']);//Админка
 Route::get('/trucks', [RouteController::class, 'trucks']);
 Route::get('/tasks', [RouteController::class, 'tasks']);
@@ -49,6 +51,11 @@ route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 route::get('/warehouses/kpp', [RouteController::class, 'warehouseKPP']);
 Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings']);
 Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices']);
+
+//whatsapp business settings API
+Route::post('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate']);
+Route::get('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsGet']);
+
 
 //Settings roles
 Route::get('/roles', [RoleController::class, 'index']);

@@ -6,7 +6,7 @@ import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 const breadcrumbs: BreadcrumbItem[] = [
     {
-        title: 'Добро пожаловать в чат!',
+        title: 'WhatsApp business platform',
         href: '/chat',
     },
 ];
