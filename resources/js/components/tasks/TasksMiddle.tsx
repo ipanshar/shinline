@@ -27,12 +27,16 @@ const TasksMiddle: React.FC = () => {
   }
 
   const fetchTasks = (pageNum: number) => {
+    console.log('🔄 Обновление списка задач, страница:', pageNum);
     setLoading(true);
     setError(null);
     axios.post('/task/gettasks', { page: pageNum })
       .then(response => {
+        console.log('✅ Получен ответ от API:', response.data);
         if (response.data.status) {
-          setTasks(response.data.data.tasks || response.data.data);
+          const newTasks = response.data.data.tasks || response.data.data;
+          console.log('📦 Новые задачи:', newTasks.length, 'шт.');
+          setTasks(newTasks);
           setTotalPages(response.data.data.totalPages || 1);
         } else {
           setError('Ошибка при загрузке задач');
@@ -40,6 +44,7 @@ const TasksMiddle: React.FC = () => {
         }
       })
       .catch(err => {
+        console.error('❌ Ошибка загрузки задач:', err);
         setError(err.message || 'Ошибка запроса');
         setTasks([]);
       })
@@ -72,7 +77,7 @@ const TasksMiddle: React.FC = () => {
       {error && <div className="text-red-600">Ошибка: {error}</div>}
       {!loading && !error && tasks.length === 0 && <div>Задачи не найдены</div>}
 
-      {!loading && !error && tasks.length > 0 && <TaskTable tasks={tasks} />}
+      {!loading && !error && tasks.length > 0 && <TaskTable tasks={tasks} fetchTasks={() => fetchTasks(page)} />}
 
       <div className="mt-4 flex items-center justify-center space-x-4">
         <button
@@ -104,7 +109,11 @@ const TasksMiddle: React.FC = () => {
         </button>
       </div>
 
-      <AddTaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <AddTaskModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onTaskAdded={() => fetchTasks(page)} 
+      />
     </div>
   );
 };

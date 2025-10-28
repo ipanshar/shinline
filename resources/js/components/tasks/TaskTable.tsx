@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import EditTaskModal, { EditTaskModalProps } from './EditTaskModal';
 
 type TaskWeighing = {
@@ -61,7 +61,13 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks, fetchTasks }) => {
   const [modalTaskId, setModalTaskId] = useState<number | null>(null);
   const isModalOpen = modalTaskId !== null;
 
+  // Отслеживаем изменения tasks
+  useEffect(() => {
+    console.log('🔄 TaskTable получил новые tasks:', tasks.length, 'шт.');
+  }, [tasks]);
+
   const handleModalSaved = () => {
+    console.log('💾 Задача сохранена, обновляем список...');
     setModalTaskId(null);
     fetchTasks();
   };

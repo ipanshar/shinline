@@ -417,7 +417,8 @@ class TaskCotroller extends Controller
                 'phone' => 'nullable|string|max:50',
                 'Yard' => 'nullable|string|max:255',
                 'description' => 'nullable|string|max:500',
-                'plan_date' => 'date_format:Y-m-d H:i:s',
+                'plan_date' => 'nullable|date_format:Y-m-d H:i:s',
+                'end_date' => 'nullable|date_format:Y-m-d H:i:s',
                 'weighing' => 'required|boolean',
                 'warehouse' => 'required|array',
                 'warehouse.*.name' => 'required|string|max:255',
@@ -543,14 +544,18 @@ class TaskCotroller extends Controller
 
             if ($yard && $truck && $task) {
                 // Проверяем или создаем разрешение на въезд
+                $endDate = $request->has('end_date') && $request->end_date 
+                    ? $request->end_date 
+                    : ($validate['plan_date'] ?? now()->format('Y-m-d H:i:s'));
+                
                 $this->getPermitById(
                     $truck->id,
                     $yard->id,
                     $request->has('create_user_id') ? $request->create_user_id : null,
                     $task->id,
                     $request->has('one_permission') ? $request->one_permission : true,
-                    $validate['plan_date'],
-                    $request->has('end_date') ? $request->end_date : $validate['plan_date'],
+                    $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
+                    $endDate,
                 );
             }
             //--
@@ -567,74 +572,80 @@ class TaskCotroller extends Controller
 
                 $weighing++;
 
-
-                if (!$warehouse_d['yard']) continue; // Пропускаем, если нет двора
-                // Проверяем или создаем двор
-                $yardId = $yardController->getYardById($warehouse_d['yard']);
+                // Используем двор из задачи, если не указан для склада
+                $yardId = null;
+                if (!empty($warehouse_d['yard'])) {
+                    // Если указан двор для склада - используем его
+                    $yardId = $yardController->getYardById($warehouse_d['yard']);
+                } else {
+                    // Иначе используем двор из основной задачи
+                    $yardId = $yard;
+                }
 
 
                 if ($yardId && $truck && $task) {
                     // Проверяем или создаем разрешение на въезд
+                    $warehouseEndDate = $request->has('end_date') && $request->end_date 
+                        ? $request->end_date 
+                        : ($validate['plan_date'] ?? now()->format('Y-m-d H:i:s'));
+                    
                     $this->getPermitById(
                         $truck->id,
                         $yardId->id,
                         $request->has('create_user_id') ? $request->create_user_id : null,
                         $task->id,
                         $request->has('one_permission') ? $request->one_permission : true,
-                        $validate['plan_date'],
-                        $request->has('end_date') ? $request->end_date : $validate['plan_date'],
+                        $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
+                        $warehouseEndDate,
                     );
                 }
                 // Проверяем или создаем склад
                 $WareHauseController = new WarehouseCotroller;
                 $warehouse = $WareHauseController->getWarehouseById($warehouse_d['name'], $yardId, $warehouse_d['barcode']);
 
-                //Если склад найден добавим в активные склады
-                if ($warehouse) {
-                    array_push($warehouseActive, $warehouse->id);
+                // Пропускаем если склад не создан
+                if (!$warehouse) {
+                    continue; // ⚠️ Склад не найден/не создан - пропускаем
                 }
 
+                //Если склад найден добавим в активные склады
+                array_push($warehouseActive, $warehouse->id);
 
-                // foreach ($warehouse_d['gates'] as $gate_name) {
-                //     $gate = WarehouseGates::where('name', $gate_name)
-                //     ->where('warehouse_id',$warehouse ? $warehouse->id:null)
-                //     ->first();
-                //     if (!$gate) {
-                //          WarehouseGates::create([
-                //             'warehouse_id' => $warehouse ? $warehouse->id:null,
-                //             'name' => $gate_name,
-                //         ]);
-                //     }  
-                // }
-                // $plan_gate = WarehouseGates::where('name', $warehouse_d['plan_gate'])
-                // ->where('warehouse_id', $warehouse ? $warehouse->id:null)
-                // ->first();
+                // Поиск ворот по имени
+                $plan_gate = null;
+                if (!empty($warehouse_d['plan_gate'])) {
+                    $plan_gate = WarehouseGates::where('name', $warehouse_d['plan_gate'])
+                        ->where('warehouse_id', $warehouse->id)
+                        ->first();
+                }
 
                 $this->createUpdateTaskLoading(
                     $task->id,
-                    $warehouse ? $warehouse->id : null,
+                    $warehouse->id, // ✅ Всегда валидный ID
                     $warehouse_d['description'],
                     $weighing,
-                    // $plan_gate ? $plan_gate->id : null, 
                     $warehouse_d['barcode'],
                     $warehouse_d['document'],
                     null,
-                    0,
+                    $plan_gate ? $plan_gate->id : 0,
                     0,
                     $validate['plan_date']
-
                 );
             }
-            // Удаляем неактивные склады
-            $warehouseNotActive = TaskLoading::where('task_id', $task->id)->whereNotIn('warehouse_id', $warehouseActive)->get();
-            foreach ($warehouseNotActive as $notActive) {
-                if ($truck && $task && $notActive->yard_id) {
-                    EntryPermit::where('task_id', $task->id)
-                        ->where('truck_id', $truck->id)
-                        ->where('yard_id', $notActive->yard_id)
-                        ->delete();
+            // Удаляем неактивные склады (только если есть активные)
+            if (!empty($warehouseActive)) {
+                $warehouseNotActive = TaskLoading::where('task_id', $task->id)
+                    ->whereNotIn('warehouse_id', $warehouseActive)
+                    ->get();
+                foreach ($warehouseNotActive as $notActive) {
+                    if ($truck && $task && $notActive->yard_id) {
+                        EntryPermit::where('task_id', $task->id)
+                            ->where('truck_id', $truck->id)
+                            ->where('yard_id', $notActive->yard_id)
+                            ->delete();
+                    }
+                    $notActive->delete();
                 }
-                $notActive->delete();
             }
             //--
             // Отправляем уведомление в Telegram
@@ -937,39 +948,30 @@ class TaskCotroller extends Controller
             }
         }
 
-        if ($sorting_order) {
-            $data['sorting_order'] = $sorting_order;
-        }
-        if ($warehouse_gate_plan_id <> 0) {
-            $data['warehouse_gate_plan_id'] = $warehouse_gate_plan_id;
-        }
-        if ($warehouse_gate_fact_id <> 0) {
-            $data['warehouse_gate_fact_id'] = $warehouse_gate_fact_id;
-        }
-        if ($description) {
-            $data['description'] = $description;
-        }
-        if ($barcode) {
-            $data['barcode'] = $barcode;
-        }
-        if ($document) {
-            $data['document'] = $document;
-        }
-        if ($comment) {
-            $data['comment'] = $comment;
-        }
+        // Всегда обновляем эти поля (даже если пустые)
+        $data['sort_order'] = $sorting_order;
+        $data['warehouse_gate_plan_id'] = $warehouse_gate_plan_id;
+        $data['warehouse_gate_fact_id'] = $warehouse_gate_fact_id;
+        $data['description'] = $description;
+        $data['barcode'] = $barcode;
+        $data['document'] = $document;
+        $data['comment'] = $comment;
 
+        // Ищем существующую запись по task_id и sort_order (порядок склада)
         $taskLoading = TaskLoading::where('task_id', $task_id)
-            ->where('warehouse_id', $warehouse_id)
+            ->where('sort_order', $sorting_order)
             ->first();
+            
         if ($taskLoading) {
+            // Обновляем существующую запись (может измениться склад)
+            $data['warehouse_id'] = $warehouse_id;
             $taskLoading->update($data);
-            return $taskLoading; // Return updated TaskLoading
+            return $taskLoading;
         } else {
+            // Создаем новую запись
             $data['task_id'] = $task_id;
             $data['warehouse_id'] = $warehouse_id;
-            return TaskLoading::create($data); // Create new TaskLoading
-
+            return TaskLoading::create($data);
         }
     }
 
@@ -1032,6 +1034,12 @@ class TaskCotroller extends Controller
             'end_date' => $end_date,
             'create_user_id' => $create_user_id,
         ];
+        
+        // Фильтруем пустые значения для обновления
+        $data = array_filter($data, function($value) {
+            return $value !== null && $value !== '';
+        });
+        
         $query = Task::query();
 
         if (!empty($task_id)) {
@@ -1046,7 +1054,21 @@ class TaskCotroller extends Controller
         if ($task) {
             $task->update($data);
         } else {
-            $task = Task::create($data);
+            // Для создания используем все данные
+            $task = Task::create([
+                'name' => $name,
+                'user_id' => $user_id,
+                'truck_id' => $truck_id,
+                'avtor' => $avtor,
+                'phone' => $phone,
+                'description' => $description,
+                'plan_date' => $plan_date,
+                'yard_id' => $yard_id,
+                'status_id' => $status_id,
+                'begin_date' => $begin_date,
+                'end_date' => $end_date,
+                'create_user_id' => $create_user_id,
+            ]);
         }
         return $task;
     }
@@ -1081,36 +1103,40 @@ class TaskCotroller extends Controller
     }
 
     /**
-     * Обновление времени задачи
+     * Обновление времени задачи (обновляет plane_date в task_loadings)
      */
     public function updateTaskTime(Request $request)
     {
         try {
             $validate = $request->validate([
                 'task_id' => 'required|integer|exists:tasks,id',
+                'warehouse_id' => 'required|integer|exists:warehouses,id',
                 'plan_date' => 'required|date',
             ]);
-
-            $task = Task::find($validate['task_id']);
-            
-            if (!$task) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Задача не найдена'
-                ], 404);
-            }
 
             // Конвертируем ISO формат в MySQL формат
             $planDate = Carbon::parse($validate['plan_date'])->format('Y-m-d H:i:s');
             
-            // Обновляем только plan_date
-            $task->plan_date = $planDate;
-            $task->save();
+            // Находим TaskLoading по task_id И warehouse_id
+            $taskLoading = TaskLoading::where('task_id', $validate['task_id'])
+                ->where('warehouse_id', $validate['warehouse_id'])
+                ->first();
+            
+            if (!$taskLoading) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Погрузка для этой задачи и склада не найдена'
+                ], 404);
+            }
+
+            // Обновляем plane_date в task_loadings
+            $taskLoading->plane_date = $planDate;
+            $taskLoading->save();
 
             return response()->json([
                 'status' => true,
-                'message' => 'Время задачи успешно обновлено',
-                'data' => $task
+                'message' => 'Время погрузки успешно обновлено',
+                'data' => $taskLoading
             ], 200);
 
         } catch (\Exception $e) {

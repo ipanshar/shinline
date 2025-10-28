@@ -20,6 +20,7 @@ interface EditTaskTimeModalProps {
   onClose: () => void;
   task: Task | null;
   onTaskUpdated: () => void;
+  warehouseId: number | string;
 }
 
 const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
@@ -27,6 +28,7 @@ const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
   onClose,
   task,
   onTaskUpdated,
+  warehouseId,
 }) => {
   const [selectedTime, setSelectedTime] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,7 +37,13 @@ const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
   // Устанавливаем начальное время при открытии модалки
   useEffect(() => {
     if (task && task.plan_date) {
-      setSelectedTime(new Date(task.plan_date));
+      const initialTime = new Date(task.plan_date);
+      console.log('🕐 Инициализация времени из задачи:', {
+        task_plan_date: task.plan_date,
+        parsed_time: initialTime.toString(),
+        hours: initialTime.getHours(),
+      });
+      setSelectedTime(initialTime);
     }
   }, [task]);
 
@@ -47,23 +55,52 @@ const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
       return;
     }
 
+    if (!warehouseId) {
+      setError('Склад не выбран. Пожалуйста, выберите склад на странице планирования.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const response = await axios.post('/task/updatetime', {
+      // Форматируем дату в локальное время (не UTC!)
+      const year = selectedTime.getFullYear();
+      const month = String(selectedTime.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedTime.getDate()).padStart(2, '0');
+      const hours = String(selectedTime.getHours()).padStart(2, '0');
+      const minutes = String(selectedTime.getMinutes()).padStart(2, '0');
+      const seconds = String(selectedTime.getSeconds()).padStart(2, '0');
+      const localDateTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+
+      console.log('📤 Отправка updatetime:', {
         task_id: task.id,
-        plan_date: selectedTime.toISOString(),
+        warehouse_id: warehouseId,
+        plan_date: localDateTime,
+        selectedTime_local: selectedTime.toString(),
       });
 
+      const response = await axios.post('/task/updatetime', {
+        task_id: task.id,
+        warehouse_id: warehouseId,
+        plan_date: localDateTime,
+      });
+
+      console.log('📥 Ответ updatetime:', response.data);
+
       if (response.data.status) {
-        onTaskUpdated();
+        console.log('✅ Время успешно обновлено, закрываем модалку и обновляем список');
         onClose();
+        onTaskUpdated();
       } else {
         setError(response.data.message || 'Ошибка при обновлении времени');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Ошибка при обновлении времени');
+      console.error('❌ Ошибка updatetime:', err);
+      console.error('Response:', err.response?.data);
+      
+      const errorMessage = err.response?.data?.message || err.message || 'Ошибка при обновлении времени';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
