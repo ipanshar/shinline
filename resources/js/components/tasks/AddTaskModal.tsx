@@ -58,6 +58,7 @@ interface TaskFormData {
 interface AddTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onTaskAdded?: () => void;
 }
 
 const initialWarehouseItem: WarehouseItem = {
@@ -114,7 +115,7 @@ const initialFormState: TaskFormData = {
   warehouse: [{ ...initialWarehouseItem }],
 };
 
-const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose }) => {
+const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onTaskAdded }) => {
   const [yards, setYards] = useState<Yard[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [gatesMap, setGatesMap] = useState<Record<number, Gate[]>>({});
@@ -379,7 +380,9 @@ const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
   };
 
   const formatDateForAPI = (date: string | Date) => {
+  if (!date) return null;
   const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
@@ -413,19 +416,24 @@ const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
 
     alert('Задача успешно добавлена');
     onClose();
-    setFormData(initialFormState);
-    setGatesMap({});
+    // Принудительная перезагрузка страницы для отображения изменений
+    window.location.reload();
   } catch (err) {
     const error = err as AxiosError<any>;
 
+    console.error('❌ ПОЛНАЯ ОШИБКА:', err);
+    
     if (error.response) {
       console.error('Response data:', error.response.data);
       console.error('Status:', error.response.status);
       console.error('Headers:', error.response.headers);
-      alert('Ошибка сервера: ' + (error.response.data?.message || 'Неизвестная ошибка'));
+      alert('Ошибка сервера: ' + (error.response.data?.message || JSON.stringify(error.response.data)));
+    } else if (error.request) {
+      console.error('Request был отправлен, но ответа нет:', error.request);
+      alert('Ошибка: Сервер не отвечает. Проверьте подключение.');
     } else {
-      console.error('Unexpected error:', err);
-      alert('Произошла неизвестная ошибка');
+      console.error('Ошибка при настройке запроса:', error.message);
+      alert('Произошла неизвестная ошибка: ' + error.message);
     }
   }
 };
