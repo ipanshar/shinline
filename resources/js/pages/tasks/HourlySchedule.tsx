@@ -285,6 +285,7 @@ const HourlySchedule = () => {
           onClose={handleCloseModal}
           task={selectedTask}
           onTaskUpdated={handleTaskUpdated}
+          warehouseId={selectedWarehouse}
         />
 
       </TaskLayouts>

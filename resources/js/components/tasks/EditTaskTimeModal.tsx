@@ -20,6 +20,7 @@ interface EditTaskTimeModalProps {
   onClose: () => void;
   task: Task | null;
   onTaskUpdated: () => void;
+  warehouseId: number | string;
 }
 
 const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
@@ -27,6 +28,7 @@ const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
   onClose,
   task,
   onTaskUpdated,
+  warehouseId,
 }) => {
   const [selectedTime, setSelectedTime] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,6 +55,7 @@ const EditTaskTimeModal: React.FC<EditTaskTimeModalProps> = ({
     try {
       const response = await axios.post('/task/updatetime', {
         task_id: task.id,
+        warehouse_id: warehouseId,
         plan_date: selectedTime.toISOString(),
       });
 

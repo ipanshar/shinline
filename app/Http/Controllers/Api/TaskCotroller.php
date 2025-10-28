@@ -1103,36 +1103,40 @@ class TaskCotroller extends Controller
     }
 
     /**
-     * Обновление времени задачи
+     * Обновление времени задачи (обновляет plane_date в task_loadings)
      */
     public function updateTaskTime(Request $request)
     {
         try {
             $validate = $request->validate([
                 'task_id' => 'required|integer|exists:tasks,id',
+                'warehouse_id' => 'required|integer|exists:warehouses,id',
                 'plan_date' => 'required|date',
             ]);
-
-            $task = Task::find($validate['task_id']);
-            
-            if (!$task) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Задача не найдена'
-                ], 404);
-            }
 
             // Конвертируем ISO формат в MySQL формат
             $planDate = Carbon::parse($validate['plan_date'])->format('Y-m-d H:i:s');
             
-            // Обновляем только plan_date
-            $task->plan_date = $planDate;
-            $task->save();
+            // Находим TaskLoading по task_id И warehouse_id
+            $taskLoading = TaskLoading::where('task_id', $validate['task_id'])
+                ->where('warehouse_id', $validate['warehouse_id'])
+                ->first();
+            
+            if (!$taskLoading) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Погрузка для этой задачи и склада не найдена'
+                ], 404);
+            }
+
+            // Обновляем plane_date в task_loadings
+            $taskLoading->plane_date = $planDate;
+            $taskLoading->save();
 
             return response()->json([
                 'status' => true,
-                'message' => 'Время задачи успешно обновлено',
-                'data' => $task
+                'message' => 'Время погрузки успешно обновлено',
+                'data' => $taskLoading
             ], 200);
 
         } catch (\Exception $e) {
