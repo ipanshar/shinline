@@ -8,7 +8,7 @@ import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { Box, useMediaQuery, CircularProgress } from "@mui/material";
-import { DataGrid, GridActionsCellItem, GridRowId, GridRowModesModel, GridRowModes, GridRowModel } from "@mui/x-data-grid";
+import { DataGrid, GridActionsCellItem, GridRowId, GridRowModesModel, GridRowModes, GridRowModel, GridColDef } from "@mui/x-data-grid";
 import axios from "axios";
 
 
@@ -77,31 +77,40 @@ export default function Integration_dss() {
         };
     // Обработчики событий
 
-    const processRowUpdate = (newRow: GridRowModel) => {
-        const updatedRow: Device = {
-            id: newRow.id,
-            channelId: newRow.channelId,
-            channelName: newRow.channelName,
-            checkpoint_id: newRow.checkpoint_id,
-            type: newRow.type,
-            zone_id: newRow.zone_id,
-        };
-        setDevices(devices.map((row) => (row.id === newRow.id ? updatedRow : row)));
-        // Отправка обновленных данных на сервер
-        return axios.post('/dss/dssdevices/update', updatedRow)
-            .then(response => {
-                if (response.data.status) {
-                    setDevices(devices.map(device => device.id === newRow.id ? updatedRow : device));
-                } else {
-                    console.error('Ошибка обновления устройства:', response.data.message);
-                }
-            })
-            .catch(error => console.error('Ошибка при обновлении устройства:', error));
-        return updatedRow;
+    const processRowUpdate = async (newRow: GridRowModel): Promise<Device> => {
+        try {
+            if (!newRow || typeof newRow.id === 'undefined') {
+                throw new Error('Invalid row data');
+            }
+
+            const updatedRow: Device = {
+                id: newRow.id,
+                channelId: newRow.channelId || '',
+                channelName: newRow.channelName || '',
+                checkpoint_id: newRow.checkpoint_id || 0,
+                type: newRow.type || '',
+                zone_id: newRow.zone_id === '' || newRow.zone_id === null || newRow.zone_id === undefined ? null : parseInt(newRow.zone_id.toString(), 10),
+            };
+
+            const response = await axios.post('/dss/dssdevices/update', updatedRow);
+            
+            if (response.data.status) {
+                setDevices(devices.map(device => device.id === updatedRow.id ? updatedRow : device));
+                return updatedRow;
+            } else {
+                throw new Error(response.data.message || 'Failed to update device');
+            }
+        } catch (error) {
+            console.error('Error updating device:', error);
+            throw error;
+        }
     };
-   
+
+     const handleProcessRowUpdateError = (error: any) => {
+    console.error('Ошибка при обновлении строки:', error);
+  };
        
-    const columns = [
+    const columns: GridColDef<Device>[] = [
         { field: "id", headerName: "ИД", width: isMobile ? 50 : 80 },
         { field: "channelId", headerName: "channelId", flex: 1, minWidth: 120 },
         { field: "channelName", headerName: "channelName", flex: 1, minWidth: 120, editable: true },
@@ -112,7 +121,7 @@ export default function Integration_dss() {
             flex: 1, 
             minWidth: 120, 
             editable: true,
-            type: 'singleSelect',
+            type: 'singleSelect' as const,
             valueOptions: ['Entry', 'Exit']
         },
         { 
@@ -121,11 +130,42 @@ export default function Integration_dss() {
             flex: 1, 
             minWidth: 150, 
             editable: true,
-            type: 'singleSelect',
-            valueOptions: zones.map(zone => ({ value: zone.id, label: zone.name })),
+            type: 'singleSelect' as const,
+            valueOptions: [
+                { value: '', label: 'Не выбрано' },
+                ...zones.map(zone => ({ 
+                    value: zone.id ? zone.id.toString() : '', 
+                    label: zone.name || 'Без названия'
+                }))
+            ],
+            valueGetter: (params: any) => {
+                try {
+                    if (!params) return '';
+                    if (params.value === null || params.value === undefined) return '';
+                    if (typeof params.value === 'number') return params.value.toString();
+                    return params.value;
+                } catch (error) {
+                    console.error('Error in valueGetter:', error);
+                    return '';
+                }
+            },
             valueFormatter: (params: any) => {
-                const zone = zones.find(z => z.id === params.value);
-                return zone ? zone.name : '';
+                try {
+                    if (!params) return 'Не выбрано';
+                    if (!params.value || params.value === '') return 'Не выбрано';
+                    
+                    const zoneId = typeof params.value === 'string' 
+                        ? parseInt(params.value, 10) 
+                        : params.value;
+                    
+                    if (isNaN(zoneId)) return 'Не выбрано';
+                    
+                    const zone = zones.find(z => z.id === zoneId);
+                    return zone?.name || 'Не выбрано';
+                } catch (error) {
+                    console.error('Error in valueFormatter:', error);
+                    return 'Не выбрано';
+                }
             }
         },
         {
@@ -182,6 +222,7 @@ export default function Integration_dss() {
                                     rowModesModel={rowModesModel}
                                     onRowModesModelChange={(newModel) => setRowModesModel(newModel)}
                                     processRowUpdate={processRowUpdate}
+                                    onProcessRowUpdateError={handleProcessRowUpdateError}
                                     editMode="row"
                                     getRowId={(row) => row.id}
                                 />

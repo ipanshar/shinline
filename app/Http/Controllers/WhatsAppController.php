@@ -9,9 +9,21 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use App\Models\Task;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 class WhatsAppController extends Controller
-{
+{   
+    protected $hostMessage;
+    protected $bearer_token;
+    protected $http_client;
+    public function __construct()
+    {
+         $waba = WhatsAppBusinesSeting::first();
+        $this->hostMessage = $waba->host.'/'. $waba->version .'/'. $waba->phone_number_id .'/messages';
+        $this->bearer_token = $waba->bearer_token;
+        $this->http_client = Http::withToken($this->bearer_token);
+    }
+
     // Обработка входящих уведомлений от WhatsApp
    public function WhatsAppAlarmAdd(Request $request)
     {
@@ -90,10 +102,7 @@ class WhatsAppController extends Controller
                 'user_id' => 'required|integer',
             ]);
         $task = Task::where('id', $data['task_id'])->first();
-        $waba = WhatsAppBusinesSeting::first();
-        $host = $waba->host.'/'. $waba->version .'/'. $waba->phone_number_id .'/messages';
-        $bearer_token = $waba->bearer_token;
-        $task_id = $task->name;
+       
         $rout_name = '';
         $specification = $task->specification;
         $plate_number = implode(', ', $this->getUserTruckInRoute($data['user_id'], $task->route_regions));
