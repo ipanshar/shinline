@@ -6,5 +6,5 @@ use Illuminate\Database\Eloquent\Model;
 
 class WhatsAppChatList extends Model
 {
-    protected $fillable = ['phone_number_id', 'user_whatsapp', 'new_messages', 'last_time_message'];
+    protected $fillable = ['user_id', 'phone_number_id', 'user_whatsapp', 'new_messages', 'last_time_message'];
 }

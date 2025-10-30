@@ -13,6 +13,7 @@ use App\Models\TruckBrand;
 use App\Models\TruckCategory;
 use App\Models\TruckModel;
 use App\Models\User;
+use App\Models\WhatsAppChatTemplate;
 use App\Models\Yard;
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -227,11 +228,25 @@ class DatabaseSeeder extends Seeder
     //         'request_url' => '/brms/api/v1.0/accounts/unauthorize',
     //         'dss_setings_id' => $dssAdd->id,
     //     ]);
-    DssApi::create([
-        'api_name' => 'VehicleCapture',
-        'method' => 'POST',
-        'request_url' => '/ipms/api/v1.1/fusion/vehicle-capture/record/fetch/page',
-        'dss_setings_id' => 1,
+    // DssApi::create([
+    //     'api_name' => 'VehicleCapture',
+    //     'method' => 'POST',
+    //     'request_url' => '/ipms/api/v1.1/fusion/vehicle-capture/record/fetch/page',
+    //     'dss_setings_id' => 1,
+    // ]);
+    WhatsAppChatTemplate::create([
+        'template_name' => 'new_task',
+        'template_content' => '<h3>Shin Line cargo</h3> 
+<h4>Уведомление о согласии на перевозку груза</h4>
+Информация о перевозке:<br>
+Задание №: <b>{{task_id}}</b><br>
+Маршрут: <b>{{rout_name}}</b><br>
+Особенности транспортировки груза: <b>{{specification}}</b><br>
+Транспортное средство: <b>{{plate_number}}</b><br>
+Планируемая дата: <b>{{plane_date}}</b><br>
+Вознаграждение: <b>{{reward}}</b> <br><br>
+<small>Если готовы выполнить заказ, просим нажать согласен.<br>
+Заявка актуальна 20 часов с момента получения уведомления</small>',
     ]);
     }
 }

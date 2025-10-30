@@ -26,7 +26,6 @@ use App\Models\Visitor;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Telegram\Bot\Laravel\Facades\Telegram;
-use Illuminate\Support\Facades\DB as FacadesDB;
 
 class TaskCotroller extends Controller
 {
@@ -65,6 +64,17 @@ class TaskCotroller extends Controller
                         'status' => false,
                         'message' => 'Task not found'
                     ], 404);
+                }
+
+                // Получаем имена регионов
+                $regionNames = [];
+                if (!empty($task->route_regions)) {
+                    $regionIds = explode(',', $task->route_regions);
+                    $regions = DB::table('regions')
+                        ->whereIn('id', $regionIds)
+                        ->pluck('name')
+                        ->toArray();
+                    $regionNames = implode(', ', $regions);
                 }
 
                 $taskLoadings = TaskLoading::where('task_id', $task->id)
@@ -115,6 +125,8 @@ class TaskCotroller extends Controller
                         'begin_date' => $task->begin_date,
                         'end_date' => $task->end_date,
                         'created_at' => $task->created_at,
+                        'route_regions' => $task->route_regions,
+                        'region_names' => $regionNames,
                         'task_loadings' => $taskLoadings,
                         'task_weighings' => $taskWeighings,
                         'coordinates' => optional($taskLoadings->first())->warehouse_coordinates,
@@ -239,11 +251,24 @@ class TaskCotroller extends Controller
                     ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
                     ->get();
 
+                // Получаем имена регионов
+                $regionNames = [];
+                if (!empty($task->route_regions)) {
+                    $regionIds = explode(',', $task->route_regions);
+                    $regions = DB::table('regions')
+                        ->whereIn('id', $regionIds)
+                        ->pluck('name')
+                        ->toArray();
+                    $regionNames = implode(', ', $regions);
+                }
+
                 $data[] = [
                     'id' => $task->id,
                     'name' => $task->name,
                     'status_id' => $task->status_id,
                     'status_name' => $task->status_name,
+                    'route_regions' => $task->route_regions,
+                    'region_names' => $regionNames,
                     'user_id' => $task->user_id,
                     'user_name' => $task->user_name,
                     'user_login' => $task->user_login,
@@ -367,6 +392,8 @@ class TaskCotroller extends Controller
                 'user_id' => 'required|integer',
                 'truck_id' => 'required|integer',
                 'status_id' => 'required|integer',
+                'route_regions' => 'array',
+                'route_regions.*' => 'integer',
             ]);
             $task = Task::create($validate);
 
@@ -537,7 +564,10 @@ class TaskCotroller extends Controller
                 $status ? $status->id : null,
                 $visitor ? $visitor->entry_date : null,
                 $visitor ? $visitor->exit_date : null,
-                $request->has('create_user_id') ? $request->create_user_id : null
+                $request->has('create_user_id') ? $request->create_user_id : null,
+                $request->has('specification') ? $request->specification : null,
+                $request->has('reward') ? $request->reward : null
+
             );
 
             
@@ -1018,8 +1048,47 @@ class TaskCotroller extends Controller
         }
     }
 
-    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null)
+    /**
+     * Обрабатывает строку маршрута и возвращает ID регионов
+     */
+    private function processRouteRegions(string $description): string
     {
+        // Очищаем и нормализуем текст маршрута
+        $route = str_replace('г. ', '', $description); // Убираем "г. "
+        $route = str_replace(' ', '', $route); // Убираем пробелы
+        $regions = array_unique(explode('-', $route)); // Разбиваем по дефису и убираем дубликаты
+        
+        $regionIds = [];
+        foreach ($regions as $regionName) {
+            if (empty($regionName)) continue;
+            
+            // Ищем регион в БД
+            $region = DB::table('regions')->where('name', 'like', '%' . $regionName . '%')->first();
+            
+            if (!$region) {
+                // Если регион не найден, создаем новый
+                $regionId = DB::table('regions')->insertGetId([
+                    'name' => $regionName,
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+                $regionIds[] = $regionId;
+            } else {
+                $regionIds[] = $region->id;
+            }
+        }
+        
+        return implode(',', $regionIds);
+    }
+
+    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null, $specification = null,$reward=null)
+    {
+        // Обрабатываем маршрут из описания, если оно есть
+        $route_regions = null;
+        if ($description && strpos($description, '-') !== false) {
+            $route_regions = $this->processRouteRegions($description);
+        }
+
         $data = [
             'name' => $name,
             'user_id' => $user_id,
@@ -1033,6 +1102,9 @@ class TaskCotroller extends Controller
             'begin_date' => $begin_date,
             'end_date' => $end_date,
             'create_user_id' => $create_user_id,
+            'route_regions' => $route_regions,
+            'specification' => $specification,
+            'reward'=>$reward
         ];
         
         // Фильтруем пустые значения для обновления
@@ -1068,6 +1140,9 @@ class TaskCotroller extends Controller
                 'begin_date' => $begin_date,
                 'end_date' => $end_date,
                 'create_user_id' => $create_user_id,
+                'route_regions' => $route_regions,
+                'specification' => $specification,
+                'reward'=>$reward,
             ]);
         }
         return $task;

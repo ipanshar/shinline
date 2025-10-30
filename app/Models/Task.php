@@ -20,6 +20,9 @@ class Task extends Model
         'end_date',
         'yard_id',
         'create_user_id',
+        'route_regions',
+        'specification',
+        'reward',
     ];
 
     public function user()

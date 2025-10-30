@@ -7,9 +7,12 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use App\Models\Task;
+use Illuminate\Support\Facades\DB;
 
 class WhatsAppController extends Controller
 {
+    // Обработка входящих уведомлений от WhatsApp
    public function WhatsAppAlarmAdd(Request $request)
     {
         try {
@@ -21,21 +24,20 @@ class WhatsAppController extends Controller
         }
     }
 
+    // Верификация вебхука WhatsApp
     public function verify(Request $request)
     {
-        // Получаем параметры из запроса
         $mode = $request->query('hub_mode');
         $token = $request->query('hub_verify_token');
         $challenge = $request->query('hub_challenge');
 
-        // Токен, который ты задавал в настройках Meta
         $verifyToken = env('WHATSAPP_TOKEN');
 
         if ($mode === 'subscribe' && $token === $verifyToken) {
-            Log::info('✅ Webhook verified successfully.');
+            Log::info('WhatsApp webhook verified successfully.');
             return response($challenge, 200);
         } else {
-            Log::warning('❌ Webhook verification failed.', [
+            Log::warning('WhatsApp webhook verification failed.', [
                 'mode' => $mode,
                 'token' => $token
             ]);
@@ -43,9 +45,9 @@ class WhatsAppController extends Controller
         }
     }
 
+    // Создание или обновление настроек WhatsApp Business
     public function whatsappBusinessSettingsCreateOrUpdate(Request $request)
     {
-        // Логика для обработки настроек WhatsApp Business
         if ($request->isMethod('post')) {
             $data = $request->validate([
                 'phone_number_id' => 'required|string',
@@ -67,6 +69,7 @@ class WhatsAppController extends Controller
         return redirect()->back()->with('error', 'Некорректный метод запроса.');
     }
 
+    // Получение настроек WhatsApp Business
     public function whatsappBusinessSettingsGet(Request $request)
     {
         $settings = WhatsAppBusinesSeting::first();
@@ -75,5 +78,55 @@ class WhatsAppController extends Controller
         } else {
             return response()->json(['message' => 'Настройки не найдены.'], Response::HTTP_NOT_FOUND);
         }
+    }
+
+    
+
+    public function getMessageTemplateNewTask(Request $request)
+    {
+        $data = $request->validate([
+                'task_id' => 'required|integer',
+                'users' => 'required|array',
+                'user_id' => 'required|integer',
+            ]);
+        $task = Task::where('id', $data['task_id'])->first();
+        $waba = WhatsAppBusinesSeting::first();
+        $host = $waba->host.'/'. $waba->version .'/'. $waba->phone_number_id .'/messages';
+        $bearer_token = $waba->bearer_token;
+        $task_id = $task->name;
+        $rout_name = '';
+        $specification = $task->specification;
+        $plate_number = implode(', ', $this->getUserTruckInRoute($data['user_id'], $task->route_regions));
+        $reward = $task->reward;
+        $plan_date = $task->plan_date;
+        if (!empty($task->route_regions)) {
+                    $regionIds = explode(',', $task->route_regions);
+                    $regions = DB::table('regions')
+                        ->whereIn('id', $regionIds)
+                        ->pluck('name')
+                        ->toArray();
+                    $rout_name = implode(' - ', $regions);
+                }
+
+        foreach ($data['users'] as $user_id){
+            if (empty($user)) continue;
+            $user_whatsapp = DB::table('users')->where('id', $user_id)->value('whatsapp_number');
+            if (empty($user_whatsapp)) continue;
+
+            // Здесь вы можете использовать номер WhatsApp пользователя
+        }
+    }
+
+    private function getUserTruckInRoute($user_id, $route_regions)
+    {
+        return Task::leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+                ->where('tasks.user_id', $user_id)
+                ->where('tasks.route_regions', $route_regions)
+                ->pluck('trucks.plate_number')
+                ->unique()
+                ->values()
+                ->toArray();
+                
+
     }
 }

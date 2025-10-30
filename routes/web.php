@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\UsersController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -173,10 +174,16 @@ Route::post('/entrance-permit/deletecheckpoint', [EntryPermitController::class, 
 
 Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']);
 
+    // Region routes
+Route::post('/regions/getregions', [RegionController::class, 'getRegions']); // Получить все регионы
+Route::post('/regions/createupdate', [RegionController::class, 'createUpdateRegion']); // Создать или обновить регион
+
+//Zone routes
+Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
+Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone']); // Создать или обновить зону
+
 
 });
-
-
 
  
 

@@ -17,6 +17,7 @@ use App\Http\Controllers\DssController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\TelegramController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -147,6 +148,10 @@ Route::post('/entrance-permit/deletecheckpoint', [EntryPermitController::class, 
 
 Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRoles']); // Список пользователей без ролей для добавление задач
 
+// Region routes
+Route::post('/regions/getregions', [RegionController::class, 'getRegions'])->middleware('auth:sanctum'); // Получить все регионы
+Route::post('/regions/createupdate', [RegionController::class, 'createUpdateRegion'])->middleware('auth:sanctum'); // Создать или обновить регион
+
 Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
 
 // WhatsApp routes
@@ -156,3 +161,7 @@ Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class
 //whatsapp business settings API
 Route::post('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate'])->middleware('auth:sanctum');
 Route::get('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsGet'])->middleware('auth:sanctum');
+
+//Zone routes
+Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones'])->middleware('auth:sanctum'); // Получить все зоны
+Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone'])->middleware('auth:sanctum'); // Создать или обновить зону
