@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('whats_app_chat_list', function (Blueprint $table) {
+        Schema::table('whats_app_chat_lists', function (Blueprint $table) {
         $table->foreignId('user_id')->nullable()->after('id')->constrained('users')->nullOnDelete();
         });
     }
@@ -21,7 +21,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('whats_app_chat_list', function (Blueprint $table) {
+        Schema::table('whats_app_chat_lists', function (Blueprint $table) {
             $table->dropForeign(['user_id']);
             $table->dropColumn('user_id');
         });

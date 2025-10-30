@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('task', function (Blueprint $table) {
+        Schema::table('tasks', function (Blueprint $table) {
            $table->string('route_regions')->nullable();
            $table->string('specification')->nullable();
            $table->double('reward')->nullable();
@@ -23,7 +23,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('task', function (Blueprint $table) {
+        Schema::table('tasks', function (Blueprint $table) {
             $table->dropColumn('route_regions');
             $table->dropColumn('specification');
             $table->dropColumn('reward');
