@@ -52,6 +52,9 @@ class RouteController extends Controller
     public function taskHourlySchedule(){
         return Inertia::render('tasks/HourlySchedule');
     }
+    public function operatorWorkplace(){
+        return Inertia::render('tasks/OperatorWorkplace');
+    }
     public function privacy(){
         return Inertia::render('privacy');
     }

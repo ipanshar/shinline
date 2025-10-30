@@ -41,6 +41,7 @@ Route::get('/roles_permissions', [RouteController::class, 'rolespermissions']);/
 Route::get('/trucks', [RouteController::class, 'trucks']);
 Route::get('/tasks', [RouteController::class, 'tasks']);
 Route::get('/tasks/scheduling', [RouteController::class, 'taskHourlySchedule']);
+Route::get('/tasks/operator-workplace', [RouteController::class, 'operatorWorkplace']);
 Route::get('/weighing', [RouteController::class, 'weighing']);
 Route::get('/check', [RouteController::class, 'check']);
 Route::get('/history', [RouteController::class, 'history']);

@@ -19,8 +19,12 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
         role:'',
     },
-     
-  
+    {
+        title:  'Рабочее место оператора',
+        href: '/tasks/operator-workplace',
+        icon: null,
+        role:'',
+    },
 ];
 
 export default function SettingsLayout({ children }: PropsWithChildren) {
