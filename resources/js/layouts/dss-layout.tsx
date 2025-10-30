@@ -25,7 +25,12 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
         role:'',
     },
-  
+    {
+        title:  'Зоны',
+        href: '/integration_dss/zones',
+        icon: null,
+        role:'',
+    },
 ];
 
 export default function SettingsLayout({ children }: PropsWithChildren) {

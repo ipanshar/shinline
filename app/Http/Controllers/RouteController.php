@@ -49,6 +49,9 @@ class RouteController extends Controller
     public function dssDevices(){
         return Inertia::render('integration_dss_devices');
     }
+    public function dssZones(){
+        return Inertia::render('integration_dss_zones');
+    }
     public function taskHourlySchedule(){
         return Inertia::render('tasks/HourlySchedule');
     }

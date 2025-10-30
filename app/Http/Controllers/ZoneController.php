@@ -9,17 +9,23 @@ class ZoneController extends Controller
 {
     public function getZones(Request $request)
     {
-        $zones = Zone::all();
-        return response()->json($zones);
+        $zones = Zone::leftJoin('yards', 'zones.yard_id', '=', 'yards.id')
+            ->select('zones.*', 'yards.name as yard_name')
+            ->get();
+        
+        return response()->json([
+            'status' => true,
+            'message' => 'Зоны загружены успешно',
+            'data' => $zones
+        ]);
     }
 
     public function createOrUpdateZone(Request $request)
     {
         $data = $request->validate([
             'id' => 'nullable|integer',
-            'name' => 'required|string|max:255|unique:zones,name,' . $request->id,
-            'description' => 'nullable|string',
-            'yard_id' => 'required|integer|unique:zones,yard_id,' . $request->id,
+            'name' => 'required|string|max:255',
+            'yard_id' => 'required|integer',
         ]);
 
         if (!empty($data['id'])) {

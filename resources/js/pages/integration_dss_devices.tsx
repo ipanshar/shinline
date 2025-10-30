@@ -25,13 +25,30 @@ interface Device{
     channelName: string;
     checkpoint_id: number;
     type: string;
+    zone_id: number | null;
+}
+
+interface Zone {
+    id: number;
+    name: string;
 }
 
 export default function Integration_dss() {
     const [devices, setDevices] = useState<Device[]>([]);
+    const [zones, setZones] = useState<Zone[]>([]);
     const [loading, setLoading] = useState(true);
     const isMobile = useMediaQuery("(max-width: 768px)");
     const [rowModesModel, setRowModesModel] = React.useState<GridRowModesModel>({});
+    const fetchZones = () => {
+        axios.post("/zones/getzones")
+            .then(response => {
+                if (response.data.status) {
+                    setZones(response.data.data);
+                }
+            })
+            .catch(error => console.error("Ошибка загрузки зон:", error));
+    };
+
     const fetchDevices = () => {
         setLoading(true);
         axios.post("/dss/dssdevices")
@@ -44,6 +61,7 @@ export default function Integration_dss() {
             .finally(() => setLoading(false));
     };
     useEffect(() => {
+        fetchZones();
         fetchDevices();
     }, []);
 
@@ -66,6 +84,7 @@ export default function Integration_dss() {
             channelName: newRow.channelName,
             checkpoint_id: newRow.checkpoint_id,
             type: newRow.type,
+            zone_id: newRow.zone_id,
         };
         setDevices(devices.map((row) => (row.id === newRow.id ? updatedRow : row)));
         // Отправка обновленных данных на сервер
@@ -87,7 +106,28 @@ export default function Integration_dss() {
         { field: "channelId", headerName: "channelId", flex: 1, minWidth: 120 },
         { field: "channelName", headerName: "channelName", flex: 1, minWidth: 120, editable: true },
         { field: "checkpoint_id", headerName: "Checkpoint ID", flex: 1, minWidth: 120, editable: true },
-        { field: "type", headerName: "Тип", flex: 1, minWidth: 120, editable: true },
+        { 
+            field: "type", 
+            headerName: "Тип", 
+            flex: 1, 
+            minWidth: 120, 
+            editable: true,
+            type: 'singleSelect',
+            valueOptions: ['Entry', 'Exit']
+        },
+        { 
+            field: "zone_id", 
+            headerName: "Зона", 
+            flex: 1, 
+            minWidth: 150, 
+            editable: true,
+            type: 'singleSelect',
+            valueOptions: zones.map(zone => ({ value: zone.id, label: zone.name })),
+            valueFormatter: (params: any) => {
+                const zone = zones.find(z => z.id === params.value);
+                return zone ? zone.name : '';
+            }
+        },
         {
             field: 'actions', headerName: '', width: 120, headerAlign: 'center', type: 'actions', cellClassName: 'actions', getActions: ({ id }: { id: GridRowId }) => {
                 const isInEditMode = rowModesModel[id]?.mode === GridRowModes.Edit;

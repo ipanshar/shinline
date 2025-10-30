@@ -13,9 +13,10 @@ return new class extends Migration
     {
         Schema::create('zones', function (Blueprint $table) {
             $table->id();
-            $table->string('name')->unique();
+            $table->string('name');
             $table->string('description')->nullable();
-            $table->integer('yard_id')->unique();
+            $table->unsignedBigInteger('yard_id');
+            $table->foreign('yard_id')->references('id')->on('yards')->onDelete('cascade');
             $table->timestamps();
         });
     }

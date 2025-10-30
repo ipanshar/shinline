@@ -11,5 +11,12 @@ class Devaice extends Model
         'channelName',
         'checkpoint_id',
         'type',
+        'zone_id',
     ];
+
+    // Связь с зоной
+    public function zone()
+    {
+        return $this->belongsTo(Zone::class);
+    }
 }

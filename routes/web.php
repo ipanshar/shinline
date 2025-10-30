@@ -53,6 +53,7 @@ route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 route::get('/warehouses/kpp', [RouteController::class, 'warehouseKPP']);
 Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings']);
 Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices']);
+Route::get('/integration_dss/zones', [RouteController::class, 'dssZones']);
 
 //whatsapp business settings API
 Route::post('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate']);
