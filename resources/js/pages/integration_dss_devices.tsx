@@ -95,7 +95,8 @@ export default function Integration_dss() {
             const response = await axios.post('/dss/dssdevices/update', updatedRow);
             
             if (response.data.status) {
-                setDevices(devices.map(device => device.id === updatedRow.id ? updatedRow : device));
+                // Перезагружаем все устройства с сервера чтобы получить актуальные данные
+                await fetchDevices();
                 return updatedRow;
             } else {
                 throw new Error(response.data.message || 'Failed to update device');
@@ -134,38 +135,14 @@ export default function Integration_dss() {
             valueOptions: [
                 { value: '', label: 'Не выбрано' },
                 ...zones.map(zone => ({ 
-                    value: zone.id ? zone.id.toString() : '', 
-                    label: zone.name || 'Без названия'
+                    value: zone.id, 
+                    label: zone.name
                 }))
             ],
-            valueGetter: (params: any) => {
-                try {
-                    if (!params) return '';
-                    if (params.value === null || params.value === undefined) return '';
-                    if (typeof params.value === 'number') return params.value.toString();
-                    return params.value;
-                } catch (error) {
-                    console.error('Error in valueGetter:', error);
-                    return '';
-                }
-            },
-            valueFormatter: (params: any) => {
-                try {
-                    if (!params) return 'Не выбрано';
-                    if (!params.value || params.value === '') return 'Не выбрано';
-                    
-                    const zoneId = typeof params.value === 'string' 
-                        ? parseInt(params.value, 10) 
-                        : params.value;
-                    
-                    if (isNaN(zoneId)) return 'Не выбрано';
-                    
-                    const zone = zones.find(z => z.id === zoneId);
-                    return zone?.name || 'Не выбрано';
-                } catch (error) {
-                    console.error('Error in valueFormatter:', error);
-                    return 'Не выбрано';
-                }
+            renderCell: (params: any) => {
+                if (!params.value) return 'Не выбрано';
+                const zone = zones.find(z => z.id === params.value);
+                return zone ? zone.name : `Зона ID: ${params.value}`;
             }
         },
         {
