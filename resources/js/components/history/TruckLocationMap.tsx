@@ -12,19 +12,30 @@ interface TruckInfo {
     last_seen?: string;
 }
 
+interface CurrentZone {
+    zone_id: number;
+    zone_name: string;
+    device_name: string;
+    entry_time: string;
+    duration_minutes: number;
+}
+
 interface TruckLocationMapProps {
     truckId: number | null;
 }
 
 export default function TruckLocationMap({ truckId }: TruckLocationMapProps) {
     const [truckInfo, setTruckInfo] = useState<TruckInfo | null>(null);
+    const [currentZone, setCurrentZone] = useState<CurrentZone | null>(null);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (truckId) {
             fetchTruckInfo();
+            fetchCurrentZone();
         } else {
             setTruckInfo(null);
+            setCurrentZone(null);
         }
     }, [truckId]);
 
@@ -44,12 +55,28 @@ export default function TruckLocationMap({ truckId }: TruckLocationMapProps) {
         }
     };
 
+    const fetchCurrentZone = async () => {
+        try {
+            const response = await axios.post('/api/dss/current-truck-zone', {
+                truck_id: truckId
+            });
+            if (response.data.status && response.data.data) {
+                setCurrentZone(response.data.data);
+            } else {
+                setCurrentZone(null);
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки текущей зоны:', error);
+            setCurrentZone(null);
+        }
+    };
+
     if (!truckId) {
         return (
             <div className="h-full flex items-center justify-center bg-muted/20 rounded-lg">
                 <div className="text-center text-muted-foreground">
                     <Navigation className="mx-auto h-16 w-16 mb-4 opacity-50" />
-                    <p className="text-lg">Выберите задачу для отображения местоположения</p>
+                    <p className="text-lg">Выберите грузовик для отображения местоположения</p>
                 </div>
             </div>
         );
@@ -100,16 +127,32 @@ export default function TruckLocationMap({ truckId }: TruckLocationMapProps) {
                             <p className="text-xs mt-1">Интеграция с картами в разработке</p>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="bg-card p-3 rounded-lg border">
-                            <p className="text-muted-foreground mb-1">Текущий статус</p>
-                            <p className="font-medium">В пути</p>
+                    {currentZone ? (
+                        <div className="bg-primary/10 border border-primary/20 p-4 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                                <p className="font-semibold text-primary">Текущая зона</p>
+                            </div>
+                            <h3 className="text-xl font-bold mb-2">{currentZone.zone_name}</h3>
+                            <div className="space-y-1 text-sm">
+                                <p className="text-muted-foreground">
+                                    Устройство: <span className="font-medium text-foreground">{currentZone.device_name}</span>
+                                </p>
+                                <p className="text-muted-foreground">
+                                    В зоне: <span className="font-medium text-foreground">{currentZone.duration_minutes} мин</span>
+                                </p>
+                                <p className="text-muted-foreground">
+                                    Вход: <span className="font-medium text-foreground">
+                                        {new Date(currentZone.entry_time).toLocaleString('ru-RU')}
+                                    </span>
+                                </p>
+                            </div>
                         </div>
-                        <div className="bg-card p-3 rounded-lg border">
-                            <p className="text-muted-foreground mb-1">Последняя активность</p>
-                            <p className="font-medium">Сегодня</p>
+                    ) : (
+                        <div className="bg-muted/50 p-4 rounded-lg text-center">
+                            <p className="text-muted-foreground">Грузовик не находится ни в одной зоне</p>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
         </div>

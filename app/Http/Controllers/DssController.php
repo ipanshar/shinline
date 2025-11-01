@@ -147,4 +147,82 @@ class DssController extends Controller
         }
         return response()->json(['status' => true, 'message' => 'Устройства успешно получены', 'data' => $devaices], 200);
     }
+
+    /**
+     * Получить историю зон для грузовика
+     */
+    public function getTruckZoneHistory(Request $request)
+    {
+        $validated = $request->validate([
+            'truck_id' => 'required|integer|exists:trucks,id',
+            'limit' => 'integer|min:1|max:500',
+        ]);
+
+        $limit = $validated['limit'] ?? 100; // По умолчанию 100 последних записей
+
+        $history = \App\Models\TruckZoneHistory::where('truck_id', $validated['truck_id'])
+            ->with(['zone', 'device', 'task'])
+            ->orderBy('entry_time', 'desc')
+            ->limit($limit)
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'truck_id' => $item->truck_id,
+                    'zone_id' => $item->zone_id,
+                    'zone_name' => $item->zone->name ?? null,
+                    'device_id' => $item->device_id,
+                    'device_name' => $item->device->channelName ?? null,
+                    'device_type' => $item->device->type ?? null,
+                    'task_id' => $item->task_id,
+                    'task_name' => $item->task->name ?? null,
+                    'entry_time' => $item->entry_time,
+                    'exit_time' => $item->exit_time,
+                    'duration' => $item->exit_time ? $item->entry_time->diffInMinutes($item->exit_time) : null,
+                    'created_at' => $item->created_at,
+                ];
+            });
+
+        return response()->json([
+            'status' => true,
+            'message' => 'История зон успешно получена',
+            'data' => $history
+        ], 200);
+    }
+
+    /**
+     * Получить текущую зону грузовика
+     */
+    public function getCurrentTruckZone(Request $request)
+    {
+        $validated = $request->validate([
+            'truck_id' => 'required|integer|exists:trucks,id',
+        ]);
+
+        $currentZone = \App\Models\TruckZoneHistory::where('truck_id', $validated['truck_id'])
+            ->whereNull('exit_time')
+            ->with(['zone', 'device'])
+            ->orderBy('entry_time', 'desc')
+            ->first();
+
+        if (!$currentZone) {
+            return response()->json([
+                'status' => true,
+                'message' => 'Грузовик не находится ни в одной зоне',
+                'data' => null
+            ], 200);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Текущая зона найдена',
+            'data' => [
+                'zone_id' => $currentZone->zone_id,
+                'zone_name' => $currentZone->zone->name ?? null,
+                'device_name' => $currentZone->device->channelName ?? null,
+                'entry_time' => $currentZone->entry_time,
+                'duration_minutes' => now()->diffInMinutes($currentZone->entry_time),
+            ]
+        ], 200);
+    }
 }

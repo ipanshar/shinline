@@ -2,19 +2,20 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { MapPin, Clock, Camera } from 'lucide-react';
 
-interface VehicleCapture {
+interface ZoneHistoryItem {
     id: number;
-    devaice_id: number;
     truck_id: number;
-    plateNo: string;
-    capturePicture: string;
-    plateNoPicture: string;
-    vehicleBrandName: string;
-    captureTime: string;
-    vehicleColorName: string;
-    vehicleModelName: string;
-    local_capturePicture?: string;
-    device_name?: string;
+    zone_id: number;
+    zone_name: string;
+    device_id: number;
+    device_name: string;
+    device_type: string;
+    task_id?: number;
+    task_name?: string;
+    entry_time: string;
+    exit_time?: string;
+    duration?: number;
+    created_at: string;
 }
 
 interface MovementTimelineProps {
@@ -22,31 +23,29 @@ interface MovementTimelineProps {
 }
 
 export default function MovementTimeline({ truckId }: MovementTimelineProps) {
-    const [captures, setCaptures] = useState<VehicleCapture[]>([]);
+    const [history, setHistory] = useState<ZoneHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (truckId) {
-            fetchCaptures();
+            fetchHistory();
         } else {
-            setCaptures([]);
+            setHistory([]);
         }
     }, [truckId]);
 
-    const fetchCaptures = async () => {
+    const fetchHistory = async () => {
         setLoading(true);
         try {
-            // Здесь нужно будет создать API endpoint для получения истории
-            // Пока используем заглушку
-            const response = await axios.post('/api/vehicle-captures', {
+            const response = await axios.post('/api/dss/truck-zone-history', {
                 truck_id: truckId
             });
             if (response.data.status) {
-                setCaptures(response.data.data);
+                setHistory(response.data.data);
             }
         } catch (error) {
             console.error('Ошибка загрузки истории:', error);
-            setCaptures([]);
+            setHistory([]);
         } finally {
             setLoading(false);
         }
@@ -72,7 +71,7 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
             <div className="flex items-center justify-center h-full text-muted-foreground">
                 <div className="text-center">
                     <MapPin className="mx-auto h-12 w-12 mb-4 opacity-50" />
-                    <p>Выберите задачу для просмотра истории передвижений</p>
+                    <p>Выберите грузовик для просмотра истории</p>
                 </div>
             </div>
         );
@@ -89,7 +88,7 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
         );
     }
 
-    if (captures.length === 0) {
+    if (history.length === 0) {
         return (
             <div className="flex items-center justify-center h-full text-muted-foreground">
                 <div className="text-center">
@@ -107,48 +106,62 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
                 {/* Вертикальная линия */}
                 <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-border"></div>
                 
-                {captures.map((capture, index) => (
-                    <div key={capture.id} className="relative flex gap-4">
+                {history.map((item, index) => (
+                    <div key={item.id} className="relative flex gap-4">
                         {/* Точка на timeline */}
                         <div className="relative flex-shrink-0">
-                            <div className="w-12 h-12 rounded-full bg-primary/10 border-2 border-primary flex items-center justify-center z-10">
+                            <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center z-10 ${
+                                !item.exit_time 
+                                    ? 'bg-primary/20 border-primary animate-pulse' 
+                                    : 'bg-primary/10 border-primary'
+                            }`}>
                                 <MapPin className="h-5 w-5 text-primary" />
                             </div>
                         </div>
                         
                         {/* Контент */}
-                        <div className="flex-1 bg-card border rounded-lg p-4 shadow-sm">
-                            <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 bg-card border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex items-start justify-between mb-3">
                                 <div>
-                                    <h4 className="font-medium">{capture.device_name || `Устройство #${capture.devaice_id}`}</h4>
-                                    <p className="text-sm text-muted-foreground">
-                                        {capture.vehicleBrandName} {capture.vehicleModelName}
+                                    <h4 className="font-semibold text-lg">{item.zone_name}</h4>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        {item.device_name} • {item.device_type === 'Entry' ? '🟢 Вход' : '🔴 Выход'}
                                     </p>
+                                    {item.task_name && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            📋 Задача: {item.task_name}
+                                        </p>
+                                    )}
                                 </div>
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                    <Clock className="h-3 w-3" />
-                                    {formatDate(capture.captureTime)}
-                                </div>
+                                {!item.exit_time && (
+                                    <span className="px-2 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full">
+                                        Сейчас здесь
+                                    </span>
+                                )}
                             </div>
                             
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div>
-                                    <span className="text-muted-foreground">Номер:</span>
-                                    <span className="ml-2 font-medium">{capture.plateNo}</span>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div className="bg-muted/50 p-3 rounded-lg">
+                                    <span className="text-muted-foreground block text-xs mb-1">⏰ Время входа</span>
+                                    <span className="font-medium">{formatDate(item.entry_time)}</span>
                                 </div>
-                                <div>
-                                    <span className="text-muted-foreground">Цвет:</span>
-                                    <span className="ml-2">{capture.vehicleColorName}</span>
-                                </div>
+                                {item.exit_time ? (
+                                    <div className="bg-muted/50 p-3 rounded-lg">
+                                        <span className="text-muted-foreground block text-xs mb-1">⏱️ Время выхода</span>
+                                        <span className="font-medium">{formatDate(item.exit_time)}</span>
+                                    </div>
+                                ) : (
+                                    <div className="bg-primary/10 p-3 rounded-lg border border-primary/20">
+                                        <span className="text-primary block text-xs mb-1">📍 Статус</span>
+                                        <span className="font-medium text-primary">В зоне</span>
+                                    </div>
+                                )}
                             </div>
                             
-                            {capture.local_capturePicture && (
-                                <div className="mt-3">
-                                    <img 
-                                        src={capture.local_capturePicture} 
-                                        alt="Захват транспорта"
-                                        className="w-full h-32 object-cover rounded-md"
-                                    />
+                            {item.duration && (
+                                <div className="mt-3 pt-3 border-t">
+                                    <span className="text-muted-foreground text-sm">⏳ Длительность пребывания:</span>
+                                    <span className="ml-2 font-semibold text-primary">{item.duration} мин</span>
                                 </div>
                             )}
                         </div>

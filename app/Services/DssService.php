@@ -367,6 +367,8 @@ class DssService
                         $Vehicle->save();
                        }
                     }
+                    // НОВОЕ: Автоматическая фиксация зоны
+                    $this->recordZoneEntry($device, $truk, $item);
                 }
                 return ['success' => true];
             } else {
@@ -377,6 +379,58 @@ class DssService
         }
 
     }
+
+    /**
+     * Автоматическая фиксация входа/выхода из зоны
+     */
+    private function recordZoneEntry($device, $truck, $captureData)
+    {
+        // Проверяем что у устройства есть зона
+        if (!$device->zone_id) {
+            return;
+        }
+
+        // Получаем активную задачу для этого грузовика (если есть)
+        $activeTask = \App\Models\Task::where('truck_id', $truck->id)
+            ->whereIn('status_id', [1, 2]) // Статусы "В процессе" или "Активна"
+            ->first();
+
+        $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime']);
+
+        // Если устройство типа "Entry" (Вход)
+        if ($device->type === 'Entry') {
+            // Проверяем есть ли уже открытая запись для этой зоны
+            $existingEntry = \App\Models\TruckZoneHistory::where('truck_id', $truck->id)
+                ->where('zone_id', $device->zone_id)
+                ->whereNull('exit_time')
+                ->first();
+
+            // Если нет открытой записи - создаем новую
+            if (!$existingEntry) {
+                \App\Models\TruckZoneHistory::create([
+                    'truck_id' => $truck->id,
+                    'device_id' => $device->id,
+                    'zone_id' => $device->zone_id,
+                    'task_id' => $activeTask->id ?? null,
+                    'entry_time' => $captureTime,
+                ]);
+            }
+        }
+        // Если устройство типа "Exit" (Выход)
+        elseif ($device->type === 'Exit') {
+            // Находим открытую запись для этой зоны и закрываем её
+            $openEntry = \App\Models\TruckZoneHistory::where('truck_id', $truck->id)
+                ->where('zone_id', $device->zone_id)
+                ->whereNull('exit_time')
+                ->first();
+
+            if ($openEntry) {
+                $openEntry->exit_time = $captureTime;
+                $openEntry->save();
+            }
+        }
+    }
+
 // Удаляем записи о захватах транспортных средств старше 24 часов
     public function deleteOldVehicleCaptures()
     {
