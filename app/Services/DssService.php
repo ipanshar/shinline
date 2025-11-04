@@ -408,18 +408,39 @@ class DssService
         $task = $permit ? Task::find($permit->task_id) : null;
 
         $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime']);
-
-        $tr = \App\Models\TruckZoneHistory::updateOrCreate(
-            ['truck_id' => $truck->id, 'zone_id' => $device->zone_id, 'entry_time' => $captureTime],
-            [
-                'truck_id' => $truck->id,
-                'device_id' => $device->id,
-                'zone_id' => $device->zone_id,
-                'task_id' => $task->id ?? null,
-                'entry_time' => $captureTime,
-            ]
-        );
-        $tr->save();
+        if($device->type=='Exit'){
+            // Проверяем, есть ли уже запись о выходе для этого грузовика из этой зоны после времени захвата
+            $existingExit = \App\Models\TruckZoneHistory::where('truck_id', $truck->id)
+                ->where('device_id', $device->id)
+                ->where('zone_id', $device->zone_id)
+                ->where('exit_time', '=', null)
+                ->update(['exit_time' => $captureTime]);
+            if ($existingExit) {
+                // Если запись уже существует, выходим из функции
+                return;
+            }
+        } elseif($device->type=='Entry'){
+            // Проверяем, есть ли уже запись о входе для этого грузовика в эту зону после времени захвата
+            $existingEntry = \App\Models\TruckZoneHistory::where('truck_id', $truck->id)
+                ->where('device_id', $device->id)
+                ->where('zone_id', $device->zone_id)
+                ->where('entry_time', '=', $captureTime)
+                ->first();
+            if ($existingEntry) {
+                // Если запись уже существует, выходим из функции
+                return;
+            }else{
+                $tr = \App\Models\TruckZoneHistory::create([
+                    'truck_id' => $truck->id,
+                    'device_id' => $device->id,
+                    'zone_id' => $device->zone_id,
+                    'task_id' => $task->id ?? null,
+                    'entry_time' => $captureTime,
+                ]);
+                $tr->save();
+            }
+        }
+        
 
         // Если у устройства есть привязанный КПП, создаем или обновляем запись о посетителе
         if($device->checkpoint_id>0){
