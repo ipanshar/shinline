@@ -38,6 +38,8 @@ interface Visitor {
   description?: string;
   name?: string;
   truck_own: any;
+  entrance_device_name?: string;
+  exit_device_name?: string;
 }
 
 const SecurityCheck = () => {
@@ -288,8 +290,8 @@ useEffect(() => {
       >
         {visitor.status_name}
       </div>
-      <div>{visitor.entry_date.slice(0, 16)}</div>
-      <div>{visitor.exit_date ? visitor.exit_date.slice(0, 16) : '-'}</div>
+      <div><div>{visitor.entrance_device_name ? 'Камера входа: '+visitor.entrance_device_name : ''}</div><div>{visitor.entry_date.slice(0, 16)}</div></div>
+      <div><div>{visitor.exit_device_name ? 'Камера выхода: '+visitor.exit_device_name : ''}</div><div>{visitor.exit_date ? visitor.exit_date.slice(0, 16) : '-'}</div></div>
       <div className="text-center">
         {!visitor.exit_date && (
           <button

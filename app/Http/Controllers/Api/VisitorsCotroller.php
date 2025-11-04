@@ -140,6 +140,8 @@ class VisitorsCotroller extends Controller
             ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
             ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
             ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('devaice as entrance_device', 'visitors.entrance_device_id', '=', 'entrance_device.id')
+            ->leftJoin('devaice as exit_device', 'visitors.exit_device_id', '=', 'exit_device.id')
             ->select(
                 'visitors.*',
                 'tasks.name as name',
@@ -152,7 +154,9 @@ class VisitorsCotroller extends Controller
                 'yards.name as yard_name',
                 'trucks.name as truck_name',
                 'trucks.own as truck_own',
-                'truck_models.name as truck_model_name'
+                'truck_models.name as truck_model_name',
+                'entrance_device.channelName as entrance_device_name',
+                'exit_device.channelName as exit_device_name'
             )
             ->orderBy('visitors.id', 'desc');
 
