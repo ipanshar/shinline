@@ -14,16 +14,24 @@
 // Этот сервис используется в контроллере DssController для обработки запросов, связанных с DSS.
 namespace App\Services;
 
+use App\Http\Controllers\TelegramController;
+use App\Models\Checkpoint;
 use App\Models\Devaice;
 use App\Models\DssApi;
 use App\Models\DssSetings;
+use App\Models\EntryPermit;
+use App\Models\Status;
+use App\Models\Task;
 use App\Models\Truck;
 use App\Models\TruckBrand;
 use App\Models\TruckCategory;
 use App\Models\TruckModel;
 use App\Models\VehicleCapture;
+use App\Models\Yard;
+use App\Models\Zone;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -249,8 +257,9 @@ class DssService
         }
     }
 
-    public function dssVehicleCapture() {
-     
+    public function dssVehicleCapture()
+    {
+
         if (!$this->dssSettings->token) {
             return ['error' => 'Токен не установлен!'];
         }
@@ -266,12 +275,12 @@ class DssService
             ],
             'json' => [
                 'plateNoMatchMode' => 0, // 1 - точное совпадение, 0 - частичное совпадение
-                'startTime' => $currentTimestamp - 15*60, // 15 минут назад
+                'startTime' => $currentTimestamp - 15 * 60, // 15 минут назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
                 'currentPage' => 1,
                 'pageSize' => 200,
-                 'orderDirection' => 'asc',
+                'orderDirection' => 'asc',
             ]
         ]);
 
@@ -354,18 +363,18 @@ class DssService
                             'vehicleModelName' => $item['vehicleModelName'] ?? null
                         ]
                     );
-                    if($Vehicle->imageDownload == 0 ){
-                       $capturePicture = $Vehicle->capturePicture.'?token='.$this->dssSettings->credential;
-                       Log::info('Capture picture URL: ' . $capturePicture);
-                       $ResponseCapturePicture = Http::withoutVerifying()->get($capturePicture);
-                       if($ResponseCapturePicture->successful()){
-                        $imageData = $ResponseCapturePicture->body();
-                        $fileName = $Vehicle->id.'.jpg';
-                        Storage::disk('public')->put("images/vehicle/capture/{$fileName}", $imageData);
-                        $Vehicle->local_capturePicture = "images/vehicle/capture/{$fileName}";
-                        $Vehicle->imageDownload = 1; // Устанавливаем флаг, что изображение загружено
-                        $Vehicle->save();
-                       }
+                    if ($Vehicle->imageDownload == 0) {
+                        $capturePicture = $Vehicle->capturePicture . '?token=' . $this->dssSettings->credential;
+                        Log::info('Capture picture URL: ' . $capturePicture);
+                        $ResponseCapturePicture = Http::withoutVerifying()->get($capturePicture);
+                        if ($ResponseCapturePicture->successful()) {
+                            $imageData = $ResponseCapturePicture->body();
+                            $fileName = $Vehicle->id . '.jpg';
+                            Storage::disk('public')->put("images/vehicle/capture/{$fileName}", $imageData);
+                            $Vehicle->local_capturePicture = "images/vehicle/capture/{$fileName}";
+                            $Vehicle->imageDownload = 1; // Устанавливаем флаг, что изображение загружено
+                            $Vehicle->save();
+                        }
                     }
                     // НОВОЕ: Автоматическая фиксация зоны
                     $this->recordZoneEntry($device, $truk, $item);
@@ -377,11 +386,10 @@ class DssService
         } else {
             return ['error' => 'Ошибка запроса: ' . $response->getStatusCode()];
         }
-
     }
-
     /**
-     * Автоматическая фиксация входа/выхода из зоны
+     * Проверяет и записывает входы грузовиков в зоны на основе захватов устройств.
+     * Если кпп находится в зоне устройства, фиксируется вход грузовика в эту зону.
      */
     private function recordZoneEntry($device, $truck, $captureData)
     {
@@ -389,52 +397,98 @@ class DssService
         if (!$device->zone_id) {
             return;
         }
+        // Получаем зону и разрешение на въезд для грузовика в эту зону
+        $zone = Zone::find($device->zone_id);
+        $permit = $truck ? EntryPermit::where('truck_id', $truck->id)
+                ->where('yard_id', $zone->yard_id)
+                ->where('status_id', '=', Status::where('key', 'active')->first()->id)
+                ->first() : null;
 
-        // Получаем активную задачу для этого грузовика (если есть)
-        $activeTask = \App\Models\Task::where('truck_id', $truck->id)
-            ->whereIn('status_id', [1, 2]) // Статусы "В процессе" или "Активна"
-            ->first();
+        // Получаем задание, связанное с разрешением    
+        $task = $permit ? Task::find($permit->task_id) : null;
 
         $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime']);
 
-        // Если устройство типа "Entry" (Вход)
-        if ($device->type === 'Entry') {
-            // Проверяем есть ли уже открытая запись для этой зоны
-            $existingEntry = \App\Models\TruckZoneHistory::where('truck_id', $truck->id)
-                ->where('zone_id', $device->zone_id)
-                ->whereNull('exit_time')
-                ->first();
+        $tr = \App\Models\TruckZoneHistory::updateOrCreate(
+            ['truck_id' => $truck->id, 'zone_id' => $device->zone_id, 'entry_time' => $captureTime],
+            [
+                'truck_id' => $truck->id,
+                'device_id' => $device->id,
+                'zone_id' => $device->zone_id,
+                'task_id' => $task->id ?? null,
+                'entry_time' => $captureTime,
+            ]
+        );
+        $tr->save();
 
-            // Если нет открытой записи - создаем новую
-            if (!$existingEntry) {
-                \App\Models\TruckZoneHistory::create([
-                    'truck_id' => $truck->id,
-                    'device_id' => $device->id,
-                    'zone_id' => $device->zone_id,
-                    'task_id' => $activeTask->id ?? null,
-                    'entry_time' => $captureTime,
-                ]);
-            }
-        }
-        // Если устройство типа "Exit" (Выход)
-        elseif ($device->type === 'Exit') {
-            // Находим открытую запись для этой зоны и закрываем её
-            $openEntry = \App\Models\TruckZoneHistory::where('truck_id', $truck->id)
-                ->where('zone_id', $device->zone_id)
-                ->whereNull('exit_time')
-                ->first();
-
-            if ($openEntry) {
-                $openEntry->exit_time = $captureTime;
-                $openEntry->save();
-            }
+        // Если у устройства есть привязанный КПП, создаем или обновляем запись о посетителе
+        if($device->checkpoint_id){
+            $this->CreateOrUpdateVisitor($device, $truck, $zone, $permit, $task);
         }
     }
 
-// Удаляем записи о захватах транспортных средств старше 24 часов
+    private function CreateOrUpdateVisitor($device, $truck, $zone, $permit=null, $task=null)
+    {
+       
+            $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
+            $statusRow = Status::where('key', 'on_territory')->first();
+
+        if($device->type=='Exit'){
+            $visitor = \App\Models\Visitor::where('truck_id', $truck->id)
+                ->where('exit_device_id', null)
+                ->whereNull('exit_time')
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($visitor) {
+                $visitor->exit_device_id = $device->id;
+                $visitor->exit_time = now();
+                $visitor->save();
+                if($task){
+                    $task->status_id = Status::where('key', 'left_territory')->first()->id;
+                    $task->end_date = now();
+                    $task->save();
+                }
+            }
+        } elseif($device->type=='Entry') {
+            $visitor = \App\Models\Visitor::create([
+                'yard_id' => $zone->yard_id,
+                'truck_id' => $truck->id,
+                'plate_number' => $truck->plate_number,
+                'task_id' => $task ? $task->id : null,
+                'entrance_device_id' => $device->id,
+                'entry_permit_id' => $permit ? $permit->id : null,
+                'status_id' => $statusRow->id,
+            ]);
+            $visitor->save();
+            if($task){
+                $task->status_id = $statusRow->id;
+                $task->begin_date = now();
+                $task->yard_id = $zone->yard_id;
+                $task->save();
+
+                $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $request->yard_id)->select('warehouses.name as name')->get();
+                (new TelegramController())->sendNotification(
+                    '<b>🚛 Въезд на территорию ' . e(Yard::where('id', $zone->yard_id)->value('name')) .  "</b>\n\n" .
+                        '<b>🏷️ ТС:</b> '  . e($truck->plate_number) . "\n" .
+                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                        '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                        '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
+                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                        '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
+                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'. "\n" .
+                        '<b> 📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')),
+                );
+            }
+        }
+
+        
+    }
+
+    // Удаляем записи о захватах транспортных средств старше 90 дней
     public function deleteOldVehicleCaptures()
     {
-        $threshold = now()->subHours($this->subhour); // Устанавливаем порог времени
+        $threshold = now()->subDays(90); // Устанавливаем порог в 90 дней
         $oldCaptures = VehicleCapture::where('captureTime', '<', $threshold->timestamp)->get();
         foreach ($oldCaptures as $capture) {
             // Удаляем изображение из хранилища, если оно существует

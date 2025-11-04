@@ -21,6 +21,9 @@ class Visitor extends Model
         'yard_id',
         'truck_id',
         'task_id',
+        'entrance_device_id',
+        'exit_device_id',
+        'entry_permit_id',
     ];
 
     public function truckCategory()

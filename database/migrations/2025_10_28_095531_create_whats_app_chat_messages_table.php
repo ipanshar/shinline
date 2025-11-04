@@ -18,7 +18,6 @@ return new class extends Migration
             $table->string('message_id')->nullable();// ID сообщения в WhatsApp
             $table->boolean('type')->nullable();// 0 - входящее, 1 - исходящее
             $table->integer('user_id')->nullable();// ID сотрудника в системе
-            
             $table->timestamps();
         });
     }
