@@ -422,7 +422,7 @@ class DssService
         $tr->save();
 
         // Если у устройства есть привязанный КПП, создаем или обновляем запись о посетителе
-        if($device->checkpoint_id){
+        if($device->checkpoint_id>0){
             $this->CreateOrUpdateVisitor($device, $truck, $zone, $permit, $task);
         }
     }
