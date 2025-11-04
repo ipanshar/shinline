@@ -343,7 +343,7 @@ class TaskCotroller extends Controller
 
             $truckModels = [];
             if ($truckModelIds->isNotEmpty()) {
-                $truckModels = \DB::table('truck_models')
+                $truckModels = DB::table('truck_models')
                     ->whereIn('id', $truckModelIds)
                     ->pluck('name', 'id');
             }

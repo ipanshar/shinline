@@ -466,7 +466,7 @@ class DssService
                 $task->yard_id = $zone->yard_id;
                 $task->save();
 
-                $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $request->yard_id)->select('warehouses.name as name')->get();
+                $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $zone->yard_id)->select('warehouses.name as name')->get();
                 (new TelegramController())->sendNotification(
                     '<b>🚛 Въезд на территорию ' . e(Yard::where('id', $zone->yard_id)->value('name')) .  "</b>\n\n" .
                         '<b>🏷️ ТС:</b> '  . e($truck->plate_number) . "\n" .
