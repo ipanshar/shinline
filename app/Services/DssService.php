@@ -365,7 +365,7 @@ class DssService
                     );
                     if ($Vehicle->imageDownload == 0) {
                         $capturePicture = $Vehicle->capturePicture . '?token=' . $this->dssSettings->credential;
-                        Log::info('Capture picture URL: ' . $capturePicture);
+                        //Log::info('Capture picture URL: ' . $capturePicture);
                         $ResponseCapturePicture = Http::withoutVerifying()->get($capturePicture);
                         if ($ResponseCapturePicture->successful()) {
                             $imageData = $ResponseCapturePicture->body();
