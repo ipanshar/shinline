@@ -167,6 +167,9 @@ Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //О
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS  
 Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
 Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
+Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory']); //Получить историю зон грузовика
+Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone']); //Получить текущую зону грузовика
+
 
 
 Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint']);

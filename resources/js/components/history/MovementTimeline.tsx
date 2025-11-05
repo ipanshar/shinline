@@ -37,7 +37,7 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
     const fetchHistory = async () => {
         setLoading(true);
         try {
-            const response = await axios.post('/api/dss/truck-zone-history', {
+            const response = await axios.post('/dss/truck-zone-history', {
                 truck_id: truckId
             });
             if (response.data.status) {

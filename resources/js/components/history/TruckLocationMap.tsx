@@ -57,7 +57,7 @@ export default function TruckLocationMap({ truckId }: TruckLocationMapProps) {
 
     const fetchCurrentZone = async () => {
         try {
-            const response = await axios.post('/api/dss/current-truck-zone', {
+            const response = await axios.post('/dss/current-truck-zone', {
                 truck_id: truckId
             });
             if (response.data.status && response.data.data) {
