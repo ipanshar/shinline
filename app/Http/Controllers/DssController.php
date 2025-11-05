@@ -200,8 +200,7 @@ class DssController extends Controller
         ]);
 
         $currentZone = \App\Models\TruckZoneHistory::where('truck_id', $validated['truck_id'])
-            ->whereNull('exit_time')
-            ->with(['zone', 'device'])
+            ->with(['zone', 'device'])// загружаем связанные модели зоны и устройства
             ->orderBy('entry_time', 'desc')
             ->first();
 
