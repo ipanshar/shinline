@@ -425,11 +425,11 @@ class DssService
 
         // Если у устройства есть привязанный КПП, создаем или обновляем запись о посетителе
         if($device->checkpoint_id>0){
-            $this->CreateOrUpdateVisitor($device, $truck, $zone, $permit, $task);
+            $this->CreateOrUpdateVisitor($device, $truck, $zone, $permit, $task, $captureTime);
         }
     }
 
-    private function CreateOrUpdateVisitor($device, $truck, $zone, $permit=null, $task=null)
+    private function CreateOrUpdateVisitor($device, $truck, $zone, $permit=null, $task=null, $captureTime=null)
     {
        
             $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
@@ -438,12 +438,13 @@ class DssService
         if($device->type=='Exit'){
             $visitor = \App\Models\Visitor::where('truck_id', $truck->id)
                 ->where('exit_device_id', null)
-                ->whereNull('exit_time')
+                ->where('yard_id', $zone->yard_id)
+                ->whereNull('exit_date')
                 ->orderBy('id', 'desc')
                 ->first();
             if ($visitor) {
                 $visitor->exit_device_id = $device->id;
-                $visitor->exit_time = now();
+                $visitor->exit_date = $captureTime ?? now();
                 $visitor->save();
                 if($task){
                     $task->status_id = Status::where('key', 'left_territory')->first()->id;
@@ -452,13 +453,16 @@ class DssService
                 }
             }
         } elseif($device->type=='Entry') {
-            $visitor = \App\Models\Visitor::create([
+            $visitor = \App\Models\Visitor::CreateOrUpdateVisitor(
+                ['yard_id' => $zone->yard_id, 'truck_id' => $truck->id, 'exit_time' => null],
+                [
                 'yard_id' => $zone->yard_id,
                 'truck_id' => $truck->id,
                 'plate_number' => $truck->plate_number,
                 'task_id' => $task ? $task->id : null,
                 'entrance_device_id' => $device->id,
                 'entry_permit_id' => $permit ? $permit->id : null,
+                'entry_date' => $captureTime ?? now(),
                 'status_id' => $statusRow->id,
             ]);
             $visitor->save();
