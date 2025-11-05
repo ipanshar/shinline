@@ -295,6 +295,9 @@ class DssService
                     return ['error' => 'Нет данных для отображения', 'data' => $responseData];
                 }
                 foreach ($pageData as $item) {
+                    if (empty($item['channelId']) || empty($item['plateNo'])) {
+                        continue; // Пропускаем запись, если отсутствует channelId или plateNo
+                    }
                     // Проверяем, существует ли устройство с таким channelId
                     $device = Devaice::where('channelId', $item['channelId'])->first();
                     if (!$device) {
