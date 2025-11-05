@@ -43,7 +43,7 @@ export default function TruckSelector({ onTruckSelect }: TruckSelectorProps) {
         setLoading(true);
         try {
             const response = await axios.post('/trucs/gettrucks', {
-                limit: 200 // Загружаем только 200 последних грузовиков
+                //limit: 200 // Загружаем только 200 последних грузовиков
             });
             if (response.data.status) {
                 setTrucks(response.data.data);
