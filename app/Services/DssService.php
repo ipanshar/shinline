@@ -453,8 +453,8 @@ class DssService
                 }
             }
         } elseif($device->type=='Entry') {
-            $visitor = \App\Models\Visitor::CreateOrUpdateVisitor(
-                ['yard_id' => $zone->yard_id, 'truck_id' => $truck->id, 'exit_time' => null],
+            $visitor = \App\Models\Visitor::updateOrCreate(
+                ['yard_id' => $zone->yard_id, 'truck_id' => $truck->id, 'exit_date' => null],
                 [
                 'yard_id' => $zone->yard_id,
                 'truck_id' => $truck->id,
