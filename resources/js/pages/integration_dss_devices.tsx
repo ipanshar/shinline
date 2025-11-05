@@ -33,9 +33,17 @@ interface Zone {
     name: string;
 }
 
+interface Checkpoint {
+    id: number;
+    name: string;
+    yard_id: number;
+    yard_name?: string;
+}
+
 export default function Integration_dss() {
     const [devices, setDevices] = useState<Device[]>([]);
     const [zones, setZones] = useState<Zone[]>([]);
+    const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [loading, setLoading] = useState(true);
     const isMobile = useMediaQuery("(max-width: 768px)");
     const [rowModesModel, setRowModesModel] = React.useState<GridRowModesModel>({});
@@ -47,6 +55,16 @@ export default function Integration_dss() {
                 }
             })
             .catch(error => console.error("Ошибка загрузки зон:", error));
+    };
+
+    const fetchCheckpoints = () => {
+        axios.post("/entrance-permit/getallcheckpoints")
+            .then(response => {
+                if (response.data.status) {
+                    setCheckpoints(response.data.data);
+                }
+            })
+            .catch(error => console.error("Ошибка загрузки КПП:", error));
     };
 
     const fetchDevices = () => {
@@ -62,6 +80,7 @@ export default function Integration_dss() {
     };
     useEffect(() => {
         fetchZones();
+        fetchCheckpoints();
         fetchDevices();
     }, []);
 
@@ -115,7 +134,26 @@ export default function Integration_dss() {
         { field: "id", headerName: "ИД", width: isMobile ? 50 : 80 },
         { field: "channelId", headerName: "channelId", flex: 1, minWidth: 120 },
         { field: "channelName", headerName: "channelName", flex: 1, minWidth: 120, editable: true },
-        { field: "checkpoint_id", headerName: "Checkpoint ID", flex: 1, minWidth: 120, editable: true },
+        { 
+            field: "checkpoint_id", 
+            headerName: "КПП", 
+            flex: 1, 
+            minWidth: 150, 
+            editable: true,
+            type: 'singleSelect' as const,
+            valueOptions: [
+                { value: 0, label: 'Не выбрано' },
+                ...checkpoints.map(checkpoint => ({ 
+                    value: checkpoint.id, 
+                    label: checkpoint.name
+                }))
+            ],
+            renderCell: (params: any) => {
+                if (!params.value || params.value === 0) return 'Не выбрано';
+                const checkpoint = checkpoints.find(c => c.id === params.value);
+                return checkpoint ? checkpoint.name : `КПП ID: ${params.value}`;
+            }
+        },
         { 
             field: "type", 
             headerName: "Тип", 

@@ -171,6 +171,7 @@ Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']
 
 Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint']);
 Route::post('/entrance-permit/getcheckpoint', [EntryPermitController::class, 'getCheckpoint']);
+Route::post('/entrance-permit/getallcheckpoints', [EntryPermitController::class, 'getAllCheckpoints']);
 Route::post('/entrance-permit/updatecheckpoint', [EntryPermitController::class, 'updateCheckpoint']);
 Route::post('/entrance-permit/deletecheckpoint', [EntryPermitController::class, 'deleteCheckpoint']);
 

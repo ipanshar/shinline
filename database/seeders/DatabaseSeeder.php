@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Checkpoint;
 use App\Models\DssApi;
 use App\Models\DssSetings;
 use App\Models\Role;
@@ -197,6 +198,12 @@ class DatabaseSeeder extends Seeder
         // TruckCategory::create(['name' => 'Ambulance', 'ru_name' => 'Скорая помощь']);
 
        // Yard::create(['name' => 'Шин-Лайн Байсерке']);
+
+        // Создание КПП (контрольно-пропускных пунктов)
+        // Checkpoint::create(['name' => 'КПП 1', 'yard_id' => 1]);
+        // Checkpoint::create(['name' => 'КПП 2', 'yard_id' => 1]);
+        // Checkpoint::create(['name' => 'Главный КПП', 'yard_id' => 1]);
+        // Checkpoint::create(['name' => 'Задний КПП', 'yard_id' => 1]);
 
     //   $dssAdd =  DssSetings::create([
     //         'base_url' => 'http://10.210.0.250',

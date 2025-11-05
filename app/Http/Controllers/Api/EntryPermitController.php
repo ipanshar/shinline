@@ -65,4 +65,17 @@ class EntryPermitController extends Controller
 
         return response()->json(['status' => false, 'message' => 'КПП не найден'], 404);
     }
+
+    public function getAllCheckpoints(Request $request)
+    {
+        $checkpoints = Checkpoint::leftJoin('yards', 'checkpoints.yard_id', '=', 'yards.id')
+            ->orderBy('checkpoints.name')
+            ->select('checkpoints.*', 'yards.name as yard_name')
+            ->get();
+         return response()->json([
+                'status' => true,
+                'message' => 'Все КПП загружены',
+                'data' => $checkpoints,
+            ], 200);
+    }
 }
