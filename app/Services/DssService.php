@@ -274,8 +274,8 @@ class DssService
                 'Charset' => 'utf-8'
             ],
             'json' => [
-                'plateNoMatchMode' => 0, // 1 - точное совпадение, 0 - частичное совпадение
-                'startTime' => $currentTimestamp - 15 * 60, // 15 минут назад
+                'plateNoMatchMode' => 1, // 1 - точное совпадение, 0 - частичное совпадение
+                'startTime' => $currentTimestamp - 11, // 10 секунд назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
                 'currentPage' => 1,
@@ -295,8 +295,8 @@ class DssService
                     return ['error' => 'Нет данных для отображения', 'data' => $responseData];
                 }
                 foreach ($pageData as $item) {
-                    if (empty($item['channelId']) || empty($item['plateNo'])) {
-                        continue; // Пропускаем запись, если отсутствует channelId или plateNo
+                    if (empty($item['channelId']) || empty($item['plateNo']) || strlen($item['plateNo']) < 4) {
+                        continue; // Пропускаем запись, если отсутствует channelId или plateNo или plateNo короче 4 символов
                     }
                     // Проверяем, существует ли устройство с таким channelId
                     $device = Devaice::where('channelId', $item['channelId'])->first();
@@ -410,7 +410,7 @@ class DssService
         // Получаем задание, связанное с разрешением    
         $task = $permit ? Task::find($permit->task_id) : null;
 
-        $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime']);
+        $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime'])->setTimezone(date_default_timezone_get());
        
         $tr = \App\Models\TruckZoneHistory::updateOrCreate(
             ['truck_id' => $truck->id, 'zone_id' => $device->zone_id, 'entry_time' => $captureTime],
@@ -486,7 +486,7 @@ class DssService
                         '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
                         '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
                         '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'. "\n" .
-                        '<b> 📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')),
+                        '<b> 📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')).' - '.$device->channelName,
                 );
             }
         }
