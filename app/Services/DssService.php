@@ -410,7 +410,7 @@ class DssService
         // Получаем задание, связанное с разрешением    
         $task = $permit ? Task::find($permit->task_id) : null;
 
-        $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime'])->setTimezone(date_default_timezone_get());
+        $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime'])->setTimezone(config('app.timezone'));
        
         $tr = \App\Models\TruckZoneHistory::updateOrCreate(
             ['truck_id' => $truck->id, 'zone_id' => $device->zone_id, 'entry_time' => $captureTime],
