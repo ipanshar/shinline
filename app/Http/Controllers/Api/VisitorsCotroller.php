@@ -154,6 +154,7 @@ class VisitorsCotroller extends Controller
                 'yards.name as yard_name',
                 'trucks.name as truck_name',
                 'trucks.own as truck_own',
+                'trucks.vip_level as truck_vip_level',
                 'truck_models.name as truck_model_name',
                 'entrance_device.channelName as entrance_device_name',
                 'exit_device.channelName as exit_device_name'

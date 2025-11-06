@@ -23,6 +23,7 @@ interface Truck {
   plate_number: string;
   driver_name?: string;
   phone?: string;
+  vip_level?: number;
 }
 
 interface Visitor {
@@ -38,6 +39,7 @@ interface Visitor {
   description?: string;
   name?: string;
   truck_own: any;
+  truck_vip_level?: number;
   entrance_device_name?: string;
   exit_device_name?: string;
 }
@@ -271,12 +273,31 @@ useEffect(() => {
 
   {loading && <p className="text-sm mt-2">Загрузка...</p>}
 
-  {filteredVisitors.map(visitor => (
+  {filteredVisitors.map(visitor => {
+    // Определяем цвет фона в зависимости от VIP статуса
+    const getRowClass = () => {
+      if (visitor.truck_vip_level === 1 || visitor.truck_vip_level === '1') return 'bg-amber-100 dark:bg-amber-900/30 border-amber-400'; // VIP - золотой
+      if (visitor.truck_vip_level === 2 || visitor.truck_vip_level === '2') return 'bg-slate-200 dark:bg-slate-700/50 border-slate-400'; // Руководство - серебристый
+      if (visitor.truck_vip_level === 3 || visitor.truck_vip_level === '3') return 'bg-green-100 dark:bg-green-900/30 border-green-400'; // Зд обход - зеленый
+      return 'hover:bg-gray-50'; // Обычный
+    };
+
+    const getVipBadge = () => {
+      if (visitor.truck_vip_level === 1 || visitor.truck_vip_level === '1') return <span className="ml-2 text-xs font-bold px-2 py-1 rounded-full bg-amber-500 text-white">⭐ VIP</span>;
+      if (visitor.truck_vip_level === 2 || visitor.truck_vip_level === '2') return <span className="ml-2 text-xs font-bold px-2 py-1 rounded-full bg-slate-500 text-white">👤 Руководство</span>;
+      if (visitor.truck_vip_level === 3 || visitor.truck_vip_level === '3') return <span className="ml-2 text-xs font-bold px-2 py-1 rounded-full bg-green-600 text-white">🚒 Зд обход</span>;
+      return null;
+    };
+
+    return (
     <div
       key={visitor.id}
-      className="grid grid-cols-11 gap-2 items-center px-2 py-2 border-b text-sm hover:bg-gray-50"
+      className={`grid grid-cols-11 gap-2 items-center px-2 py-2 border-b text-sm ${getRowClass()}`}
     >
-      <div className="font-bold">{visitor.plate_number}</div>
+      <div className="font-bold flex items-center">
+        {visitor.plate_number}
+        {getVipBadge()}
+      </div>
       <div>{visitor.truck_own || "Не указано"}</div>
       <div>{visitor.truck_model_name || '-'}</div>
       <div>{visitor.name || '-'}</div>
@@ -303,7 +324,8 @@ useEffect(() => {
         )}
       </div>
     </div>
-  ))}
+    );
+  })}
 </div>
 
         </>

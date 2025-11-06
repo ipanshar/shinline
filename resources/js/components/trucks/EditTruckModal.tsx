@@ -19,6 +19,7 @@ interface Truck {
   trailer_width: number | undefined;
   trailer_length: number | undefined;
   truck_own: any;
+  vip_level?: number;
   trailer_load_capacity: number | undefined;
   truck_category_id: number | undefined;
 }
@@ -81,6 +82,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
     trailer_width: truck.trailer_width,
     trailer_length: truck.trailer_length,
     own: truck.truck_own || 'не указано',
+    vip_level: truck.vip_level || 0,
     trailer_load_capacity: truck.trailer_load_capacity,
   });
   
@@ -399,6 +401,21 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
               <option value="арендованный">Арендованный</option>
               <option value="личный">Личный</option>
               <option value="государственный">Государственный</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">VIP статус</label>
+            <select
+              name="vip_level"
+              value={formData.vip_level}
+              onChange={handleChange}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value={0}>Обычный</option>
+              <option value={1}>⭐ VIP (золотой)</option>
+              <option value={2}>👤 Руководство (серебристый)</option>
+              <option value={3}>🚒 Зд обход (зеленый)</option>
             </select>
           </div>
           
