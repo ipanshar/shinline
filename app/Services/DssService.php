@@ -448,6 +448,7 @@ class DssService
             if ($visitor) {
                 $visitor->exit_device_id = $device->id;
                 $visitor->exit_date = $captureTime ?? now();
+                $visitor->status_id = Status::where('key', 'left_territory')->first()->id;
                 $visitor->save();
                 if($task){
                     $task->status_id = Status::where('key', 'left_territory')->first()->id;
