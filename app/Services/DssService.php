@@ -275,7 +275,7 @@ class DssService
             ],
             'json' => [
                 'plateNoMatchMode' => 1, // 1 - точное совпадение, 0 - частичное совпадение
-                'startTime' => $currentTimestamp - 11, // 10 секунд назад
+                'startTime' => $currentTimestamp - 4, // 4 секунды назад
                 'endTime' => $currentTimestamp, // Текущее время
                 'page' => 1,
                 'currentPage' => 1,

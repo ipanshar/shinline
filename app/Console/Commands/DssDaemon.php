@@ -12,7 +12,7 @@ class DssDaemon extends Command
 
     public function handle()
 {
-    $this->info("Запущен DSS Daemon (VehicleCapture каждые 10 секунд, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
+    $this->info("Запущен DSS Daemon (VehicleCapture каждые 3 секунды, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
 
     $service = new DssService();
 
@@ -27,8 +27,8 @@ class DssDaemon extends Command
     while (true) {
         $start = microtime(true);
 
-        // Вызов VehicleCapture каждые 10 секунд
-        if ((time() - $lastVehicleCapture) >= 10) {
+        // Вызов VehicleCapture каждые 3 секунды
+        if ((time() - $lastVehicleCapture) >= 3) {
             try {
                 $VehicleCaptureResult = $service->dssVehicleCapture();
                 $this->logResult('VehicleCapture', $VehicleCaptureResult);
