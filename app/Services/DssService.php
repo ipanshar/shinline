@@ -338,7 +338,7 @@ class DssService
                         // Если грузовик не найден, создаем новый
                         Truck::create([
                             'plate_number' => $item['plateNo'],
-                            'color' => $item['vehicleBrandName'] ?? null,
+                            'color' => $item['vehicleColorName'] ?? null,
                             'truck_brand_id' => $truck_brand_id,
                             'truck_model_id' => $truck_model->id ?? null,
                             'truck_category_id' => $truck_category->id ?? null,
@@ -346,7 +346,7 @@ class DssService
                     } else {
                         // Если грузовик найден, обновляем его данные
                         $truk->plate_number = $item['plateNo'];
-                        $truk->color = $item['vehicleBrandName'] ?? null;
+                        $truk->color = $item['vehicleColorName'] ?? null;
                         $truk->truck_brand_id = $truck_brand_id;
                         $truk->truck_model_id = $truck_model->id ?? null;
                         $truk->truck_category_id = $truck_category->id ?? null;

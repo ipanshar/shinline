@@ -165,8 +165,8 @@ class TaskCotroller extends Controller
             if ($request->has('plan_date_warehouse')) {
                 $tasks->whereExists(function ($query) use ($request) {
                     $query->from('task_loadings')
-                        ->whereRaw('task_loadings.task_id = tasks.id')
-                        ->where('task_loadings.plane_date', '>=', $request->plan_date_warehouse);
+                          ->whereRaw('task_loadings.task_id = tasks.id')
+                          ->where('task_loadings.plane_date', '>=', $request->plan_date_warehouse);
                 });
             }
             if ($request->has('begin_date')) {
@@ -178,8 +178,8 @@ class TaskCotroller extends Controller
             if ($request->has('warehouse_id')) {
                 $tasks->whereExists(function ($query) use ($request) {
                     $query->from('task_loadings')
-                        ->whereRaw('task_loadings.task_id = tasks.id')
-                        ->where('task_loadings.warehouse_id', $request->warehouse_id);
+                          ->whereRaw('task_loadings.task_id = tasks.id')
+                          ->where('task_loadings.warehouse_id', $request->warehouse_id);
                 });
             }
             if ($request->has('search')) {
@@ -546,7 +546,7 @@ class TaskCotroller extends Controller
                 ->first();
             if ($visitor) {
                 $status = $on_territory;
-                $yard = Yard::where('id', '=', $visitor->yard_id)->first(); // Получаем двор из посетителя
+                 $yard = Yard::where('id', '=', $visitor->yard_id )->first(); // Получаем двор из посетителя
             } else {
                 $status = $statusNew;
             }
@@ -570,14 +570,14 @@ class TaskCotroller extends Controller
 
             );
 
-
+            
 
             if ($yard && $truck && $task) {
                 // Проверяем или создаем разрешение на въезд
-                $endDate = $request->has('end_date') && $request->end_date
-                    ? $request->end_date
+                $endDate = $request->has('end_date') && $request->end_date 
+                    ? $request->end_date 
                     : ($validate['plan_date'] ?? now()->format('Y-m-d H:i:s'));
-
+                
                 $this->getPermitById(
                     $truck->id,
                     $yard->id,
@@ -615,10 +615,10 @@ class TaskCotroller extends Controller
 
                 if ($yardId && $truck && $task) {
                     // Проверяем или создаем разрешение на въезд
-                    $warehouseEndDate = $request->has('end_date') && $request->end_date
-                        ? $request->end_date
+                    $warehouseEndDate = $request->has('end_date') && $request->end_date 
+                        ? $request->end_date 
                         : ($validate['plan_date'] ?? now()->format('Y-m-d H:i:s'));
-
+                    
                     $this->getPermitById(
                         $truck->id,
                         $yardId->id,
@@ -679,23 +679,24 @@ class TaskCotroller extends Controller
             }
             //--
             // Отправляем уведомление в Telegram
-            if ($task && $visitor) {
-                if ($visitor->task_id == null) {
-                    $visitor->update([
-                        'task_id' => $task->id,
-                    ]);
-                    $ActualWarehouse = Warehouse::whereIn('id', $warehouseActive)->get();
+            if ($task && $visitor ) {
+                if($visitor->task_id == null) {
+                     $visitor->update([
+                    'task_id' => $task->id,
+                ]);
+                $ActualWarehouse = Warehouse::whereIn('id', $warehouseActive)->get();
                     (new TelegramController())->sendNotification(
-                        '<b>🚛 Уже на территории ' . e($yard->name) .  "</b>\n\n" .
-                            '<b>🏷️ ТС:</b> '  . e($request->plate_number) . "\n" .
-                            '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
-                            '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
-                            '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
-                                ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
-                            '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                            '<b>🏬 Склады:</b> ' . e($ActualWarehouse->pluck('name')->implode(', ')) . "\n"
-                    );
+                    '<b>🚛 Уже на территории ' . e($yard->name) .  "</b>\n\n" .
+                        '<b>🏷️ ТС:</b> '  . e($request->plate_number) . "\n" .
+                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                        '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                        '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
+                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                        '<b>🏬 Склады:</b> ' . e($ActualWarehouse->pluck('name')->implode(', ')) . "\n" 
+                );
                 }
+               
             }
             return response()->json([
                 'status' => true,
@@ -963,7 +964,7 @@ class TaskCotroller extends Controller
             return null; // Invalid parameters
         }
         $data = [];
-
+        
         // Обработка plan_date для каждого склада
         if ($plan_date) {
             if (!$sorting_order || $sorting_order == 1) {
@@ -990,7 +991,7 @@ class TaskCotroller extends Controller
         $taskLoading = TaskLoading::where('task_id', $task_id)
             ->where('sort_order', $sorting_order)
             ->first();
-
+            
         if ($taskLoading) {
             // Обновляем существующую запись (может измениться склад)
             $data['warehouse_id'] = $warehouse_id;
@@ -1056,14 +1057,14 @@ class TaskCotroller extends Controller
         $route = str_replace('г. ', '', $description); // Убираем "г. "
         $route = str_replace(' ', '', $route); // Убираем пробелы
         $regions = array_unique(explode('-', $route)); // Разбиваем по дефису и убираем дубликаты
-
+        
         $regionIds = [];
         foreach ($regions as $regionName) {
             if (empty($regionName)) continue;
-
+            
             // Ищем регион в БД
             $region = DB::table('regions')->where('name', 'like', '%' . $regionName . '%')->first();
-
+            
             if (!$region) {
                 // Если регион не найден, создаем новый
                 $regionId = DB::table('regions')->insertGetId([
@@ -1076,17 +1077,20 @@ class TaskCotroller extends Controller
                 $regionIds[] = $region->id;
             }
         }
-
+        
         return implode(',', $regionIds);
     }
 
-    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null, $specification = null, $reward = null)
+    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null, $specification = null,$reward=null)
     {
         // Обрабатываем маршрут из описания, если оно есть
         $route_regions = null;
         if ($description && strpos($description, '-') !== false) {
             $route_regions = $this->processRouteRegions($description);
         }
+            $cities = explode('-', str_replace('г. ', '', $description));
+            $uniqueCities = array_unique(array_map('trim', $cities));
+            $description = 'г. ' . implode(' - ', array_filter($uniqueCities));
 
         $data = [
             'name' => $name,
@@ -1103,33 +1107,25 @@ class TaskCotroller extends Controller
             'create_user_id' => $create_user_id,
             'route_regions' => $route_regions,
             'specification' => $specification,
-            'reward' => $reward
+            'reward'=>$reward
         ];
-
+        
         // Фильтруем пустые значения для обновления
-        $data = array_filter($data, function ($value) {
+        $data = array_filter($data, function($value) {
             return $value !== null && $value !== '';
         });
-
+        
         $query = Task::query();
 
-        if (!empty($task_id) && !empty($name)) {
-            $query->where(function ($q) use ($task_id, $name) {
-                $q->where('id', $task_id)
-                    ->orWhere('name', $name);  
-            });
-            $task = $query->first();
-        } elseif (!empty($task_id)) {
+        if (!empty($task_id)) {
             $query->where('id', $task_id);
-            $task = $query->first();
-        } elseif (!empty($name)) {
-            $query->where('name', $name);
-            $task = $query->first();
-        } else {
-            // Если нет ни task_id, ни name, возвращаем null
-            $task = null;
         }
 
+        if (!empty($name)) {
+            $query->orWhere('name', $name);
+        }
+
+        $task = $query->first();
         if ($task) {
             $task->update($data);
         } else {
@@ -1149,7 +1145,7 @@ class TaskCotroller extends Controller
                 'create_user_id' => $create_user_id,
                 'route_regions' => $route_regions,
                 'specification' => $specification,
-                'reward' => $reward,
+                'reward'=>$reward,
             ]);
         }
         return $task;
@@ -1198,12 +1194,12 @@ class TaskCotroller extends Controller
 
             // Конвертируем ISO формат в MySQL формат
             $planDate = Carbon::parse($validate['plan_date'])->format('Y-m-d H:i:s');
-
+            
             // Находим TaskLoading по task_id И warehouse_id
             $taskLoading = TaskLoading::where('task_id', $validate['task_id'])
                 ->where('warehouse_id', $validate['warehouse_id'])
                 ->first();
-
+            
             if (!$taskLoading) {
                 return response()->json([
                     'status' => false,
@@ -1220,6 +1216,7 @@ class TaskCotroller extends Controller
                 'message' => 'Время погрузки успешно обновлено',
                 'data' => $taskLoading
             ], 200);
+
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,

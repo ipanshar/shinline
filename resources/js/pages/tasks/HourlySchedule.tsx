@@ -21,6 +21,8 @@ interface Warehouse {
 }
 
 interface TaskLoading {
+  plane_date: any;
+  warehouse_id: number;
   warehouse_name: string;
   warehouse_gate_plan_name: string;
   warehouse_gate_fact_name: string;
@@ -217,21 +219,28 @@ const HourlySchedule = () => {
                             padding: '12px',
                             border: '1px solid #ccc',
                             backgroundColor: '#f5f5f5',
-                            width: '15%',
+                            width: '10%',
                             textAlign: 'center'
                           }}>№ Задачи</th>
                           <th style={{
                             padding: '12px',
                             border: '1px solid #ccc',
                             backgroundColor: '#f5f5f5',
-                            width: '25%',
+                            width: '20%',
                             textAlign: 'center'
                           }}>Номер ТС</th>
                           <th style={{
                             padding: '12px',
                             border: '1px solid #ccc',
                             backgroundColor: '#f5f5f5',
-                            width: '45%',
+                            width: '15%',
+                            textAlign: 'center'
+                          }}>Время</th>
+                          <th style={{
+                            padding: '12px',
+                            border: '1px solid #ccc',
+                            backgroundColor: '#f5f5f5',
+                            width: '40%',
                             textAlign: 'center'
                           }}>Примечание</th>
                           <th style={{
@@ -256,6 +265,23 @@ const HourlySchedule = () => {
                               border: '1px solid #ccc',
                               textAlign: 'center'
                             }}>{task.truck_plate_number}</td>
+                             <td style={{
+                              padding: '8px',
+                              border: '1px solid #ccc',
+                              textAlign: 'center'
+                            }}>
+                              {(() => {
+                                const taskLoading = task.task_loadings?.find(
+                                  loading => loading.warehouse_id === Number(selectedWarehouse)
+                                );
+                                return taskLoading?.plane_date ? 
+                                  new Date(taskLoading.plane_date).toLocaleTimeString('ru-RU', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                  : '-';
+                              })()}
+                            </td>
                             <td style={{
                               padding: '8px',
                               border: '1px solid #ccc',
