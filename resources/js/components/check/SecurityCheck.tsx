@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Car, Plus } from 'lucide-react';
+import { Car, Plus, User, Phone, Clock, LogOut, FileText, Briefcase, Package } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -30,12 +30,16 @@ interface Visitor {
   id: number;
   plate_number: string;
   truck_model_name?: string;
+  truck_brand_name?: string;
   status_name: string;
   entry_date: string;
   exit_date?: string;
   truck: Truck;
   user_name?: string;
   user_phone?: string;
+  user_company?: string;
+  vip_full_name?: string;
+  vip_position?: string;
   description?: string;
   name?: string;
   truck_own: any;
@@ -243,12 +247,12 @@ useEffect(() => {
           )}
 
 <div className="mt-6">
-  <div className="flex justify-between items-center mb-2">
-    <h3 className="font-semibold text-lg">ТС на территории</h3>
+  <div className="flex justify-between items-center mb-4">
+    <h3 className="font-semibold text-lg">ТС на территории ({filteredVisitors.length})</h3>
     <select
       value={filter}
       onChange={(e) => setFilter(e.target.value as any)}
-      className="border rounded px-2 py-1 text-sm"
+      className="border rounded px-3 py-2 text-sm"
     >
       <option value="on_territory">На территории</option>
       <option value="left">Вне территории</option>
@@ -256,76 +260,192 @@ useEffect(() => {
     </select>
   </div>
 
-  {/* Заголовок "таблицы" */}
-  <div className="grid grid-cols-11 gap-2 px-2 py-1 bg-gray-100 font-semibold text-sm rounded">
-    <div>Номер</div>
-    <div>Владелец</div>
-    <div>Модель</div>
-    <div>Задание</div>
-    <div>Пояснение</div>
-    <div>Водитель</div>
-    <div>Телефон</div>
-    <div>Статус</div>
-    <div>Въезд</div>
-    <div>Выезд</div>
-    <div className="text-center">Действие</div>
-  </div>
-
   {loading && <p className="text-sm mt-2">Загрузка...</p>}
 
-  {filteredVisitors.map(visitor => {
-    // Определяем цвет фона в зависимости от VIP статуса
-    const getRowClass = () => {
-      if (visitor.truck_vip_level === 1 || visitor.truck_vip_level === '1') return 'bg-amber-100 dark:bg-amber-900/30 border-amber-400'; // VIP - золотой
-      if (visitor.truck_vip_level === 2 || visitor.truck_vip_level === '2') return 'bg-slate-200 dark:bg-slate-700/50 border-slate-400'; // Руководство - серебристый
-      if (visitor.truck_vip_level === 3 || visitor.truck_vip_level === '3') return 'bg-green-100 dark:bg-green-900/30 border-green-400'; // Зд обход - зеленый
-      return 'hover:bg-gray-50'; // Обычный
-    };
+  <div className="space-y-3">
+    {filteredVisitors.map(visitor => {
+      // Определяем цвет фона и бордера в зависимости от VIP статуса (как на странице грузовиков)
+      const getCardClass = () => {
+        if (visitor.truck_vip_level === 1 || visitor.truck_vip_level === '1') 
+          return 'border-2 border-amber-500 bg-amber-50/50';
+        if (visitor.truck_vip_level === 2 || visitor.truck_vip_level === '2') 
+          return 'border-2 border-slate-500 bg-slate-50/50';
+        if (visitor.truck_vip_level === 3 || visitor.truck_vip_level === '3') 
+          return 'border-2 border-green-500 bg-green-50/50';
+        return 'border border-gray-200';
+      };
 
-    const getVipBadge = () => {
-      if (visitor.truck_vip_level === 1 || visitor.truck_vip_level === '1') return <span className="ml-2 text-xs font-bold px-2 py-1 rounded-full bg-amber-500 text-white">⭐ VIP</span>;
-      if (visitor.truck_vip_level === 2 || visitor.truck_vip_level === '2') return <span className="ml-2 text-xs font-bold px-2 py-1 rounded-full bg-slate-500 text-white">👤 Руководство</span>;
-      if (visitor.truck_vip_level === 3 || visitor.truck_vip_level === '3') return <span className="ml-2 text-xs font-bold px-2 py-1 rounded-full bg-green-600 text-white">🚒 Зд обход</span>;
-      return null;
-    };
+      const getVipBadge = () => {
+        if (visitor.truck_vip_level === 1 || visitor.truck_vip_level === '1') 
+          return <span className="text-xs font-bold px-2 py-1 rounded-full bg-amber-500 text-white">⭐ VIP</span>;
+        if (visitor.truck_vip_level === 2 || visitor.truck_vip_level === '2') 
+          return <span className="text-xs font-bold px-2 py-1 rounded-full bg-slate-500 text-white">👤 Руководство</span>;
+        if (visitor.truck_vip_level === 3 || visitor.truck_vip_level === '3') 
+          return <span className="text-xs font-bold px-2 py-1 rounded-full bg-green-600 text-white">🚒 Зд обход</span>;
+        return null;
+      };
 
-    return (
-    <div
-      key={visitor.id}
-      className={`grid grid-cols-11 gap-2 items-center px-2 py-2 border-b text-sm ${getRowClass()}`}
-    >
-      <div className="font-bold flex items-center">
-        {visitor.plate_number}
-        {getVipBadge()}
-      </div>
-      <div>{visitor.truck_own || "Не указано"}</div>
-      <div>{visitor.truck_model_name || '-'}</div>
-      <div>{visitor.name || '-'}</div>
-      <div>{visitor.description || '-'}</div>
-      <div>{visitor.user_name || '-'}</div>
-      <div>{visitor.user_phone || '-'}</div>
-      <div
-        className={`px-2 py-1 rounded text-center font-medium ${
-          visitor.exit_date ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-        }`}
-      >
-        {visitor.status_name}
-      </div>
-      <div><div>{visitor.entrance_device_name ? 'Камера входа: '+visitor.entrance_device_name : ''}</div><div>{visitor.entry_date ? visitor.entry_date.slice(0, 16) : '-'}</div></div>
-      <div><div>{visitor.exit_device_name ? 'Камера выхода: '+visitor.exit_device_name : ''}</div><div>{visitor.exit_date ? visitor.exit_date.slice(0, 16) : '-'}</div></div>
-      <div className="text-center">
-        {!visitor.exit_date && (
-          <button
-            onClick={() => exitVisitor(visitor.id)}
-            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded cursor-pointer"
-          >
-            Покинул
-          </button>
-        )}
-      </div>
+      return (
+        <div
+          key={visitor.id}
+          className={`${getCardClass()} rounded-lg shadow-sm hover:shadow-md transition-shadow p-4`}
+        >
+          {/* Заголовок карточки */}
+          <div className="flex items-center justify-between mb-3 pb-3 border-b">
+            <div className="flex items-center gap-3">
+              <Car className="h-6 w-6 text-gray-600" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                    {visitor.plate_number}
+                  </span>
+                  {getVipBadge()}
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  {visitor.truck_brand_name ? `${visitor.truck_brand_name} ${visitor.truck_model_name || ''}`.trim() : (visitor.truck_model_name || '-')}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  visitor.exit_date 
+                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' 
+                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                }`}
+              >
+                {visitor.status_name}
+              </span>
+              {!visitor.exit_date && (
+                <Button
+                  onClick={() => exitVisitor(visitor.id)}
+                  variant="destructive"
+                  size="sm"
+                  className="gap-1"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Покинул
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Основная информация в 3 колонки */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Колонка 1: Информация о персоне */}
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <User className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">ФИО</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">
+                    {visitor.vip_full_name || visitor.user_name || '-'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Briefcase className="h-4 w-4 text-blue-500 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Должность</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">
+                    {visitor.vip_position || visitor.user_company || '-'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Phone className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Телефон</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">
+                    {visitor.user_phone || '-'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Колонка 2: Задание и владелец */}
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <Briefcase className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Владелец</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">
+                    {visitor.truck_own || "Не указано"}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <FileText className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Задание</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">
+                    {visitor.name || '-'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Package className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Пояснение</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">
+                    {visitor.description || '-'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Колонка 3: Время въезда/выезда */}
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <Clock className="h-4 w-4 text-green-600 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Въезд</div>
+                  <div className="text-xs text-gray-500 mb-0.5">
+                    {visitor.entrance_device_name || '-'}
+                  </div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+                    {visitor.entry_date ? new Date(visitor.entry_date).toLocaleString('ru-RU', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    }) : '-'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Clock className="h-4 w-4 text-red-600 mt-1 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Выезд</div>
+                  <div className="text-xs text-gray-500 mb-0.5">
+                    {visitor.exit_device_name || '-'}
+                  </div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+                    {visitor.exit_date ? new Date(visitor.exit_date).toLocaleString('ru-RU', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    }) : '-'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+
+  {filteredVisitors.length === 0 && !loading && (
+    <div className="text-center py-12 text-gray-500">
+      <Car className="h-12 w-12 mx-auto mb-3 opacity-50" />
+      <p>Нет транспортных средств</p>
     </div>
-    );
-  })}
+  )}
 </div>
 
         </>

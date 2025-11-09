@@ -140,6 +140,9 @@ class VisitorsCotroller extends Controller
             ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
             ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
             ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('vip_persons', function($join) {
+                $join->on(DB::raw("REPLACE(LOWER(vip_persons.plate_number), ' ', '')"), '=', DB::raw("REPLACE(LOWER(visitors.plate_number), ' ', '')"));
+            })
             ->leftJoin('devaices as entrance_device', 'visitors.entrance_device_id', '=', 'entrance_device.id')
             ->leftJoin('devaices as exit_device', 'visitors.exit_device_id', '=', 'exit_device.id')
             ->select(
@@ -150,12 +153,15 @@ class VisitorsCotroller extends Controller
                 'truck_brands.name as truck_brand_name',
                 'users.name as user_name',
                 'users.phone as user_phone',
+                'users.company as user_company',
                 'statuses.name as status_name',
                 'yards.name as yard_name',
                 'trucks.name as truck_name',
                 'trucks.own as truck_own',
-                'trucks.vip_level as truck_vip_level',
+                DB::raw('COALESCE(vip_persons.vip_level, trucks.vip_level, 0) as truck_vip_level'),
                 'truck_models.name as truck_model_name',
+                'vip_persons.full_name as vip_full_name',
+                'vip_persons.position as vip_position',
                 'entrance_device.channelName as entrance_device_name',
                 'exit_device.channelName as exit_device_name'
             )
