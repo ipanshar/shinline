@@ -1117,15 +1117,20 @@ class TaskCotroller extends Controller
         
         $query = Task::query();
 
-        if (!empty($task_id)) {
-            $query->where('id', $task_id);
+        if (!empty($task_id) && !empty($name)) {
+            // Если заданы оба параметра, ищем по ним
+           $task = $query->where('id', $task_id)->where('name', $name)->first();
+        } else if (!empty($task_id)) {
+            // Если задан только task_id
+            $task = $query->where('id', $task_id)->first();
+        } else if (!empty($name)) {
+            // Если задан только name
+            $task = $query->where('name', $name)->first();
+        } else {
+            // Если не задано ни одного параметра, возвращаем null
+            $task = null;   
         }
 
-        if (!empty($name)) {
-            $query->orWhere('name', $name);
-        }
-
-        $task = $query->first();
         if ($task) {
             $task->update($data);
         } else {
