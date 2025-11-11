@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,12 @@ interface ChatFormProps {
 
 const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessage }) => {
   const [messageText, setMessageText] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Автоматическая прокрутка вниз при изменении сообщений
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +75,8 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
               </div>
             </div>
           ))}
+          {/* Якорь для автопрокрутки */}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 

@@ -64,5 +64,17 @@ class RouteController extends Controller
     public function whatsappBusinessSettings(){
         return Inertia::render('integration_whatsapp_business');
     }
+    
+    public function references(){
+        return Inertia::render('references');
+    }
+    
+    public function referencesEmpty(){
+        return Inertia::render('references_empty');
+    }
+    
+    public function chatCounterparty(){
+        return Inertia::render('chat_counterparty');
+    }
 
 }

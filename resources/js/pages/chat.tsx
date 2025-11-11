@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { type BreadcrumbItem } from '@/types';
 import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 import ChatList from '@/components/whatsapp/chatList';
 import ChatForm from '@/components/whatsapp/chatForm';
 import ContactInfo from '@/components/whatsapp/contactInfo';
+import axios from 'axios';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -12,81 +13,6 @@ const breadcrumbs: BreadcrumbItem[] = [
         href: '/chat',
     },
 ];
-
-// Моковые данные для контактов
-const mockContacts = [
-  {
-    id: 1,
-    name: 'Шестеряков Дмитрий',
-    phone: '+7(747) 115 64 62',
-    lastMessage: '',
-    time: '25.10.2025 15:55',
-    isOnline: true,
-  },
-  {
-    id: 2,
-    name: 'Иван Гринок',
-    phone: '+7(702) 306 75 22',
-    lastMessage: 'Согласен',
-    time: '25.10.2025 16:40',
-    isOnline: false,
-  },
-  {
-    id: 3,
-    name: 'Абдуллаев Алихан',
-    phone: '+7(705) 386 85 16',
-    lastMessage: '',
-    time: '25.10.2025 16:10',
-    isOnline: false,
-  },
-  {
-    id: 4,
-    name: 'Касымов Муса',
-    phone: '+7(707) 175 47 80',
-    lastMessage: '',
-    time: '25.10.2025 15:00',
-    isOnline: true,
-  },
-];
-
-// Моковые данные для сообщений
-const mockMessages: { [key: number]: any[] } = {
-  2: [
-    {
-      id: 1,
-      sender: 'company',
-      senderName: 'Shin Line cargo',
-      text: `Уведомление о согласии на перевозку груза
-
-Информация о перевозке:
-
-Задание №: 12345
-Маршрут: Алматы — Караганда
-Особенности транспортировки груза: Нужен рефрижератор
-Транспортное средство: B123ABC
-Планируемая дата: 2025-11-01
-Вознаграждение: 150 000 ₸
-
-Если готовы выполнить заказ, просим нажать согласен
-Заявка актуальна 20 часов с момента получения уведомления`,
-      time: '25.10.2025 16:30',
-    },
-    {
-      id: 2,
-      sender: 'user',
-      senderName: 'Иван Гринок',
-      text: 'Согласен',
-      time: '25.10.2025 16:39',
-    },
-    {
-      id: 3,
-      sender: 'company',
-      senderName: 'Shin Line cargo',
-      text: 'Спасибо, мы зарегистрировали ваше согласие',
-      time: '25.10.2025 16:40',
-    },
-  ],
-};
 
 // Моковые данные для транспорта
 const mockVehicles = [
@@ -117,33 +43,112 @@ const mockCompletedTasks = [
 ];
 
 const App: React.FC = () => {
-  const [selectedContactId, setSelectedContactId] = useState<number | null>(2);
-  const [messages, setMessages] = useState(mockMessages);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const selectedContact = mockContacts.find((c) => c.id === selectedContactId);
-  const currentMessages = selectedContactId ? messages[selectedContactId] || [] : [];
+  // Загрузка списка чатов (контрагентов)
+  useEffect(() => {
+    loadChatLists();
+    
+    // Проверяем, есть ли chat_id в URL параметрах
+    const urlParams = new URLSearchParams(window.location.search);
+    const chatIdParam = urlParams.get('chat_id');
+    if (chatIdParam) {
+      setSelectedChatId(parseInt(chatIdParam));
+    }
+  }, []);
 
-  const handleSendMessage = (messageText: string) => {
-    if (!selectedContactId) return;
+  // Загрузка сообщений при выборе чата
+  useEffect(() => {
+    if (selectedChatId) {
+      loadMessages(selectedChatId);
+    }
+  }, [selectedChatId]);
 
-    const newMessage = {
-      id: Date.now(),
-      sender: 'company' as const,
-      senderName: 'Shin Line cargo',
-      text: messageText,
-      time: new Date().toLocaleString('ru-RU', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    };
+  const loadChatLists = async () => {
+    try {
+      const response = await axios.post('/counterparty/chat/getlists');
+      if (response.data.status) {
+        // Преобразуем данные в формат для ChatList компонента
+        const formattedContacts = response.data.data.map((chat: any) => ({
+          id: chat.id,
+          name: chat.counterparty_name || chat.user_name || chat.user_whatsapp,
+          phone: chat.user_whatsapp,
+          lastMessage: '',
+          time: chat.last_time_message ? new Date(chat.last_time_message).toLocaleString('ru-RU') : '',
+          isOnline: false,
+        }));
+        setContacts(formattedContacts);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки чатов:', error);
+    }
+  };
 
-    setMessages({
-      ...messages,
-      [selectedContactId]: [...(messages[selectedContactId] || []), newMessage],
-    });
+  const loadMessages = async (chatId: number) => {
+    setLoading(true);
+    try {
+      const response = await axios.post('/counterparty/chat/getmessages', {
+        chat_list_id: chatId
+      });
+      if (response.data.status) {
+        // Преобразуем данные в формат для ChatForm компонента
+        const formattedMessages = response.data.data.map((msg: any) => ({
+          id: msg.id,
+          sender: msg.type === 1 ? 'company' : 'user',
+          senderName: msg.type === 1 ? 'Shin Line cargo' : (msg.user_name || 'Контрагент'),
+          text: msg.message,
+          time: new Date(msg.created_at).toLocaleString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        }));
+        setMessages(formattedMessages);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки сообщений:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectedContact = contacts.find((c) => c.id === selectedChatId);
+
+  const handleSendMessage = async (messageText: string) => {
+    if (!selectedChatId) return;
+
+    try {
+      const response = await axios.post('/counterparty/chat/sendmessage', {
+        chat_list_id: selectedChatId,
+        message: messageText
+      });
+
+      if (response.data.status) {
+        // Добавляем новое сообщение в список
+        const newMessage = {
+          id: response.data.data.id,
+          sender: 'company' as const,
+          senderName: 'Shin Line cargo',
+          text: messageText,
+          time: new Date().toLocaleString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        };
+        setMessages([...messages, newMessage]);
+      }
+    } catch (error) {
+      console.error('Ошибка отправки сообщения:', error);
+      alert('Ошибка при отправке сообщения');
+    }
   };
 
   return (
@@ -152,22 +157,27 @@ const App: React.FC = () => {
       <div className="h-[calc(100vh-8rem)] flex border rounded-lg overflow-hidden">
         {/* Левая панель - список контактов */}
         <ChatList
-          contacts={mockContacts}
-          selectedContactId={selectedContactId}
-          onSelectContact={setSelectedContactId}
+          contacts={contacts}
+          selectedContactId={selectedChatId}
+          onSelectContact={setSelectedChatId}
         />
 
         {/* Центральная панель - чат */}
         {selectedContact ? (
           <ChatForm
             contactName={selectedContact.name}
-            messages={currentMessages}
+            messages={messages}
             onSendMessage={handleSendMessage}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-background">
             <div className="text-center text-muted-foreground">
-              <p className="text-lg">Выберите контакт для начала общения</p>
+              <p className="text-lg">
+                {contacts.length === 0 
+                  ? 'Нет чатов. Добавьте контрагента с WhatsApp номером в разделе "Справочники"'
+                  : 'Выберите контакт для начала общения'
+                }
+              </p>
             </div>
           </div>
         )}

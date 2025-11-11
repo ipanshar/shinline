@@ -48,12 +48,17 @@ Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
 Route::get('/chat', [RouteController::class, 'chat']);
+Route::get('/chat/counterparty', [RouteController::class, 'chatCounterparty']);
 Route::get('/statistics', [RouteController::class, 'statistics']);
 route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 route::get('/warehouses/kpp', [RouteController::class, 'warehouseKPP']);
 Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings']);
 Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices']);
 Route::get('/integration_dss/zones', [RouteController::class, 'dssZones']);
+
+// Справочники
+Route::get('/references', [RouteController::class, 'references']);
+Route::get('/references/empty', [RouteController::class, 'referencesEmpty']);
 
 //whatsapp business settings API
 Route::post('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate']);
@@ -188,6 +193,19 @@ Route::post('/regions/createupdate', [RegionController::class, 'createUpdateRegi
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone']); // Создать или обновить зону
 
+// Counterparty routes
+Route::post('/counterparty/getcounterparties', [\App\Http\Controllers\Api\CounterpartyController::class, 'getCounterparties']); // Получить всех контрагентов
+Route::post('/counterparty/addcounterparty', [\App\Http\Controllers\Api\CounterpartyController::class, 'addCounterparty']); // Добавить контрагента
+Route::post('/counterparty/updatecounterparty', [\App\Http\Controllers\Api\CounterpartyController::class, 'updateCounterparty']); // Обновить контрагента
+Route::post('/counterparty/deletecounterparty', [\App\Http\Controllers\Api\CounterpartyController::class, 'deleteCounterparty']); // Удалить контрагента
+Route::post('/counterparty/getcounterparty', [\App\Http\Controllers\Api\CounterpartyController::class, 'getCounterparty']); // Получить контрагента по ID
+Route::post('/counterparty/searchbywhatsapp', [\App\Http\Controllers\Api\CounterpartyController::class, 'searchByWhatsApp']); // Поиск по WhatsApp
+
+// Counterparty Chat routes
+Route::post('/counterparty/chat/getlists', [\App\Http\Controllers\Api\CounterpartyChatController::class, 'getChatLists']); // Получить список чатов
+Route::post('/counterparty/chat/getmessages', [\App\Http\Controllers\Api\CounterpartyChatController::class, 'getChatMessages']); // Получить сообщения чата
+Route::post('/counterparty/chat/sendmessage', [\App\Http\Controllers\Api\CounterpartyChatController::class, 'sendMessage']); // Отправить сообщение
+Route::post('/counterparty/chat/getorcreatechat', [\App\Http\Controllers\Api\CounterpartyChatController::class, 'getOrCreateChat']); // Получить или создать чат
 
 });
 
