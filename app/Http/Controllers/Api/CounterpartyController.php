@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Сounterparty;
+use App\Models\Counterparty;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 
@@ -11,7 +11,7 @@ class CounterpartyController extends Controller
 {
     public function getCounterparties(Request $request)
     {
-        $counterparties = Сounterparty::query();
+        $counterparties = Counterparty::query();
         
         // Фильтрация по имени
         if ($request->has('name')) {
@@ -42,7 +42,7 @@ class CounterpartyController extends Controller
         try {
             $validate = $request->validate([
                 'name' => 'required|string|max:255',
-                'inn' => 'required|string|max:255|unique:сounterparties,inn',
+                'inn' => 'required|string|max:255|unique:counterparties,inn',
                 'address' => 'nullable|string|max:255',
                 'phone' => 'nullable|string|max:255',
                 'whatsapp' => 'nullable|string|max:255',
@@ -52,7 +52,7 @@ class CounterpartyController extends Controller
                 'carrier_type' => 'nullable|boolean',
             ]);
 
-            $counterparty = Сounterparty::create($validate);
+            $counterparty = Counterparty::create($validate);
 
             return response()->json([
                 'status' => true,
@@ -73,7 +73,7 @@ class CounterpartyController extends Controller
             $validate = $request->validate([
                 'id' => 'required|integer',
                 'name' => 'nullable|string|max:255',
-                'inn' => 'nullable|string|max:255|unique:сounterparties,inn,' . $request->input('id'),
+                'inn' => 'nullable|string|max:255|unique:counterparties,inn,' . $request->input('id'),
                 'address' => 'nullable|string|max:255',
                 'phone' => 'nullable|string|max:255',
                 'whatsapp' => 'nullable|string|max:255',
@@ -83,7 +83,7 @@ class CounterpartyController extends Controller
                 'carrier_type' => 'nullable|boolean',
             ]);
 
-            $counterparty = Сounterparty::find($validate['id']);
+            $counterparty = Counterparty::find($validate['id']);
             if (!$counterparty) {
                 return response()->json([
                     'status' => false,
@@ -165,7 +165,7 @@ class CounterpartyController extends Controller
             'whatsapp' => 'required|string',
         ]);
 
-        $counterparty = Сounterparty::where('whatsapp', $validate['whatsapp'])->first();
+        $counterparty = Counterparty::where('whatsapp', $validate['whatsapp'])->first();
         
         if (!$counterparty) {
             return response()->json([
@@ -179,5 +179,180 @@ class CounterpartyController extends Controller
             'message' => 'Counterparty found',
             'data' => $counterparty,
         ], 200);
+    }
+
+    /**
+     * Умный импорт контрагентов из Excel
+     * Автоматически определяет колонки по ключевым словам
+     * Разделяет телефон и WhatsApp из одной ячейки
+     */
+    public function importCounterparties(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'counterparties' => 'required|array',
+                'counterparties.*' => 'array',
+            ]);
+
+            $imported = 0;
+            $skipped = 0;
+            $errors = [];
+
+            foreach ($validate['counterparties'] as $index => $row) {
+                try {
+                    // Умное определение колонок
+                    $name = $this->findColumnValue($row, ['наименование', 'название', 'предприятия', 'организация', 'компания', 'name']);
+                    $inn = $this->findColumnValue($row, ['бин', 'иин', 'инн', 'bin', 'iin', 'inn']);
+                    $address = $this->findColumnValue($row, ['адрес', 'юр', 'address']);
+                    $email = $this->findColumnValue($row, ['email', 'e-mail', 'почта', 'mail']);
+                    $supervisor = $this->findColumnValue($row, ['руководитель', 'директор', 'supervisor', 'director']);
+                    $carrierType = $this->findColumnValue($row, ['международный', 'перевозчик', 'carrier']);
+                    
+                    // ОТЛАДКА: выводим все колонки для первых 5 строк
+                    if ($index < 5) {
+                        \Log::info("=== СТРОКА $index ===");
+                        foreach ($row as $key => $value) {
+                            \Log::info("  '$key' = '$value'");
+                        }
+                    }
+                    
+                    // Ищем контактное лицо в отдельной колонке
+                    $contactPerson = $this->findColumnValue($row, [
+                        'диспетчер', 'диспетчер/контактное', 'контактное лицо', 'контакт',
+                        'логистик', 'менеджер', 'ответственный'
+                    ]);
+                    
+                    // Ищем телефон в отдельной колонке (ТОЛЬКО номера)
+                    $phoneRaw = $this->findColumnValue($row, ['телефон', 'тел', 'phone']);
+                    
+                    // Если телефон не найден, ищем в безымянной колонке __EMPTY
+                    if (empty($phoneRaw) && isset($row['__EMPTY'])) {
+                        $phoneRaw = $row['__EMPTY'];
+                    }
+                    
+                    $whatsappRaw = $this->findColumnValue($row, ['whatsapp', 'ватсап', 'вотсап', 'вацап']);
+
+                    // Пропускаем строки без имени или ИНН
+                    if (empty($name) || empty($inn)) {
+                        $skipped++;
+                        continue;
+                    }
+                    
+                    // ОТЛАДКА: выводим что нашли для первых 3 строк
+                    if ($index < 3) {
+                        \Log::info("Row $index: phoneRaw='$phoneRaw', contactPerson='$contactPerson', supervisor='$supervisor'");
+                    }
+                    
+                    // Обрабатываем телефон - просто очищаем от пробелов
+                    $phone = null;
+                    if ($phoneRaw) {
+                        // Проверяем, есть ли в строке цифры (если только буквы - это не телефон)
+                        if (preg_match('/\d/', $phoneRaw)) {
+                            // Убираем все пробелы, дефисы, скобки
+                            $phone = preg_replace('/[\s\-\(\)]/', '', trim($phoneRaw));
+                            // Если начинается с 8, заменяем на +7
+                            if (substr($phone, 0, 1) === '8') {
+                                $phone = '+7' . substr($phone, 1);
+                            }
+                            // Если начинается с 7 (без +), добавляем +
+                            if (substr($phone, 0, 1) === '7' && substr($phone, 0, 2) !== '+7') {
+                                $phone = '+' . $phone;
+                            }
+                        }
+                    }
+                    
+                    // Обрабатываем WhatsApp аналогично
+                    $whatsapp = null;
+                    if ($whatsappRaw) {
+                        $whatsapp = preg_replace('/[\s\-\(\)]/', '', trim($whatsappRaw));
+                        if (substr($whatsapp, 0, 1) === '8') {
+                            $whatsapp = '+7' . substr($whatsapp, 1);
+                        }
+                        if (substr($whatsapp, 0, 1) === '7' && substr($whatsapp, 0, 2) !== '+7') {
+                            $whatsapp = '+' . $whatsapp;
+                        }
+                    }
+                    
+                    // Если WhatsApp не найден, используем телефон
+                    if (empty($whatsapp) && !empty($phone)) {
+                        $whatsapp = $phone;
+                    }
+
+                    // Определяем тип перевозчика
+                    $isCarrier = false;
+                    if ($carrierType) {
+                        $carrierType = mb_strtolower(trim($carrierType));
+                        $isCarrier = in_array($carrierType, ['да', 'yes', '1', 'true', 'международный']);
+                    }
+
+                    // Проверяем дубликаты по ИНН
+                    $existing = Counterparty::where('inn', $inn)->first();
+                    if ($existing) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    // Создаем контрагента
+                    Counterparty::create([
+                        'name' => trim($name),
+                        'inn' => trim($inn),
+                        'address' => $address ? trim($address) : null,
+                        'phone' => $phone,
+                        'whatsapp' => $whatsapp,
+                        'email' => $email ? trim($email) : null,
+                        'supervisor' => $supervisor ? trim($supervisor) : null,
+                        'contact_person' => $contactPerson ? trim($contactPerson) : null,
+                        'carrier_type' => $isCarrier,
+                    ]);
+
+                    $imported++;
+                } catch (\Exception $e) {
+                    $errors[] = "Строка " . ($index + 1) . ": " . $e->getMessage();
+                }
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => "Импорт завершен. Добавлено: {$imported}, Пропущено: {$skipped}",
+                'imported' => $imported,
+                'skipped' => $skipped,
+                'errors' => $errors,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка импорта: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Поиск значения колонки по ключевым словам
+     * Ищет по началу слова или точному совпадению, чтобы избежать ложных срабатываний
+     */
+    private function findColumnValue($row, $keywords)
+    {
+        foreach ($row as $key => $value) {
+            $keyLower = mb_strtolower(trim($key));
+            foreach ($keywords as $keyword) {
+                $keywordLower = mb_strtolower($keyword);
+                
+                // Точное совпадение (с учетом пробелов и знаков)
+                if ($keyLower === $keywordLower) {
+                    return $value;
+                }
+                
+                // Начинается с ключевого слова (например: "телефон 1", "телефон контактный")
+                if (strpos($keyLower, $keywordLower) === 0) {
+                    return $value;
+                }
+                
+                // Содержит ключевое слово как отдельное слово (с пробелами вокруг)
+                if (preg_match('/\b' . preg_quote($keywordLower, '/') . '\b/', $keyLower)) {
+                    return $value;
+                }
+            }
+        }
+        return null;
     }
 }

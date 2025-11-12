@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\WhatsAppChatList;
 use App\Models\WhatsAppChatMessages;
-use App\Models\Сounterparty;
+use App\Models\Counterparty;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -28,7 +28,7 @@ class CounterpartyChatController extends Controller
 
             // Для каждого чата пытаемся найти контрагента по WhatsApp номеру
             $chatLists = $chatLists->map(function ($chat) {
-                $counterparty = Сounterparty::where('whatsapp', $chat->user_whatsapp)->first();
+                $counterparty = Counterparty::where('whatsapp', $chat->user_whatsapp)->first();
                 $chat->counterparty_name = $counterparty ? $counterparty->name : null;
                 $chat->counterparty_id = $counterparty ? $counterparty->id : null;
                 return $chat;
@@ -135,7 +135,7 @@ class CounterpartyChatController extends Controller
                 'counterparty_id' => 'required|integer',
             ]);
 
-            $counterparty = Сounterparty::find($validate['counterparty_id']);
+            $counterparty = Counterparty::find($validate['counterparty_id']);
             if (!$counterparty) {
                 return response()->json([
                     'status' => false,

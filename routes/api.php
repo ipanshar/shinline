@@ -18,6 +18,7 @@ use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\Api\RegionController;
+use App\Http\Controllers\Api\CounterpartyController;
 use App\Http\Controllers\TelegramController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -167,3 +168,10 @@ Route::get('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppControl
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones'])->middleware('auth:sanctum'); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone'])->middleware('auth:sanctum'); // Создать или обновить зону
+
+// Counterparty routes
+Route::post('/counterparty/getcounterparties', [CounterpartyController::class, 'getCounterparties'])->middleware('auth:sanctum'); // Получить всех контрагентов
+Route::post('/counterparty/addcounterparty', [CounterpartyController::class, 'addCounterparty'])->middleware('auth:sanctum'); // Добавить контрагента
+Route::post('/counterparty/updatecounterparty', [CounterpartyController::class, 'updateCounterparty'])->middleware('auth:sanctum'); // Обновить контрагента
+Route::post('/counterparty/deletecounterparty', [CounterpartyController::class, 'deleteCounterparty'])->middleware('auth:sanctum'); // Удалить контрагента
+Route::post('/counterparty/import', [CounterpartyController::class, 'importCounterparties'])->middleware('auth:sanctum'); // Умный импорт из Excel
