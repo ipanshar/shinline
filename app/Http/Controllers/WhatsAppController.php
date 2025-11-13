@@ -155,43 +155,70 @@ class WhatsAppController extends Controller
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
-                    } elseif ($message['type'] === 'audio') {
-                        // Обрабатываем аудиосообщения
-                        WhatsAppChatMessages::create([
-                            'chat_list_id' => $chatList->id,
-                            'message' => $message['text']['body'],
-                            'message_id' => $message['id'],
-                            'type' => 1,
-                            'response_to_message_id' => $message['context']['id'] ?? null,
-                            //'user_id' => null,
-                            'status' => 'received',
-                            'direction' => 'incoming'
-                        ]);
                     } elseif ($message['type'] === 'image') {
                         // Обрабатываем изображения
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['image']['id']);
+                        $caption = $message['image']['caption'] ?? '';
+                        $messageText = $caption ? $caption . '<br>' : '';
+                        $messageText .= $mediaUrl ? '<img src="' . $mediaUrl . '" alt="Image" style="max-width: 100%; border-radius: 8px;" />' : 'Не удалось загрузить изображение';
+                        
                         WhatsAppChatMessages::create([
                             'chat_list_id' => $chatList->id,
-                            'message' => $message['image']['caption'] ?? 'Image',
+                            'message' => $messageText,
                             'message_id' => $message['id'],
-                            'type' => 1,
+                            'type' => 4, // тип 4 для изображений
                             'response_to_message_id' => $message['context']['id'] ?? null,
-                            //'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
-                    } else {
-                        // Обрабатываем другие типы сообщений
+                    } elseif ($message['type'] === 'document') {
+                        // Обрабатываем документы
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['document']['id']);
+                        $filename = $message['document']['filename'] ?? 'document';
+                        $caption = $message['document']['caption'] ?? '';
+                        $messageText = $caption ? $caption . '<br>' : '';
+                        $messageText .= $mediaUrl ? '📎 <a href="' . $mediaUrl . '" target="_blank" download>' . $filename . '</a>' : 'Не удалось загрузить документ';
+                        
                         WhatsAppChatMessages::create([
                             'chat_list_id' => $chatList->id,
-                            'message' => 'Unsupported message type: ' . $message['type'],
+                            'message' => $messageText,
                             'message_id' => $message['id'],
-                            'type' => 1,
+                            'type' => 5, // тип 5 для документов
                             'response_to_message_id' => $message['context']['id'] ?? null,
-                            //'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
-                    } 
+                    } elseif ($message['type'] === 'audio') {
+                        // Обрабатываем аудиосообщения
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['audio']['id']);
+                        $messageText = $mediaUrl ? '🎵 <audio controls><source src="' . $mediaUrl . '" type="audio/ogg"></audio>' : 'Не удалось загрузить аудио';
+                        
+                        WhatsAppChatMessages::create([
+                            'chat_list_id' => $chatList->id,
+                            'message' => $messageText,
+                            'message_id' => $message['id'],
+                            'type' => 6, // тип 6 для аудио
+                            'response_to_message_id' => $message['context']['id'] ?? null,
+                            'status' => 'received',
+                            'direction' => 'incoming'
+                        ]);
+                    } elseif ($message['type'] === 'video') {
+                        // Обрабатываем видео
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['video']['id']);
+                        $caption = $message['video']['caption'] ?? '';
+                        $messageText = $caption ? $caption . '<br>' : '';
+                        $messageText .= $mediaUrl ? '🎬 <video controls style="max-width: 100%; border-radius: 8px;"><source src="' . $mediaUrl . '" type="video/mp4"></video>' : 'Не удалось загрузить видео';
+                        
+                        WhatsAppChatMessages::create([
+                            'chat_list_id' => $chatList->id,
+                            'message' => $messageText,
+                            'message_id' => $message['id'],
+                            'type' => 7, // тип 7 для видео
+                            'response_to_message_id' => $message['context']['id'] ?? null,
+                            'status' => 'received',
+                            'direction' => 'incoming'
+                        ]);
+                    }
 
                     // Обновляем информацию о чате
                     $chatList->increment('new_messages');
@@ -492,5 +519,106 @@ class WhatsAppController extends Controller
             ->unique()
             ->values()
             ->toArray();
+    }
+
+    /**
+     * Загрузка медиафайла из WhatsApp
+     * @param string $mediaId - ID медиафайла от WhatsApp
+     * @return string|null - Путь к сохраненному файлу или null в случае ошибки
+     */
+    private function downloadWhatsAppMedia($mediaId)
+    {
+        try {
+            $waba = WhatsAppBusinesSeting::first();
+            
+            // Шаг 1: Получаем URL медиафайла
+            $mediaInfoUrl = $waba->host . '/' . $waba->version . '/' . $mediaId;
+            
+            $mediaInfoResponse = $this->http_client->get($mediaInfoUrl);
+            
+            if (!$mediaInfoResponse->successful()) {
+                Log::error('Ошибка получения URL медиафайла', [
+                    'media_id' => $mediaId,
+                    'response' => $mediaInfoResponse->body()
+                ]);
+                return null;
+            }
+            
+            $mediaInfo = $mediaInfoResponse->json();
+            $mediaUrl = $mediaInfo['url'] ?? null;
+            $mimeType = $mediaInfo['mime_type'] ?? 'application/octet-stream';
+            
+            if (!$mediaUrl) {
+                Log::error('URL медиафайла не найден', ['media_id' => $mediaId]);
+                return null;
+            }
+            
+            // Шаг 2: Скачиваем медиафайл
+            $mediaResponse = $this->http_client->get($mediaUrl);
+            
+            if (!$mediaResponse->successful()) {
+                Log::error('Ошибка скачивания медиафайла', [
+                    'media_url' => $mediaUrl,
+                    'response' => $mediaResponse->body()
+                ]);
+                return null;
+            }
+            
+            // Шаг 3: Определяем расширение файла по mime-type
+            $extension = $this->getExtensionFromMimeType($mimeType);
+            
+            // Шаг 4: Генерируем уникальное имя файла
+            $filename = 'whatsapp_' . $mediaId . '_' . time() . '.' . $extension;
+            $filePath = 'whatsapp/media/' . date('Y/m/d') . '/' . $filename;
+            
+            // Шаг 5: Сохраняем файл в storage
+            Storage::disk('public')->put($filePath, $mediaResponse->body());
+            
+            // Шаг 6: Возвращаем публичный URL
+            $publicUrl = '/storage/' . $filePath;
+            
+            Log::info('Медиафайл успешно загружен', [
+                'media_id' => $mediaId,
+                'file_path' => $filePath,
+                'public_url' => $publicUrl
+            ]);
+            
+            return $publicUrl;
+            
+        } catch (\Exception $e) {
+            Log::error('Ошибка при загрузке медиафайла из WhatsApp', [
+                'media_id' => $mediaId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Определение расширения файла по MIME-типу
+     */
+    private function getExtensionFromMimeType($mimeType)
+    {
+        $mimeMap = [
+            'image/jpeg' => 'jpg',
+            'image/jpg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'audio/ogg' => 'ogg',
+            'audio/mpeg' => 'mp3',
+            'audio/mp4' => 'm4a',
+            'video/mp4' => 'mp4',
+            'video/3gpp' => '3gp',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'text/plain' => 'txt',
+        ];
+        
+        return $mimeMap[$mimeType] ?? 'bin';
     }
 }

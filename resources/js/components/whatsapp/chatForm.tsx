@@ -317,7 +317,7 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
         {isInputDisabled() && (
           <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
             {messages.length === 0 ? (
-              <>⚠️ Начните диалог с отправки задания. Выберите задание выше и нажмите "Отправить шаблон".</>
+              <>⚠️ Начните диалог с отправки задания. Выберите задание выше и нажмите "Отправить задание".</>
             ) : (
               <>⚠️ Чат закрыт. Прошло более 23 часов с последнего сообщения. Начните новый диалог с отправки задания.</>
             )}
