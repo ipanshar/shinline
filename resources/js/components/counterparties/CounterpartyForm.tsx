@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { TextField, Button, Box, Checkbox, FormControlLabel, Grid } from "@mui/material";
-import { FileSpreadsheet } from "lucide-react";
 
 interface Counterparty {
     id: number;
@@ -20,14 +19,12 @@ interface CounterpartyFormProps {
     onCounterpartyAdded: () => void;
     counterparty?: Counterparty | null;
     onCancel?: () => void;
-    onImportClick?: () => void;
 }
 
 const CounterpartyForm: React.FC<CounterpartyFormProps> = ({ 
     onCounterpartyAdded, 
     counterparty,
-    onCancel,
-    onImportClick
+    onCancel 
 }) => {
     const [formData, setFormData] = useState({
         name: "",
@@ -251,16 +248,6 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         >
                             {loading ? "Сохранение..." : (counterparty ? "Обновить" : "Добавить")}
                         </Button>
-                        {!counterparty && onImportClick && (
-                            <Button
-                                variant="outlined"
-                                color="success"
-                                startIcon={<FileSpreadsheet />}
-                                onClick={onImportClick}
-                            >
-                                Импорт из Excel
-                            </Button>
-                        )}
                         {counterparty && (
                             <Button 
                                 variant="outlined" 

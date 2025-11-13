@@ -200,7 +200,6 @@ Route::post('/counterparty/updatecounterparty', [\App\Http\Controllers\Api\Count
 Route::post('/counterparty/deletecounterparty', [\App\Http\Controllers\Api\CounterpartyController::class, 'deleteCounterparty']); // Удалить контрагента
 Route::post('/counterparty/getcounterparty', [\App\Http\Controllers\Api\CounterpartyController::class, 'getCounterparty']); // Получить контрагента по ID
 Route::post('/counterparty/searchbywhatsapp', [\App\Http\Controllers\Api\CounterpartyController::class, 'searchByWhatsApp']); // Поиск по WhatsApp
-Route::post('/counterparty/import', [\App\Http\Controllers\Api\CounterpartyController::class, 'importCounterparties']); // Умный импорт из Excel
 
 // Counterparty Chat routes
 Route::post('/counterparty/chat/getlists', [\App\Http\Controllers\Api\CounterpartyChatController::class, 'getChatLists']); // Получить список чатов
