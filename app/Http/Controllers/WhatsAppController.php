@@ -569,13 +569,29 @@ class WhatsAppController extends Controller
             
             // Шаг 4: Генерируем уникальное имя файла
             $filename = 'whatsapp_' . $mediaId . '_' . time() . '.' . $extension;
-            $filePath = 'whatsapp/media/' . date('Y/m/d') . '/' . $filename;
+            // Используем правильные разделители для текущей ОС
+            $directory = 'whatsapp' . DIRECTORY_SEPARATOR . 'media' . DIRECTORY_SEPARATOR . 
+                        date('Y') . DIRECTORY_SEPARATOR . date('m') . DIRECTORY_SEPARATOR . date('d');
+            $filePath = $directory . DIRECTORY_SEPARATOR . $filename;
+            
+            // Убеждаемся, что директория существует
+            if (!Storage::disk('public')->exists($directory)) {
+                Storage::disk('public')->makeDirectory($directory, 0775, true);
+            }
             
             // Шаг 5: Сохраняем файл в storage
-            Storage::disk('public')->put($filePath, $mediaResponse->body());
+            $saved = Storage::disk('public')->put($filePath, $mediaResponse->body());
             
-            // Шаг 6: Возвращаем публичный URL
-            $publicUrl = '/storage/' . $filePath;
+            if (!$saved) {
+                Log::error('Не удалось сохранить медиафайл', [
+                    'media_id' => $mediaId,
+                    'file_path' => $filePath
+                ]);
+                return null;
+            }
+            
+            // Шаг 6: Возвращаем публичный URL (всегда с прямыми слэшами для URL)
+            $publicUrl = '/storage/whatsapp/media/' . date('Y/m/d') . '/' . $filename;
             
             Log::info('Медиафайл успешно загружен', [
                 'media_id' => $mediaId,
