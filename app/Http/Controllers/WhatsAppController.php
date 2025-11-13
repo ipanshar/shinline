@@ -532,7 +532,7 @@ class WhatsAppController extends Controller
             $waba = WhatsAppBusinesSeting::first();
             
             // Шаг 1: Получаем URL медиафайла
-            $mediaInfoUrl = $waba->host . '/' . $waba->version . '/' . $mediaId;
+            $mediaInfoUrl = $waba->host . '/' . $waba->version . '/' . $mediaId.'?phone_number_id=' . $waba->phone_number_id;
             
             $mediaInfoResponse = $this->http_client->get($mediaInfoUrl);
             
