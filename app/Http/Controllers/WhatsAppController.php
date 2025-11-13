@@ -93,6 +93,7 @@ class WhatsAppController extends Controller
                             'name' => $profile_name ?: 'Неизвестный контрагент',
                             'whatsapp' => $wa_id_clean,
                             'phone' => $wa_id_clean,
+                            'inn' => 1234567890,
                             'created_at' => now(),
                             'updated_at' => now(),
                         ]);
