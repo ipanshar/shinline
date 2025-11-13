@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Search } from 'lucide-react';
+import { Send, Search, Check, CheckCheck, Clock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -14,6 +14,7 @@ interface Message {
   time: string;
   user_name: string;
   user_id?: number;
+  status?: string; // processing, sent, delivered, read, failed
   response_to_message_id?: string;
   original_message?: {
     message: string;
@@ -51,6 +52,26 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
   const [isSendingTemplate, setIsSendingTemplate] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Функция для отображения иконки статуса сообщения
+  const renderMessageStatus = (status?: string) => {
+    if (!status) return null;
+    
+    switch (status) {
+      case 'processing':
+        return <span title="Обрабатывается"><Clock className="h-3 w-3 text-gray-400" /></span>;
+      case 'sent':
+        return <span title="Отправлено"><Check className="h-3 w-3 text-gray-500" /></span>;
+      case 'delivered':
+        return <span title="Доставлено"><CheckCheck className="h-3 w-3 text-gray-500" /></span>;
+      case 'read':
+        return <span title="Прочитано"><CheckCheck className="h-3 w-3 text-blue-500" /></span>;
+      case 'failed':
+        return <span title="Ошибка отправки"><AlertCircle className="h-3 w-3 text-red-500" /></span>;
+      default:
+        return null;
+    }
+  };
 
   // Автоматическая прокрутка вниз при изменении сообщений
   useEffect(() => {
@@ -240,8 +261,10 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span className="font-semibold text-sm text-gray-900">{message.senderName}</span>
-                  {message.sender === 'company' && (
-                    <span className="text-xs text-gray-500">Сотрудник: {message.user_name}</span>
+                  {message.user_name && (
+                    <span className="text-xs text-gray-500">
+                      {message.sender === 'company' ? 'Отправитель:' : 'Ответственный:'} {message.user_name}
+                    </span>
                   )}
                 </div>
                 
@@ -276,8 +299,9 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
                   className="text-sm text-gray-800"
                   dangerouslySetInnerHTML={{ __html: message.text }}
                 />
-                <div className="text-xs text-gray-500 mt-2 text-right">
-                  {message.time}
+                <div className="text-xs text-gray-500 mt-2 flex items-center justify-end gap-1">
+                  <span>{message.time}</span>
+                  {message.sender === 'company' && renderMessageStatus(message.status)}
                 </div>
               </div>
             </div>

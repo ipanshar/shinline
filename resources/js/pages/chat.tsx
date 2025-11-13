@@ -98,7 +98,7 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
           time: chat.last_time_message ? new Date(chat.last_time_message).toLocaleString('ru-RU') : '',
           isOnline: false,
           user_id: chat.user_id || null,
-          unread: chat.new_messages || 0, // Добавляем количество новых сообщений
+          unread: chat.new_messages > 0 ? chat.new_messages : undefined, // Передаем undefined если 0
         }));
         setContacts(formattedContacts);
       }
@@ -129,6 +129,7 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
           }),
           user_name: msg.user_name || '',
           user_id: msg.user_id || null,
+          status: msg.status || null, // Добавляем статус сообщения
           response_to_message_id: msg.response_to_message_id || null,
           original_message: msg.original_message || null,
         }));
@@ -138,7 +139,7 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
         setContacts(prevContacts => 
           prevContacts.map(contact => 
             contact.id === chatId 
-              ? { ...contact, unread: 0 } 
+              ? { ...contact, unread: undefined } // Используем undefined вместо 0
               : contact
           )
         );
@@ -177,6 +178,7 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
           }),
           user_name: response.data.data.user?.name || 'Оператор',
           user_id: response.data.data.user_id || null,
+          status: response.data.data.status || 'processing', // Добавляем статус
         };
         setMessages([...messages, newMessage]);
       }

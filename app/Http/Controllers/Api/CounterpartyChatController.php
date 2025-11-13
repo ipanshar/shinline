@@ -58,6 +58,18 @@ class CounterpartyChatController extends Controller
                 'chat_list_id' => 'required|integer',
             ]);
 
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            // Назначаем все входящие сообщения без user_id на текущего пользователя
+            // (кто первым открыл чат, тот и ответственный за эти сообщения)
+            WhatsAppChatMessages::where('chat_list_id', $validate['chat_list_id'])
+                ->where('direction', 'incoming')
+                ->whereNull('user_id')
+                ->update(['user_id' => $user->id]);
+
             $messages = WhatsAppChatMessages::where('chat_list_id', $validate['chat_list_id'])
                 ->leftJoin('users', 'whats_app_chat_messages.user_id', '=', 'users.id')
                 ->select(
