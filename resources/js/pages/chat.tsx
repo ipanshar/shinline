@@ -114,6 +114,8 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
           }),
           user_name: msg.user_name || '',
           user_id: msg.user_id || null,
+          response_to_message_id: msg.response_to_message_id || null,
+          original_message: msg.original_message || null,
         }));
         setMessages(formattedMessages);
       }
