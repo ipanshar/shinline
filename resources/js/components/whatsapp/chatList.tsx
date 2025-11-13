@@ -44,9 +44,19 @@ const ChatList: React.FC<ChatListProps> = ({ contacts, selectedContactId, onSele
             >
               <div className="flex items-start justify-between mb-1">
                 <div className="flex items-center gap-2 flex-1">
-                  <span className="font-semibold text-sm text-gray-900">{contact.name}</span>
+                  <span className={cn(
+                    "font-semibold text-sm",
+                    contact.unread && contact.unread > 0 ? "text-gray-900 font-bold" : "text-gray-900"
+                  )}>
+                    {contact.name}
+                  </span>
                   {contact.isOnline && (
                     <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  )}
+                  {contact.unread && contact.unread > 0 && (
+                    <Badge variant="default" className="bg-red-600 hover:bg-red-700 text-white text-xs">
+                      {contact.unread}
+                    </Badge>
                   )}
                 </div>
                 <span className="text-xs text-gray-500">{contact.time}</span>
@@ -55,16 +65,11 @@ const ChatList: React.FC<ChatListProps> = ({ contacts, selectedContactId, onSele
               <div className="text-xs text-gray-600 mb-1">{contact.phone}</div>
               
               {contact.lastMessage && (
-                <div className="text-sm text-gray-500 truncate">
+                <div className={cn(
+                  "text-sm truncate",
+                  contact.unread && contact.unread > 0 ? "text-gray-900 font-semibold" : "text-gray-500"
+                )}>
                   {contact.lastMessage}
-                </div>
-              )}
-              
-              {contact.unread && contact.unread > 0 && (
-                <div className="mt-2">
-                  <Badge variant="default" className="bg-red-600 hover:bg-red-700">
-                    {contact.unread}
-                  </Badge>
                 </div>
               )}
             </div>

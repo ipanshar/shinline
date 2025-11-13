@@ -62,12 +62,26 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
     if (chatIdParam) {
       setSelectedChatId(parseInt(chatIdParam));
     }
+
+    // Автоматическое обновление списка чатов каждые 30 секунд
+    const interval = setInterval(() => {
+      loadChatLists();
+    }, 30000); // 30 секунд
+
+    return () => clearInterval(interval);
   }, []);
 
   // Загрузка сообщений при выборе чата
   useEffect(() => {
     if (selectedChatId) {
       loadMessages(selectedChatId);
+      
+      // Автоматическое обновление сообщений в открытом чате каждые 10 секунд
+      const interval = setInterval(() => {
+        loadMessages(selectedChatId);
+      }, 10000); // 10 секунд
+
+      return () => clearInterval(interval);
     }
   }, [selectedChatId]);
 
@@ -84,6 +98,7 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
           time: chat.last_time_message ? new Date(chat.last_time_message).toLocaleString('ru-RU') : '',
           isOnline: false,
           user_id: chat.user_id || null,
+          unread: chat.new_messages || 0, // Добавляем количество новых сообщений
         }));
         setContacts(formattedContacts);
       }
@@ -118,6 +133,15 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
           original_message: msg.original_message || null,
         }));
         setMessages(formattedMessages);
+        
+        // Обнуляем счетчик новых сообщений для этого чата в локальном состоянии
+        setContacts(prevContacts => 
+          prevContacts.map(contact => 
+            contact.id === chatId 
+              ? { ...contact, unread: 0 } 
+              : contact
+          )
+        );
       }
     } catch (error) {
       console.error('Ошибка загрузки сообщений:', error);

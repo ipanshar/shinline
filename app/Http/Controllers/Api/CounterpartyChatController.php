@@ -87,6 +87,13 @@ class CounterpartyChatController extends Controller
                 return $message;
             });
 
+            // Обнуляем счетчик новых сообщений при открытии чата
+            $chatList = WhatsAppChatList::find($validate['chat_list_id']);
+            if ($chatList && $chatList->new_messages > 0) {
+                $chatList->new_messages = 0;
+                $chatList->save();
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Messages retrieved successfully',
