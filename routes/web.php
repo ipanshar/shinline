@@ -63,6 +63,7 @@ Route::get('/references/empty', [RouteController::class, 'referencesEmpty']);
 //whatsapp business settings API
 Route::post('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate']);
 Route::get('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsGet']);
+Route::post('/whatsapp/send-task', [WhatsAppController::class, 'getMessageTemplateNewTask']);
 
 
 //Settings roles

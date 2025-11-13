@@ -13,6 +13,14 @@ import axios from 'axios';
 axios.defaults.withCredentials = true;
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
+// Добавляем CSRF токен из meta тега
+const token = document.head.querySelector('meta[name="csrf-token"]');
+if (token) {
+    axios.defaults.headers.common['X-CSRF-TOKEN'] = token.getAttribute('content');
+} else {
+    console.error('CSRF token not found');
+}
+
 
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';

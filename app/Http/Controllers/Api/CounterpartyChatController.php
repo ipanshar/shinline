@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\WhatsAppChatList;
 use App\Models\WhatsAppChatMessages;
+use App\Models\WhatsAppBusinesSeting;
 use App\Models\Сounterparty;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -95,26 +96,42 @@ class CounterpartyChatController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            // Создаем сообщение в базе данных
-            $chatMessage = WhatsAppChatMessages::create([
-                'chat_list_id' => $validate['chat_list_id'],
-                'message' => $validate['message'],
-                'message_id' => 'test_' . time(), // Тестовый ID
-                'type' => 1, // 1 = исходящее
-                'user_id' => $user->id,
-                'status' => 'sent', // Тестовый статус
-            ]);
+            // Получаем информацию о чате
+            $chatList = WhatsAppChatList::find($validate['chat_list_id']);
+            if (!$chatList) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Chat not found'
+                ], 404);
+            }
+
+            // Отправляем сообщение через WhatsApp API
+            $whatsappController = new \App\Http\Controllers\WhatsAppController();
+            $whatsappController->getMessageText(
+                $validate['message'],
+                $chatList->user_whatsapp,
+                $user->id,
+                1 // тип 1 для текстовых сообщений
+            );
 
             // Обновляем время последнего сообщения в чате
-            $chatList = WhatsAppChatList::find($validate['chat_list_id']);
-            if ($chatList) {
-                $chatList->last_time_message = now();
-                $chatList->save();
+            $chatList->last_time_message = now();
+            $chatList->save();
+
+            // Получаем последнее созданное сообщение
+            $chatMessage = WhatsAppChatMessages::where('chat_list_id', $validate['chat_list_id'])
+                ->where('direction', 'outgoing')
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            // Добавляем информацию о пользователе
+            if ($chatMessage) {
+                $chatMessage->user_name = $user->name;
             }
 
             return response()->json([
                 'status' => true,
-                'message' => 'Message sent successfully (test mode)',
+                'message' => 'Message sent successfully',
                 'data' => $chatMessage,
             ], 200);
         } catch (\Exception $e) {
@@ -155,9 +172,15 @@ class CounterpartyChatController extends Controller
 
             // Если чата нет, создаем новый
             if (!$chatList) {
+                $phoneNumberId = null;
+                $setting = WhatsAppBusinesSeting::first();
+                if ($setting) {
+                    $phoneNumberId = $setting->phone_number_id;
+                }
+
                 $chatList = WhatsAppChatList::create([
                     'user_id' => null, // Для контрагентов user_id может быть null
-                    'phone_number_id' => 'test_phone_id', // Тестовый ID
+                    'phone_number_id' => $phoneNumberId, // Тестовый ID (nullable if not set)
                     'user_whatsapp' => $counterparty->whatsapp,
                     'new_messages' => 0,
                     'last_time_message' => now(),

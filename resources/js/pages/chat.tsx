@@ -79,6 +79,7 @@ const App: React.FC = () => {
           lastMessage: '',
           time: chat.last_time_message ? new Date(chat.last_time_message).toLocaleString('ru-RU') : '',
           isOnline: false,
+          user_id: chat.user_id || null,
         }));
         setContacts(formattedContacts);
       }
@@ -97,8 +98,8 @@ const App: React.FC = () => {
         // Преобразуем данные в формат для ChatForm компонента
         const formattedMessages = response.data.data.map((msg: any) => ({
           id: msg.id,
-          sender: msg.type === 1 ? 'company' : 'user',
-          senderName: msg.type === 1 ? 'Shin Line cargo' : (msg.user_name || 'Контрагент'),
+          sender: msg.direction === 'outgoing' ? 'company' : 'user',
+          senderName: msg.direction === 'outgoing' ? 'Shin Line cargo' : (msg.user_name || 'Контрагент'),
           text: msg.message,
           time: new Date(msg.created_at).toLocaleString('ru-RU', {
             day: '2-digit',
@@ -107,6 +108,8 @@ const App: React.FC = () => {
             hour: '2-digit',
             minute: '2-digit',
           }),
+          user_name: msg.user_name || '',
+          user_id: msg.user_id || null,
         }));
         setMessages(formattedMessages);
       }
@@ -142,6 +145,8 @@ const App: React.FC = () => {
             hour: '2-digit',
             minute: '2-digit',
           }),
+          user_name: response.data.data.user?.name || 'Оператор',
+          user_id: response.data.data.user_id || null,
         };
         setMessages([...messages, newMessage]);
       }
@@ -168,6 +173,9 @@ const App: React.FC = () => {
             contactName={selectedContact.name}
             messages={messages}
             onSendMessage={handleSendMessage}
+            user_whatsapp={selectedContact.phone}
+            currentUserId={1} // TODO: Получить из auth.user.id
+            onTaskSent={() => loadMessages(selectedChatId!)}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-background">
