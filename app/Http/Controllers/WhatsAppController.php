@@ -132,8 +132,7 @@ class WhatsAppController extends Controller
                                     'chat_list_id' => $chatList->id,
                                     'message' => $responseText,
                                     'message_id' => $message['id'],
-                                    'type' => 'button_response',
-                                    //'user_id' => null,
+                                    'type' => 3,                                    //'user_id' => null,
                                     'response_to_message_id' => $message['context']['id'],
                                     'status' => 'received',
                                     'direction' => 'incoming'
@@ -149,7 +148,7 @@ class WhatsAppController extends Controller
                             'chat_list_id' => $chatList->id,
                             'message' => $message['text']['body'],
                             'message_id' => $message['id'],
-                            'type' => 'text',
+                            'type' => 1,
                            // 'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
@@ -160,7 +159,7 @@ class WhatsAppController extends Controller
                             'chat_list_id' => $chatList->id,
                             'message' => $message['text']['body'],
                             'message_id' => $message['id'],
-                            'type' => 'text',
+                            'type' => 1,
                             //'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
