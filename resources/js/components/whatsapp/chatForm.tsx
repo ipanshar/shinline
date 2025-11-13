@@ -261,10 +261,11 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span className="font-semibold text-sm text-gray-900">{message.senderName}</span>
-                  {message.user_name && (
-                    <span className="text-xs text-gray-500">
-                      {message.sender === 'company' ? 'Отправитель:' : 'Ответственный:'} {message.user_name}
-                    </span>
+                  {message.user_name && message.sender === 'company' && (
+                    <span className="text-xs text-gray-500">Отправитель: {message.user_name}</span>
+                  )}
+                  {message.user_name && message.sender === 'user' && (
+                    <span className="text-xs text-gray-500">Ответственный: {message.user_name}</span>
                   )}
                 </div>
                 

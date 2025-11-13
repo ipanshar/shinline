@@ -114,11 +114,15 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
         chat_list_id: chatId
       });
       if (response.data.status) {
+        // Получаем имя контрагента из списка контактов
+        const contact = contacts.find(c => c.id === chatId);
+        const counterpartyName = contact?.name || 'Контрагент';
+        
         // Преобразуем данные в формат для ChatForm компонента
         const formattedMessages = response.data.data.map((msg: any) => ({
           id: msg.id,
           sender: msg.direction === 'outgoing' ? 'company' : 'user',
-          senderName: msg.direction === 'outgoing' ? 'Shin Line cargo' : (msg.user_name || 'Контрагент'),
+          senderName: msg.direction === 'outgoing' ? 'Shin Line cargo' : counterpartyName,
           text: msg.message,
           time: new Date(msg.created_at).toLocaleString('ru-RU', {
             day: '2-digit',

@@ -150,6 +150,7 @@ class WhatsAppController extends Controller
                             'message' => $message['text']['body'],
                             'message_id' => $message['id'],
                             'type' => 1,
+                            'response_to_message_id' => $message['context']['id'] ?? null,
                            // 'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
@@ -161,11 +162,36 @@ class WhatsAppController extends Controller
                             'message' => $message['text']['body'],
                             'message_id' => $message['id'],
                             'type' => 1,
+                            'response_to_message_id' => $message['context']['id'] ?? null,
                             //'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
-                    }
+                    } elseif ($message['type'] === 'image') {
+                        // Обрабатываем изображения
+                        WhatsAppChatMessages::create([
+                            'chat_list_id' => $chatList->id,
+                            'message' => $message['image']['caption'] ?? 'Image',
+                            'message_id' => $message['id'],
+                            'type' => 1,
+                            'response_to_message_id' => $message['context']['id'] ?? null,
+                            //'user_id' => null,
+                            'status' => 'received',
+                            'direction' => 'incoming'
+                        ]);
+                    } else {
+                        // Обрабатываем другие типы сообщений
+                        WhatsAppChatMessages::create([
+                            'chat_list_id' => $chatList->id,
+                            'message' => 'Unsupported message type: ' . $message['type'],
+                            'message_id' => $message['id'],
+                            'type' => 1,
+                            'response_to_message_id' => $message['context']['id'] ?? null,
+                            //'user_id' => null,
+                            'status' => 'received',
+                            'direction' => 'incoming'
+                        ]);
+                    } 
 
                     // Обновляем информацию о чате
                     $chatList->increment('new_messages');
