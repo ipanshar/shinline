@@ -52,6 +52,11 @@ class CounterpartyController extends Controller
                 'carrier_type' => 'nullable|boolean',
             ]);
 
+            // Очистка номера WhatsApp от знака + и пробелов
+            if (!empty($validate['whatsapp'])) {
+                $validate['whatsapp'] = str_replace(['+', ' '], '', $validate['whatsapp']);
+            }
+
             $counterparty = Сounterparty::create($validate);
 
             return response()->json([
@@ -89,6 +94,11 @@ class CounterpartyController extends Controller
                     'status' => false,
                     'message' => 'Counterparty not found'
                 ], 404);
+            }
+
+            // Очистка номера WhatsApp от знака + и пробелов
+            if (!empty($validate['whatsapp'])) {
+                $validate['whatsapp'] = str_replace(['+', ' '], '', $validate['whatsapp']);
             }
 
             $counterparty->update($validate);
@@ -165,7 +175,10 @@ class CounterpartyController extends Controller
             'whatsapp' => 'required|string',
         ]);
 
-        $counterparty = Сounterparty::where('whatsapp', $validate['whatsapp'])->first();
+        // Очистка номера WhatsApp от знака + и пробелов для поиска
+        $whatsapp = str_replace(['+', ' '], '', $validate['whatsapp']);
+
+        $counterparty = Сounterparty::where('whatsapp', $whatsapp)->first();
         
         if (!$counterparty) {
             return response()->json([

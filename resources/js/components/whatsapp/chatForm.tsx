@@ -14,6 +14,13 @@ interface Message {
   time: string;
   user_name: string;
   user_id?: number;
+  response_to_message_id?: string;
+  original_message?: {
+    message: string;
+    created_at: string;
+    direction: string;
+    user_name?: string;
+  };
 }
 
 interface Task {
@@ -237,6 +244,34 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
                     <span className="text-xs text-gray-500">Сотрудник: {message.user_name}</span>
                   )}
                 </div>
+                
+                {/* Отображение исходного сообщения, если это ответ */}
+                {message.original_message && (
+                  <div className="mb-2 p-2 bg-gray-100 border-l-4 border-blue-500 rounded text-xs">
+                    <div className="font-semibold text-gray-700 mb-1">
+                      ↩️ В ответ на {message.original_message.direction === 'outgoing' ? 'сообщение компании' : 'ваше сообщение'}:
+                    </div>
+                    <div 
+                      className="text-gray-600 italic overflow-hidden"
+                      style={{ 
+                        display: '-webkit-box', 
+                        WebkitLineClamp: 3, 
+                        WebkitBoxOrient: 'vertical',
+                        maxHeight: '4.5em'
+                      }}
+                      dangerouslySetInnerHTML={{ __html: message.original_message.message }}
+                    />
+                    <div className="text-gray-500 mt-1">
+                      {new Date(message.original_message.created_at).toLocaleString('ru-RU', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                  </div>
+                )}
+                
                 <div 
                   className="text-sm text-gray-800"
                   dangerouslySetInnerHTML={{ __html: message.text }}

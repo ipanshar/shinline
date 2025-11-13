@@ -67,6 +67,26 @@ class CounterpartyChatController extends Controller
                 ->orderBy('whats_app_chat_messages.created_at', 'asc')
                 ->get();
 
+            // Для каждого сообщения с ответом находим исходное сообщение
+            $messages = $messages->map(function ($message) {
+                if ($message->response_to_message_id) {
+                    $originalMessage = WhatsAppChatMessages::where('message_id', $message->response_to_message_id)
+                        ->leftJoin('users', 'whats_app_chat_messages.user_id', '=', 'users.id')
+                        ->select(
+                            'whats_app_chat_messages.message',
+                            'whats_app_chat_messages.created_at',
+                            'whats_app_chat_messages.direction',
+                            'users.name as user_name'
+                        )
+                        ->first();
+                    
+                    if ($originalMessage) {
+                        $message->original_message = $originalMessage;
+                    }
+                }
+                return $message;
+            });
+
             return response()->json([
                 'status' => true,
                 'message' => 'Messages retrieved successfully',

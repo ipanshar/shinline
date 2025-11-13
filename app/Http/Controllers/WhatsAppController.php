@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\WhatsAppChatList;
 use App\Models\WhatsAppChatMessages;
 use App\Models\WhatsAppChatTemplate;
+use App\Models\Сounterparty;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
@@ -44,7 +45,7 @@ class WhatsAppController extends Controller
             }
 
             $value = $data['entry'][0]['changes'][0]['value'];
-
+            $wa_phone_number_id = $value['metadata']['phone_number_id'] ?? null;
             // Обработка статусов сообщений
             if (isset($value['statuses'])) {
                 foreach ($value['statuses'] as $status) {
@@ -80,22 +81,37 @@ class WhatsAppController extends Controller
                         $profile_name = $value['contacts'][0]['profile']['name'];
                     }
 
-                    // Находим пользователя по номеру WhatsApp
-                    $user = DB::table('сounterparties')->where('whatsapp', $wa_id)->first();
-                    if (!$user) {
-                        Log::warning('Получено сообщение от неизвестного пользователя WhatsApp', [
-                            'wa_id' => $wa_id,
+                    // Очистка номера WhatsApp от знака + и пробелов
+                    $wa_id_clean = str_replace(['+', ' '], '', $wa_id);
+
+                    // Находим или создаем контрагента по номеру WhatsApp
+                    $сounterparty = DB::table('сounterparties')->where('whatsapp', $wa_id_clean)->first();
+                    
+                    if (!$сounterparty) {
+                        // Создаем нового неизвестного контрагента
+                        $counterpartyId = DB::table('сounterparties')->insertGetId([
+                            'name' => $profile_name ?: 'Неизвестный контрагент',
+                            'whatsapp' => $wa_id_clean,
+                            'phone' => $wa_id_clean,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                        
+                        $сounterparty = DB::table('сounterparties')->where('id', $counterpartyId)->first();
+                        
+                        Log::info('Создан новый контрагент из WhatsApp', [
+                            'id' => $counterpartyId,
+                            'wa_id' => $wa_id_clean,
                             'profile_name' => $profile_name
                         ]);
-                        continue;
                     }
 
                     // Находим или создаем чат
                     $chatList = WhatsAppChatList::firstOrCreate(
                         [
-                            'user_id' => $user->id,
+                            //'user_id' => $сounterparty->id,
                             'user_whatsapp' => $wa_id,
-                            'phone_number_id' => $this->phone_number_id,
+                            'phone_number_id' => $wa_phone_number_id,
                         ],
                         [
                             'new_messages' => 0,
@@ -109,12 +125,15 @@ class WhatsAppController extends Controller
                             $originalMessage = WhatsAppChatMessages::where('message_id', $message['context']['id'])->first();
 
                             if ($originalMessage) {
+                                // Формируем текст ответа с информацией о задании
+                                $responseText = '✅ <b>Согласен на выполнение задания</b>';
+                                
                                 WhatsAppChatMessages::create([
                                     'chat_list_id' => $chatList->id,
-                                    'message' => 'Согласен на выполнение задания',
+                                    'message' => $responseText,
                                     'message_id' => $message['id'],
                                     'type' => 'button_response',
-                                    'user_id' => $user->id,
+                                    //'user_id' => null,
                                     'response_to_message_id' => $message['context']['id'],
                                     'status' => 'received',
                                     'direction' => 'incoming'
@@ -131,7 +150,7 @@ class WhatsAppController extends Controller
                             'message' => $message['text']['body'],
                             'message_id' => $message['id'],
                             'type' => 'text',
-                            'user_id' => $user->id,
+                           // 'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
@@ -142,7 +161,7 @@ class WhatsAppController extends Controller
                             'message' => $message['text']['body'],
                             'message_id' => $message['id'],
                             'type' => 'text',
-                            'user_id' => $user->id,
+                            //'user_id' => null,
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
