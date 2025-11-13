@@ -81,7 +81,7 @@ class WhatsAppController extends Controller
                     }
 
                     // Находим пользователя по номеру WhatsApp
-                    $user = DB::table('users')->where('whatsapp_number', $wa_id)->first();
+                    $user = DB::table('сounterparties')->where('whatsapp', $wa_id)->first();
                     if (!$user) {
                         Log::warning('Получено сообщение от неизвестного пользователя WhatsApp', [
                             'wa_id' => $wa_id,
