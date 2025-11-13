@@ -81,7 +81,7 @@ const WhatsAppBusinessSettings: React.FC = () => {
                     />
                 </div>
                 <div>
-                    <label className="block mb-2">ИД бизнес аккаунта</label>
+                    <label className="block mb-2">Номер бизнес аккаунта</label>
                     <input
                         type="text"
                         name="business_account_id"

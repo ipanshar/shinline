@@ -32,7 +32,11 @@ class RouteController extends Controller
         return Inertia::render('integration_dss');
     }
     public function chat(){
-        return Inertia::render('chat');
+        $whatsappSettings = \App\Models\WhatsAppBusinesSeting::first();
+        
+        return Inertia::render('chat', [
+            'whatsappPhone' => $whatsappSettings->business_account_id ?? '+77022630436'
+        ]);
     }
     public function statistics(){
         return Inertia::render('Statisticspage');

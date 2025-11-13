@@ -42,7 +42,11 @@ const mockCompletedTasks = [
   },
 ];
 
-const App: React.FC = () => {
+interface ChatPageProps {
+  whatsappPhone: string;
+}
+
+const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
   const [contacts, setContacts] = useState<any[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -165,6 +169,7 @@ const App: React.FC = () => {
           contacts={contacts}
           selectedContactId={selectedChatId}
           onSelectContact={setSelectedChatId}
+          whatsappPhone={whatsappPhone}
         />
 
         {/* Центральная панель - чат */}

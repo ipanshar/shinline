@@ -16,15 +16,16 @@ interface ChatListProps {
   contacts: Contact[];
   selectedContactId: number | null;
   onSelectContact: (contactId: number) => void;
+  whatsappPhone: string;
 }
 
-const ChatList: React.FC<ChatListProps> = ({ contacts, selectedContactId, onSelectContact }) => {
+const ChatList: React.FC<ChatListProps> = ({ contacts, selectedContactId, onSelectContact, whatsappPhone }) => {
   return (
     <div className="w-64 border-r bg-white flex flex-col h-full">
       {/* Заголовок */}
       <div className="bg-red-600 text-white p-4 border-b shadow-sm">
         <div className="font-bold text-lg">WhatsApp Business</div>
-        <div className="text-sm mt-1 opacity-90">+77022630436</div>
+        <div className="text-sm mt-1 opacity-90">{whatsappPhone}</div>
       </div>
 
       {/* Список контактов */}
