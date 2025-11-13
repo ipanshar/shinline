@@ -569,10 +569,9 @@ class WhatsAppController extends Controller
             
             // Шаг 4: Генерируем уникальное имя файла
             $filename = 'whatsapp_' . $mediaId . '_' . time() . '.' . $extension;
-            // Используем правильные разделители для текущей ОС
-            $directory = 'whatsapp' . DIRECTORY_SEPARATOR . 'media' . DIRECTORY_SEPARATOR . 
-                        date('Y') . DIRECTORY_SEPARATOR . date('m') . DIRECTORY_SEPARATOR . date('d');
-            $filePath = $directory . DIRECTORY_SEPARATOR . $filename;
+            // Для Laravel Storage всегда используем прямые слэши
+            $directory = 'whatsapp/media/' . date('Y/m/d');
+            $filePath = $directory . '/' . $filename;
             
             // Убеждаемся, что директория существует
             if (!Storage::disk('public')->exists($directory)) {
