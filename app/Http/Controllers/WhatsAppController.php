@@ -871,18 +871,55 @@ class WhatsAppController extends Controller
             $directory = 'whatsapp/media/' . date('Y/m/d');
             $filePath = $directory . '/' . $filename;
             
-            // Сохраняем файл
-            $saved = Storage::disk('public')->putFileAs($directory, $file, $filename);
+            // Получаем путь к файлу (работает на Windows IIS)
+            $tempPath = $file->getRealPath();
             
-            if (!$saved) {
+            // Если getRealPath() вернул пустую строку (проблема на Windows IIS)
+            if (empty($tempPath)) {
+                $tempPath = $file->getPathname();
+            }
+            
+            // Проверяем что путь не пустой
+            if (empty($tempPath) || !file_exists($tempPath)) {
+                Log::error('Не удалось получить путь к временному файлу при сохранении копии', [
+                    'filename' => $file->getClientOriginalName(),
+                    'real_path' => $file->getRealPath(),
+                    'pathname' => $file->getPathname()
+                ]);
                 return null;
             }
+            
+            // Читаем содержимое файла и сохраняем через Storage::put()
+            $fileContents = file_get_contents($tempPath);
+            
+            if ($fileContents === false) {
+                Log::error('Не удалось прочитать содержимое временного файла', [
+                    'temp_path' => $tempPath
+                ]);
+                return null;
+            }
+            
+            // Сохраняем файл
+            $saved = Storage::disk('public')->put($filePath, $fileContents);
+            
+            if (!$saved) {
+                Log::error('Storage::put() вернул false', [
+                    'file_path' => $filePath
+                ]);
+                return null;
+            }
+            
+            Log::info('Локальная копия файла успешно сохранена', [
+                'file_path' => $filePath,
+                'temp_path' => $tempPath
+            ]);
             
             return '/storage/' . $filePath;
             
         } catch (\Exception $e) {
             Log::error('Ошибка сохранения локальной копии файла', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             return null;
         }
