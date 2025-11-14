@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Checkpoint;
+use App\Models\Counterparty;
 use App\Models\DssApi;
 use App\Models\DssSetings;
 use App\Models\Role;
@@ -241,19 +242,26 @@ class DatabaseSeeder extends Seeder
     //     'request_url' => '/ipms/api/v1.1/fusion/vehicle-capture/record/fetch/page',
     //     'dss_setings_id' => 1,
     // ]);
-    WhatsAppChatTemplate::create([
-        'template_name' => 'new_task',
-        'template_content' => '<h3>Shin Line cargo</h3> 
-<h4>Уведомление о согласии на перевозку груза</h4>
-Информация о перевозке:<br>
-Задание №: <b>{{task_id}}</b><br>
-Маршрут: <b>{{rout_name}}</b><br>
-Особенности транспортировки груза: <b>{{specification}}</b><br>
-Транспортное средство: <b>{{plate_number}}</b><br>
-Планируемая дата: <b>{{plane_date}}</b><br>
-Вознаграждение: <b>{{reward}}</b> <br><br>
-<small>Если готовы выполнить заказ, просим нажать согласен.<br>
-Заявка актуальна 20 часов с момента получения уведомления</small>',
-    ]);
+//     WhatsAppChatTemplate::create([
+//         'template_name' => 'new_task',
+//         'template_content' => '<h3>Shin Line cargo</h3> 
+// <h4>Уведомление о согласии на перевозку груза</h4>
+// Информация о перевозке:<br>
+// Задание №: <b>{{task_id}}</b><br>
+// Маршрут: <b>{{rout_name}}</b><br>
+// Особенности транспортировки груза: <b>{{specification}}</b><br>
+// Транспортное средство: <b>{{plate_number}}</b><br>
+// Планируемая дата: <b>{{plane_date}}</b><br>
+// Вознаграждение: <b>{{reward}}</b> <br><br>
+// <small>Если готовы выполнить заказ, просим нажать согласен.<br>
+// Заявка актуальна 20 часов с момента получения уведомления</small>',
+//     ]);
+
+        // Counterparty::create([
+        //     'name' => 'Тестовый контрагент',
+        //     'whatsapp' => '77022630436',
+        //     'phone' => '77022630436',
+        //     'inn' => '123456789012',
+        // ]);
     }
 }
