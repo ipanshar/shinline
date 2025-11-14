@@ -650,9 +650,27 @@ class WhatsAppController extends Controller
             // URL для загрузки медиа
             $uploadUrl = $waba->host . '/' . $waba->version . '/' . $waba->phone_number_id . '/media';
             
+            // Получаем путь к файлу (работает на Windows IIS)
+            $filePath = $file->getRealPath();
+            
+            // Если getRealPath() вернул пустую строку (проблема на Windows IIS)
+            if (empty($filePath)) {
+                $filePath = $file->getPathname();
+            }
+            
+            // Проверяем что путь не пустой
+            if (empty($filePath) || !file_exists($filePath)) {
+                Log::error('Не удалось получить путь к файлу', [
+                    'filename' => $file->getClientOriginalName(),
+                    'real_path' => $file->getRealPath(),
+                    'pathname' => $file->getPathname()
+                ]);
+                return null;
+            }
+            
             // Отправляем файл через multipart/form-data
             $response = Http::withToken($this->bearer_token)
-                ->attach('file', file_get_contents($file->getRealPath()), $file->getClientOriginalName())
+                ->attach('file', file_get_contents($filePath), $file->getClientOriginalName())
                 ->post($uploadUrl, [
                     'messaging_product' => 'whatsapp'
                 ]);
