@@ -15,13 +15,13 @@ class TrafficStatsController extends Controller
             $groupBy = $request->query('group_by', 'day');
 
             $format = match ($groupBy) {
-                'week' => '%Y-%W',      // неделя
+                'week' => '%X-%V',      // неделя (год-неделя ISO)
                 'month' => '%Y-%m',     // месяц
                 default => '%Y-%m-%d',  // день
             };
 
             $visits = DB::table('visitors')
-                ->selectRaw("strftime(?, entry_date) as period, COUNT(*) as count", [$format])
+                ->selectRaw("DATE_FORMAT(entry_date, ?) as period, COUNT(*) as count", [$format])
                 ->whereNotNull('entry_date')
                 ->groupBy('period')
                 ->orderBy('period')
