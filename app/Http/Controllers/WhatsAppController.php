@@ -636,4 +636,237 @@ class WhatsAppController extends Controller
         
         return $mimeMap[$mimeType] ?? 'bin';
     }
+
+    /**
+     * Загрузка медиафайла в WhatsApp
+     * @param \Illuminate\Http\UploadedFile $file - Загруженный файл
+     * @return string|null - ID медиафайла от WhatsApp или null в случае ошибки
+     */
+    public function uploadMedia($file)
+    {
+        try {
+            $waba = WhatsAppBusinesSeting::first();
+            
+            // URL для загрузки медиа
+            $uploadUrl = $waba->host . '/' . $waba->version . '/' . $waba->phone_number_id . '/media';
+            
+            // Отправляем файл через multipart/form-data
+            $response = Http::withToken($this->bearer_token)
+                ->attach('file', file_get_contents($file->getRealPath()), $file->getClientOriginalName())
+                ->post($uploadUrl, [
+                    'messaging_product' => 'whatsapp'
+                ]);
+            
+            if (!$response->successful()) {
+                Log::error('Ошибка загрузки файла в WhatsApp', [
+                    'filename' => $file->getClientOriginalName(),
+                    'response' => $response->body()
+                ]);
+                return null;
+            }
+            
+            $result = $response->json();
+            $mediaId = $result['id'] ?? null;
+            
+            if (!$mediaId) {
+                Log::error('Media ID не получен от WhatsApp', ['response' => $result]);
+                return null;
+            }
+            
+            Log::info('Файл успешно загружен в WhatsApp', [
+                'filename' => $file->getClientOriginalName(),
+                'media_id' => $mediaId
+            ]);
+            
+            return $mediaId;
+            
+        } catch (\Exception $e) {
+            Log::error('Ошибка при загрузке файла в WhatsApp', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Отправка медиафайла через WhatsApp
+     * @param Request $request - содержит file, whatsapp_number, user_id, caption (опционально)
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function sendMediaMessage(Request $request)
+    {
+        try {
+            $data = $request->validate([
+                'file' => 'required|file|max:16384', // максимум 16MB
+                'whatsapp_number' => 'required|string',
+                'user_id' => 'required|integer',
+                'caption' => 'nullable|string|max:1024',
+            ]);
+
+            $file = $request->file('file');
+            $mimeType = $file->getMimeType();
+            
+            // Определяем тип медиа по MIME-типу
+            $mediaType = $this->getMediaTypeFromMime($mimeType);
+            
+            if (!$mediaType) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Неподдерживаемый тип файла'
+                ], 400);
+            }
+
+            // Шаг 1: Загружаем файл в WhatsApp и получаем media_id
+            $mediaId = $this->uploadMedia($file);
+            
+            if (!$mediaId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Ошибка загрузки файла в WhatsApp'
+                ], 500);
+            }
+
+            // Шаг 2: Отправляем сообщение с медиа
+            $messageData = [
+                "messaging_product" => "whatsapp",
+                "to" => $data['whatsapp_number'],
+                "type" => $mediaType,
+                $mediaType => [
+                    "id" => $mediaId
+                ]
+            ];
+
+            // Добавляем подпись если есть
+            if (!empty($data['caption'])) {
+                $messageData[$mediaType]['caption'] = $data['caption'];
+            }
+
+            $sendMessage = $this->http_client->withHeaders([
+                'Authorization' => 'Bearer ' . $this->bearer_token,
+                'Content-Type' => 'application/json',
+            ])->post($this->hostMessage, $messageData);
+
+            if (!$sendMessage->successful()) {
+                Log::error('Ошибка отправки медиа-сообщения', [
+                    'response' => $sendMessage->body()
+                ]);
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Ошибка отправки сообщения'
+                ], 500);
+            }
+
+            $messageId = $sendMessage->json()['messages'][0]['id'] ?? null;
+
+            // Сохраняем локально копию файла
+            $localPath = $this->saveLocalMediaCopy($file);
+
+            // Формируем текст сообщения для БД
+            $messageText = '';
+            if (!empty($data['caption'])) {
+                $messageText = $data['caption'] . '<br>';
+            }
+
+            // Добавляем HTML-тег в зависимости от типа файла
+            if ($mediaType === 'image' && $localPath) {
+                $messageText .= '<img src="' . $localPath . '" alt="Image" style="max-width: 100%; border-radius: 8px;" />';
+            } elseif ($mediaType === 'document') {
+                $filename = $file->getClientOriginalName();
+                $messageText .= $localPath 
+                    ? '📎 <a href="' . $localPath . '" target="_blank" download>' . $filename . '</a>'
+                    : '📎 ' . $filename;
+            } elseif ($mediaType === 'audio' && $localPath) {
+                $messageText .= '🎵 <audio controls><source src="' . $localPath . '" type="' . $mimeType . '"></audio>';
+            } elseif ($mediaType === 'video' && $localPath) {
+                $messageText .= '🎬 <video controls style="max-width: 100%; border-radius: 8px;"><source src="' . $localPath . '" type="' . $mimeType . '"></video>';
+            }
+
+            // Сохраняем сообщение в БД
+            $typeMap = [
+                'image' => 4,
+                'document' => 5,
+                'audio' => 6,
+                'video' => 7
+            ];
+
+            $this->newMessage(
+                $messageText,
+                $data['whatsapp_number'],
+                $messageId,
+                $data['user_id'],
+                $typeMap[$mediaType] ?? 5,
+                'outgoing',
+                'sent'
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Файл успешно отправлен',
+                'message_id' => $messageId
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Ошибка в sendMediaMessage: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка при отправке файла: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Определение типа медиа по MIME-типу для WhatsApp API
+     */
+    private function getMediaTypeFromMime($mimeType)
+    {
+        if (str_starts_with($mimeType, 'image/')) {
+            return 'image';
+        } elseif (str_starts_with($mimeType, 'video/')) {
+            return 'video';
+        } elseif (str_starts_with($mimeType, 'audio/')) {
+            return 'audio';
+        } elseif (in_array($mimeType, [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'text/plain'
+        ])) {
+            return 'document';
+        }
+        
+        return null;
+    }
+
+    /**
+     * Сохранение локальной копии медиафайла
+     */
+    private function saveLocalMediaCopy($file)
+    {
+        try {
+            $extension = $file->getClientOriginalExtension();
+            $filename = 'whatsapp_upload_' . time() . '_' . uniqid() . '.' . $extension;
+            $directory = 'whatsapp/media/' . date('Y/m/d');
+            $filePath = $directory . '/' . $filename;
+            
+            // Сохраняем файл
+            $saved = Storage::disk('public')->putFileAs($directory, $file, $filename);
+            
+            if (!$saved) {
+                return null;
+            }
+            
+            return '/storage/' . $filePath;
+            
+        } catch (\Exception $e) {
+            Log::error('Ошибка сохранения локальной копии файла', [
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
 }

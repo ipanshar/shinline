@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Search, Check, CheckCheck, Clock, AlertCircle } from 'lucide-react';
+import { Send, Search, Check, CheckCheck, Clock, AlertCircle, Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -50,8 +50,11 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showTaskDropdown, setShowTaskDropdown] = useState(false);
   const [isSendingTemplate, setIsSendingTemplate] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSendingFile, setIsSendingFile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Функция для отображения иконки статуса сообщения
   const renderMessageStatus = (status?: string) => {
@@ -233,6 +236,80 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
     }
   };
 
+  // Обработка выбора файла
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Проверка размера (16MB максимум)
+      if (file.size > 16 * 1024 * 1024) {
+        alert('Файл слишком большой. Максимальный размер: 16 МБ');
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  // Отправка файла
+  const handleSendFile = async () => {
+    if (!selectedFile || !user_whatsapp) {
+      return;
+    }
+
+    let senderUserId = currentUserId;
+    if (!senderUserId && messages.length > 0) {
+      const lastOutgoingMessage = messages.find(m => m.sender === 'company');
+      if (lastOutgoingMessage) {
+        senderUserId = lastOutgoingMessage.user_id;
+      }
+    }
+
+    if (!senderUserId) {
+      alert('Не удалось определить пользователя');
+      return;
+    }
+
+    setIsSendingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('whatsapp_number', user_whatsapp);
+      formData.append('user_id', senderUserId.toString());
+      
+      // Добавляем подпись если есть текст
+      if (messageText.trim()) {
+        formData.append('caption', messageText.trim());
+      }
+
+      const response = await axios.post('/whatsapp/send-media', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data.status) {
+        console.log('Файл успешно отправлен');
+        setSelectedFile(null);
+        setMessageText('');
+        
+        // Обновляем список сообщений
+        if (onTaskSent) {
+          onTaskSent();
+        }
+      } else {
+        alert('Ошибка при отправке файла: ' + response.data.message);
+      }
+    } catch (error) {
+      console.error('Ошибка при отправке файла:', error);
+      alert('Ошибка при отправке файла');
+    } finally {
+      setIsSendingFile(false);
+      // Сбрасываем input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-gray-50 h-full">
       {/* Заголовок чата */}
@@ -312,7 +389,7 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
         </div>
       </div>
 
-            {/* Поле ввода */}
+      {/* Поле ввода */}
       <div className="border-t p-4 bg-white shadow-sm">
         {isInputDisabled() && (
           <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
@@ -321,6 +398,48 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
             ) : (
               <>⚠️ Чат закрыт. Прошло более 23 часов с последнего сообщения. Начните новый диалог с отправки задания.</>
             )}
+          </div>
+        )}
+        
+        {/* Отображение выбранного файла */}
+        {selectedFile && (
+          <div className="mb-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-blue-600" />
+                <div>
+                  <div className="text-sm font-semibold text-blue-900">{selectedFile.name}</div>
+                  <div className="text-xs text-blue-600">
+                    {(selectedFile.size / 1024).toFixed(1)} КБ
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSendFile}
+                  disabled={isSendingFile}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {isSendingFile ? 'Отправка...' : 'Отправить'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedFile(null);
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = '';
+                    }
+                  }}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         )}
         
@@ -425,6 +544,23 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
         </div>
 
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileSelect}
+            className="hidden"
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isInputDisabled() || isSendingFile}
+            title="Прикрепить файл"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <Input
             type="text"
             value={messageText}
@@ -432,6 +568,8 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
             placeholder={
               isInputDisabled() 
                 ? (messages.length === 0 ? "Начните с выбора задания" : "Чат закрыт") 
+                : selectedFile
+                ? "Добавьте подпись к файлу (необязательно)"
                 : "Введите сообщение"
             }
             className="flex-1"
