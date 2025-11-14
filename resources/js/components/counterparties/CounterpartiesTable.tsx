@@ -4,6 +4,7 @@ import { DataGrid, GridColDef, GridActionsCellItem } from "@mui/x-data-grid";
 import { Box, useMediaQuery, CircularProgress, Button } from "@mui/material";
 import { Edit, Delete, MessageCircle } from "lucide-react";
 import CounterpartyForm from '@/components/counterparties/CounterpartyForm';
+import ImportExcelModal from '@/components/counterparties/ImportExcelModal';
 import { router } from '@inertiajs/react';
 
 interface Counterparty {
@@ -23,6 +24,7 @@ const CounterpartiesTable: React.FC = () => {
     const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedCounterparty, setSelectedCounterparty] = useState<Counterparty | null>(null);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const isMobile = useMediaQuery("(max-width: 768px)");
 
     const fetchCounterparties = () => {
@@ -140,6 +142,7 @@ const CounterpartiesTable: React.FC = () => {
                 onCounterpartyAdded={handleCounterpartyAdded}
                 counterparty={selectedCounterparty}
                 onCancel={() => setSelectedCounterparty(null)}
+                onImportClick={() => setIsImportModalOpen(true)}
             />
             <Box sx={{ width: "100%", maxWidth: "1400px", margin: "auto", padding: "10px" }}>
                 <h2 style={{ textAlign: "center" }}>Контрагенты</h2>
@@ -165,6 +168,15 @@ const CounterpartiesTable: React.FC = () => {
                     </Box>
                 )}
             </Box>
+            
+            <ImportExcelModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImportComplete={() => {
+                    setIsImportModalOpen(false);
+                    fetchCounterparties();
+                }}
+            />
         </Box>
     );
 };
