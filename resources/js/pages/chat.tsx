@@ -131,6 +131,7 @@ const App: React.FC<ChatPageProps> = ({ whatsappPhone }) => {
             hour: '2-digit',
             minute: '2-digit',
           }),
+          created_at: msg.created_at, // Передаем сырую дату для корректных вычислений
           user_name: msg.user_name || '',
           user_id: msg.user_id || null,
           status: msg.status || null, // Добавляем статус сообщения

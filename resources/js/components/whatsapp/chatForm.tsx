@@ -12,6 +12,7 @@ interface Message {
   senderName: string;
   text: string;
   time: string;
+  created_at?: string; // Raw ISO timestamp for calculations
   user_name: string;
   user_id?: number;
   status?: string; // processing, sent, delivered, read, failed
@@ -134,7 +135,9 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
     }
 
     const lastMessage = messages[messages.length - 1];
-    const lastMessageTime = new Date(lastMessage.time);
+    // Используем created_at если есть (ISO формат), иначе пытаемся парсить time (может быть ненадежно)
+    const messageTimeStr = lastMessage.created_at || lastMessage.time;
+    const lastMessageTime = new Date(messageTimeStr);
     const now = new Date();
     
     // Вычисляем разницу в часах
