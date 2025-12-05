@@ -128,22 +128,36 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
     }
   };
 
-  // Проверяем, прошло ли более 23 часов с последнего сообщения
+  // Проверяем, прошло ли более 24 часов с последнего сообщения от клиента
   const isInputDisabled = () => {
     if (messages.length === 0) {
       return true; // Блокируем, если нет сообщений - нужно начать с выбора задания
     }
 
-    const lastMessage = messages[messages.length - 1];
+    // Ищем последнее сообщение от клиента (sender === 'user')
+    // Массив messages обычно отсортирован по времени, поэтому ищем с конца
+    let lastUserMessage = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].sender === 'user') {
+        lastUserMessage = messages[i];
+        break;
+      }
+    }
+
+    // Если нет сообщений от клиента, окно диалога закрыто
+    if (!lastUserMessage) {
+      return true;
+    }
+
     // Используем created_at если есть (ISO формат), иначе пытаемся парсить time (может быть ненадежно)
-    const messageTimeStr = lastMessage.created_at || lastMessage.time;
+    const messageTimeStr = lastUserMessage.created_at || lastUserMessage.time;
     const lastMessageTime = new Date(messageTimeStr);
     const now = new Date();
     
     // Вычисляем разницу в часах
     const diffInHours = (now.getTime() - lastMessageTime.getTime()) / (1000 * 60 * 60);
     
-    return diffInHours > 23;
+    return diffInHours > 24;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -399,7 +413,7 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
             {messages.length === 0 ? (
               <>⚠️ Начните диалог с отправки задания. Выберите задание выше и нажмите "Отправить задание".</>
             ) : (
-              <>⚠️ Чат закрыт. Прошло более 23 часов с последнего сообщения. Начните новый диалог с отправки задания.</>
+              <>⚠️ Чат закрыт. Прошло более 24 часов с последнего ответа клиента. Начните новый диалог с отправки задания.</>
             )}
           </div>
         )}
