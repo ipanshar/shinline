@@ -22,13 +22,19 @@ class WhatsAppController extends Controller
     protected $bearer_token;
     protected $http_client;
     protected $phone_number_id;
+    protected $label;
     public function __construct()
     {
-        $waba = WhatsAppBusinesSeting::first();
-        $this->hostMessage = $waba->host . '/' . $waba->version . '/' . $waba->phone_number_id . '/messages';
-        $this->bearer_token = $waba->bearer_token;
-        $this->phone_number_id = $waba->phone_number_id;
-        $this->http_client = Http::withToken($this->bearer_token);
+        // Получаем активную настройку или первую доступную
+        $waba = WhatsAppBusinesSeting::where('is_active', true)->where('label', 'cargo')->first() ?? WhatsAppBusinesSeting::first();
+        
+        if ($waba) {
+            $this->hostMessage = $waba->host . '/' . $waba->version . '/' . $waba->phone_number_id . '/messages';
+            $this->bearer_token = $waba->bearer_token;
+            $this->phone_number_id = $waba->phone_number_id;
+            $this->label = $waba->label;
+            $this->http_client = Http::withToken($this->bearer_token);
+        }
     }
 
     // Обработка входящих уведомлений от WhatsApp
@@ -46,6 +52,8 @@ class WhatsAppController extends Controller
 
             $value = $data['entry'][0]['changes'][0]['value'];
             $wa_phone_number_id = $value['metadata']['phone_number_id'] ?? null;
+            $Wasettings = WhatsAppBusinesSeting::where('phone_number_id', $wa_phone_number_id)->first();
+            
             // Обработка статусов сообщений
             if (isset($value['statuses'])) {
                 foreach ($value['statuses'] as $status) {
@@ -159,8 +167,18 @@ class WhatsAppController extends Controller
                         // Обрабатываем изображения
                         $mediaUrl = $this->downloadWhatsAppMedia($message['image']['id']);
                         $caption = $message['image']['caption'] ?? '';
-                        $messageText = $caption ? $caption . '<br>' : '';
-                        $messageText .= $mediaUrl ? '<img src="' . $mediaUrl . '" alt="Image" style="max-width: 100%; border-radius: 8px;" />' : 'Не удалось загрузить изображение';
+                        
+                        // Проверяем label для формата сообщения
+                        if ($Wasettings && $Wasettings->label === 'CSC') {
+                            // Для CSC: простой формат - название и ссылка
+                            $filename = $message['image']['id'] . '.jpg'; // WhatsApp не передает имя для изображений
+                            $messageText = $caption ? $caption . ', ' : '';
+                            $messageText .= $mediaUrl ? $filename . ', ' . $mediaUrl : 'Не удалось загрузить изображение';
+                        } else {
+                            // Обычный формат с HTML
+                            $messageText = $caption ? $caption . '<br>' : '';
+                            $messageText .= $mediaUrl ? '<img src="' . $mediaUrl . '" alt="Image" style="max-width: 100%; border-radius: 8px;" />' : 'Не удалось загрузить изображение';
+                        }
                         
                         WhatsAppChatMessages::create([
                             'chat_list_id' => $chatList->id,
@@ -176,8 +194,17 @@ class WhatsAppController extends Controller
                         $mediaUrl = $this->downloadWhatsAppMedia($message['document']['id']);
                         $filename = $message['document']['filename'] ?? 'document';
                         $caption = $message['document']['caption'] ?? '';
-                        $messageText = $caption ? $caption . '<br>' : '';
-                        $messageText .= $mediaUrl ? '📎 <a href="' . $mediaUrl . '" target="_blank" download>' . $filename . '</a>' : 'Не удалось загрузить документ';
+                        
+                        // Проверяем label для формата сообщения
+                        if ($Wasettings && $Wasettings->label === 'CSC') {
+                            // Для CSC: простой формат - название файла и ссылка
+                            $messageText = $caption ? $caption . ', ' : '';
+                            $messageText .= $mediaUrl ? $filename . ', ' . $mediaUrl : 'Не удалось загрузить документ';
+                        } else {
+                            // Обычный формат с HTML
+                            $messageText = $caption ? $caption . '<br>' : '';
+                            $messageText .= $mediaUrl ? '📎 <a href="' . $mediaUrl . '" target="_blank" download>' . $filename . '</a>' : 'Не удалось загрузить документ';
+                        }
                         
                         WhatsAppChatMessages::create([
                             'chat_list_id' => $chatList->id,
@@ -260,18 +287,67 @@ class WhatsAppController extends Controller
     {
         if ($request->isMethod('post')) {
             $data = $request->validate([
-                'phone_number_id' => 'required|string',
-                'waba_id' => 'required|string',
-                'business_account_id' => 'required|string',
-                'bearer_token' => 'required|string',
                 'host' => 'required|string',
                 'version' => 'required|string',
+                'numbers' => 'required|array|min:1',
+                'numbers.*.phone_number_id' => 'required|string',
+                'numbers.*.waba_id' => 'nullable|string',
+                'numbers.*.business_account_id' => 'nullable|string',
+                'numbers.*.bearer_token' => 'required|string',
+                'numbers.*.is_active' => 'nullable|boolean',
+                'numbers.*.label' => 'nullable|string|max:255',
             ]);
 
-            WhatsAppBusinesSeting::updateOrCreate(
-                ['phone_number_id' => $data['phone_number_id']],
-                $data
-            );
+            $host = $data['host'];
+            $version = $data['version'];
+            $numbers = $data['numbers'];
+
+            // Получаем ID существующих номеров из запроса
+            $existingIds = collect($numbers)
+                ->pluck('id')
+                ->filter()
+                ->map(fn($id) => (int)$id)
+                ->toArray();
+
+            // Удаляем номера, которых нет в новом списке
+            if (!empty($existingIds)) {
+                WhatsAppBusinesSeting::whereNotIn('id', $existingIds)->delete();
+            } else {
+                // Если нет ID в запросе, значит все номера новые - удаляем все старые
+                WhatsAppBusinesSeting::truncate();
+            }
+
+            // Обновляем или создаем номера
+            foreach ($numbers as $index => $numberData) {
+                $isActive = $numberData['is_active'] ?? ($index === 0); // Первый номер по умолчанию активен
+                
+                $settings = [
+                    'phone_number_id' => $numberData['phone_number_id'],
+                    'waba_id' => $numberData['waba_id'] ?? null,
+                    'business_account_id' => $numberData['business_account_id'] ?? null,
+                    'bearer_token' => $numberData['bearer_token'],
+                    'host' => $host,
+                    'version' => $version,
+                    'is_active' => $isActive,
+                    'label' => $numberData['label'] ?? null,
+                ];
+
+                if (isset($numberData['id']) && is_numeric($numberData['id'])) {
+                    // Обновляем существующий номер
+                    WhatsAppBusinesSeting::where('id', (int)$numberData['id'])->update($settings);
+                } else {
+                    // Создаем новый номер
+                    WhatsAppBusinesSeting::create($settings);
+                }
+            }
+
+            // Для API запросов возвращаем JSON
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Настройки успешно сохранены.'
+                ], Response::HTTP_OK);
+            }
 
             return redirect()->back()->with('success', 'Настройки успешно сохранены.');
         }
@@ -282,9 +358,10 @@ class WhatsAppController extends Controller
     // Получение настроек WhatsApp Business
     public function whatsappBusinessSettingsGet(Request $request)
     {
-        $settings = WhatsAppBusinesSeting::first();
-        if ($settings) {
-            return response()->json($settings, Response::HTTP_OK);
+        $settingsData = WhatsAppBusinesSeting::getAllForApi();
+        
+        if ($settingsData) {
+            return response()->json($settingsData, Response::HTTP_OK);
         } else {
             return response()->json(['message' => 'Настройки не найдены.'], Response::HTTP_NOT_FOUND);
         }
