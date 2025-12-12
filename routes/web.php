@@ -65,6 +65,7 @@ Route::post('/whatsapp/business-settings', [WhatsAppController::class, 'whatsapp
 Route::get('/whatsapp/business-settings', [WhatsAppController::class, 'whatsappBusinessSettingsGet']);
 Route::post('/whatsapp/send-task', [WhatsAppController::class, 'getMessageTemplateNewTask']);
 Route::post('/whatsapp/send-media', [WhatsAppController::class, 'sendMediaMessage']);
+Route::post('/whatsapp/chat-messages', [WhatsAppController::class, 'getChatMessages']);
 
 
 //Settings roles

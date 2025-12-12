@@ -164,6 +164,9 @@ Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class
 Route::post('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate'])->middleware('auth:sanctum');
 Route::get('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsGet'])->middleware('auth:sanctum');
 
+//whatsapp chat messages API
+Route::post('/whatsapp/chat-messages', [\App\Http\Controllers\WhatsAppController::class, 'getChatMessages'])->middleware('auth:sanctum');
+
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones'])->middleware('auth:sanctum'); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone'])->middleware('auth:sanctum'); // Создать или обновить зону

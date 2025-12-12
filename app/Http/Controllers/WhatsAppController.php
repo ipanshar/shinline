@@ -1001,4 +1001,85 @@ class WhatsAppController extends Controller
             return null;
         }
     }
+
+    /**
+     * Получение всех сообщений чата по phone_number_id и user_whatsapp
+     * @param Request $request - содержит phone_number_id и user_whatsapp
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getChatMessages(Request $request)
+    {
+        try {
+            $data = $request->validate([
+                'phone_number_id' => 'required|string',
+                'user_whatsapp' => 'required|string',
+            ]);
+
+            // Находим чат по phone_number_id и user_whatsapp
+            $chatList = WhatsAppChatList::where('phone_number_id', $data['phone_number_id'])
+                ->where('user_whatsapp', $data['user_whatsapp'])
+                ->first();
+
+            if (!$chatList) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Чат не найден',
+                    'data' => []
+                ], 404);
+            }
+
+            // Получаем все сообщения этого чата, отсортированные по дате создания
+            $messages = WhatsAppChatMessages::where('chat_list_id', $chatList->id)
+                ->orderBy('created_at', 'asc')
+                ->get()
+                ->map(function ($message) {
+                    return [
+                        'id' => $message->id,
+                        'message' => $message->message,
+                        'message_id' => $message->message_id,
+                        'type' => $message->type,
+                        'user_id' => $message->user_id,
+                        'direction' => $message->direction,
+                        'status' => $message->status,
+                        'response_to_message_id' => $message->response_to_message_id,
+                        'has_response' => $message->has_response,
+                        'error_code' => $message->error_code,
+                        'error_message' => $message->error_message,
+                        'created_at' => $message->created_at,
+                        'updated_at' => $message->updated_at,
+                    ];
+                });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Сообщения успешно получены',
+                'data' => [
+                    'chat_info' => [
+                        'chat_list_id' => $chatList->id,
+                        'phone_number_id' => $chatList->phone_number_id,
+                        'user_whatsapp' => $chatList->user_whatsapp,
+                        'new_messages' => $chatList->new_messages,
+                        'last_time_message' => $chatList->last_time_message,
+                    ],
+                    'messages' => $messages,
+                    'total_messages' => $messages->count(),
+                ]
+            ], 200);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка валидации',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Ошибка в getChatMessages: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка при получении сообщений: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
