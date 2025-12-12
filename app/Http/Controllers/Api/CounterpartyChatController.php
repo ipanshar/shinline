@@ -19,7 +19,7 @@ class CounterpartyChatController extends Controller
     {
         try {
             // Получаем все чаты, связанные с контрагентами
-            $chatLists = WhatsAppChatList::innerJoin('whats_app_busines_setings', 'whats_app_chat_lists.phone_number_id', '=', 'whats_app_busines_setings.phone_number_id')
+            $chatLists = WhatsAppChatList::leftJoin('whats_app_busines_setings', 'whats_app_chat_lists.phone_number_id', '=', 'whats_app_busines_setings.phone_number_id')
                 ->leftJoin('users', 'whats_app_chat_lists.user_id', '=', 'users.id')
                 ->select(
                     'whats_app_chat_lists.*',
