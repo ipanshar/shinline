@@ -19,13 +19,13 @@ class CounterpartyChatController extends Controller
     {
         try {
             // Получаем все чаты, связанные с контрагентами
-            $chatLists = WhatsAppChatList::innerJoin('whatsapp_business_settings', 'whatsapp_chat_lists.phone_number_id', '=', 'whatsapp_business_settings.phone_number_id')
-                ->leftJoin('users', 'whatsapp_chat_lists.user_id', '=', 'users.id')
+            $chatLists = WhatsAppChatList::innerJoin('whats_app_busines_setings', 'whats_app_chat_lists.phone_number_id', '=', 'whats_app_busines_setings.phone_number_id')
+                ->leftJoin('users', 'whats_app_chat_lists.user_id', '=', 'users.id')
                 ->select(
-                    'whatsapp_chat_lists.*',
+                    'whats_app_chat_lists.*',
                     'users.name as user_name'
-                )->where('whatsapp_business_settings.is_active', true)->where('whatsapp_business_settings.label', 'cargo')
-                ->orderBy('whatsapp_chat_lists.last_time_message', 'desc')
+                )->where('whats_app_busines_setings.is_active', true)->where('whats_app_busines_setings.label', 'cargo')
+                ->orderBy('whats_app_chat_lists.last_time_message', 'desc')
                 ->get();
 
             // Для каждого чата пытаемся найти контрагента по WhatsApp номеру
