@@ -511,7 +511,158 @@ class DssService
         return ['success' => true, 'deleted_count' => $oldCaptures->count()];
     }
 
+    /**
+     * Добавление нового пользователя в DSS через API /obms/api/v1.1/acs/person
+     * 
+     * @param array $personData - данные пользователя:
+     *   - firstName: имя (обязательно)
+     *   - lastName: фамилия (обязательно)
+     *   - gender: пол (1 - мужской, 2 - женский)
+     *   - iin: номер паспорта/ИИН (обязательно)
+     *   - data: дата рождения в формате Y-m-d (например, 1995-12-06)
+     *   - foto: фото в формате BASE64 (обязательно)
+     * 
+     * @return array - результат выполнения запроса
+     */
+    public function dssAddPerson(array $personData)
+    {
+        try {
+            // Проверка токена
+            if (!$this->token) {
+                $authResult = $this->dssAutorize();
+                if (isset($authResult['error'])) {
+                    return ['error' => 'Ошибка авторизации: ' . $authResult['error']];
+                }
+            }
 
+            // Валидация входных данных
+            $requiredFields = ['firstName', 'lastName', 'gender', 'iin', 'data', 'foto'];
+            foreach ($requiredFields as $field) {
+                if (!isset($personData[$field]) || empty($personData[$field])) {
+                    return ['error' => "Отсутствует обязательное поле: {$field}"];
+                }
+            }
+
+            // Получаем API-метод из базы данных
+            $dssApi = DssApi::where('api_name', 'AddPerson')
+                ->where('dss_setings_id', $this->dssSettings->id)
+                ->first();
+
+            if (!$dssApi) {
+                return ['error' => 'API метод AddPerson не найден в базе данных. Необходимо добавить запись в таблицу dss_apis.'];
+            }
+
+            // Конвертируем дату рождения в timestamp
+            $birthDate = strtotime($personData['data']);
+            if ($birthDate === false) {
+                return ['error' => 'Некорректный формат даты рождения. Используйте формат Y-m-d (например, 1995-12-06)'];
+            }
+
+            // Формируем массив фотографий (может быть несколько)
+            $facePictures = is_array($personData['foto']) ? $personData['foto'] : [$personData['foto']];
+
+            // Преобразуем gender: приходит 1 или 2, отправляем "1" или "2"
+            $gender = (string)$personData['gender'];
+
+            // Формируем тело запроса согласно документации DSS
+            $requestBody = [
+                'baseInfo' => [
+                    'personId' => $personData['iin'], // Используем ИИН как personId
+                    'firstName' => $personData['firstName'],
+                    'lastName' => $personData['lastName'],
+                    'gender' => $gender, // "1" - мужской, "2" - женский
+                    'orgCode' => '001', // Код организации (можно сделать настраиваемым)
+                    'source' => '0', // Источник данных
+                    'facePictures' => $facePictures // Массив фотографий в BASE64
+                ],
+                'extensionInfo' => [
+                    'idType' => '0', // Тип документа
+                    'idNo' => $personData['iin'], // Номер документа (паспорт/ИИН)
+                    'nationalityId' => '9999' // ID национальности (можно сделать настраиваемым)
+                ],
+                'authenticationInfo' => [
+                    'startTime' => (string)$birthDate, // Время начала действия (дата рождения)
+                    'endTime' => '2000000000' // Время окончания действия (далекое будущее)
+                ],
+                'accessInfo' => [
+                    'accessType' => '0' // Тип доступа
+                ],
+                'faceComparisonInfo' => [
+                    'enableFaceComparisonGroup' => '1' // Включить сравнение лиц
+                ],
+                'entranceInfo' => [] // Дополнительная информация о входе (пусто)
+            ];
+
+            // Отправка запроса
+            $response = $this->client->post($this->baseUrl . $dssApi->request_url, [
+                'headers' => [
+                    'X-Subject-Token' => $this->token,
+                    'Content-Type' => 'application/json',
+                    'Charset' => 'utf-8'
+                ],
+                'json' => $requestBody
+            ]);
+
+            // Проверяем успешность ответа
+            if ($response->getStatusCode() == 200 && $response->getBody()) {
+                $responseData = json_decode($response->getBody(), true);
+
+                // Проверяем код ответа DSS
+                if (isset($responseData['code']) && $responseData['code'] === 1000) {
+                    Log::info('Пользователь успешно добавлен в DSS', [
+                        'personId' => $personData['iin'],
+                        'firstName' => $personData['firstName'],
+                        'lastName' => $personData['lastName']
+                    ]);
+
+                    return [
+                        'success' => true,
+                        'message' => 'Пользователь успешно добавлен в DSS',
+                        'data' => $responseData['data'] ?? null
+                    ];
+                } else {
+                    Log::error('Ошибка добавления пользователя в DSS', [
+                        'code' => $responseData['code'] ?? 'unknown',
+                        'message' => $responseData['message'] ?? 'unknown',
+                        'response' => $responseData
+                    ]);
+
+                    return [
+                        'error' => 'Ошибка DSS API',
+                        'code' => $responseData['code'] ?? 'unknown',
+                        'message' => $responseData['message'] ?? 'Неизвестная ошибка',
+                        'data' => $responseData
+                    ];
+                }
+            } else {
+                return ['error' => 'Ошибка HTTP запроса: ' . $response->getStatusCode()];
+            }
+
+        } catch (RequestException $e) {
+            Log::error('Исключение при добавлении пользователя в DSS', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            if ($e->hasResponse()) {
+                $errorBody = json_decode($e->getResponse()->getBody(), true);
+                return [
+                    'error' => 'Ошибка запроса к DSS',
+                    'message' => $e->getMessage(),
+                    'response' => $errorBody
+                ];
+            }
+
+            return ['error' => 'Ошибка соединения с DSS: ' . $e->getMessage()];
+        } catch (\Exception $e) {
+            Log::error('Общая ошибка при добавлении пользователя в DSS', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return ['error' => 'Внутренняя ошибка: ' . $e->getMessage()];
+        }
+    }
 
     // Выход из системы DSS
     public function dssUnauthorize()

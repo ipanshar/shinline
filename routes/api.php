@@ -140,6 +140,7 @@ Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middlewar
 Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('auth:sanctum'); //Обновление токена DSS
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('auth:sanctum'); //Выход из DSS  
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Добавление тревоги в DSS
+Route::post('/dss/add-person', [DssController::class, 'dssAddPerson'])->middleware('auth:sanctum'); //Добавление пользователя в DSS
 Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory'])->middleware('auth:sanctum'); //Получить историю зон грузовика
 Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone'])->middleware('auth:sanctum'); //Получить текущую зону грузовика
 

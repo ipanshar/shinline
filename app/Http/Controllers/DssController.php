@@ -224,4 +224,64 @@ class DssController extends Controller
             ]
         ], 200);
     }
+
+    /**
+     * Добавить нового пользователя в DSS
+     * 
+     * Ожидаемые данные в запросе:
+     * {
+     *   "firstName": "Сергей",
+     *   "lastName": "Иванов",
+     *   "gender": 1,              // 1 - мужской, 2 - женский
+     *   "iin": "010405599456",     // номер паспорта/ИИН
+     *   "data": "1995-12-06",      // дата рождения в формате Y-m-d
+     *   "foto": "BASE64_IMAGE_DATA" // фото в BASE64 (может быть массив)
+     * }
+     */
+    public function dssAddPerson(Request $request)
+    {
+        try {
+            // Валидация входных данных
+            $validated = $request->validate([
+                'firstName' => 'required|string|max:255',
+                'lastName' => 'required|string|max:255',
+                'gender' => 'required|integer|in:1,2', // 1 - мужской, 2 - женский
+                'iin' => 'required|string|max:50',
+                'data' => 'required|date_format:Y-m-d',
+                'foto' => 'required', // может быть строка или массив
+            ]);
+
+            // Вызываем метод сервиса для добавления пользователя
+            $result = $this->dssService->dssAddPerson($validated);
+
+            // Проверяем результат
+            if (isset($result['error'])) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Ошибка при добавлении пользователя в DSS',
+                    'error' => $result['error'],
+                    'details' => $result['data'] ?? null
+                ], 400);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Пользователь успешно добавлен в DSS',
+                'data' => $result['data'] ?? null
+            ], 201);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка валидации данных',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Внутренняя ошибка сервера',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
