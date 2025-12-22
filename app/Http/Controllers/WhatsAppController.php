@@ -92,27 +92,33 @@ class WhatsAppController extends Controller
                     // Очистка номера WhatsApp от знака + и пробелов
                     $wa_id_clean = str_replace(['+', ' '], '', $wa_id);
 
-                    // Находим или создаем контрагента по номеру WhatsApp
-                    $сounterparty = DB::table('сounterparties')->where('whatsapp', $wa_id_clean)->first();
+                    // Находим или создаем контрагента только для label = 'cargo'
+                    // Для CSC это клиенты из другого проекта, не партнеры
+                    $сounterparty = null;
                     
-                    if (!$сounterparty) {
-                        // Создаем нового неизвестного контрагента
-                        $counterpartyId = DB::table('сounterparties')->insertGetId([
-                            'name' => $profile_name ?: 'Неизвестный контрагент',
-                            'whatsapp' => $wa_id_clean,
-                            'phone' => $wa_id_clean,
-                            'inn' => "0" . $wa_id_clean,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
+                    if ($Wasettings && $Wasettings->label === 'cargo') {
+                        $сounterparty = DB::table('сounterparties')->where('whatsapp', $wa_id_clean)->first();
                         
-                        $сounterparty = DB::table('сounterparties')->where('id', $counterpartyId)->first();
-                        
-                        Log::info('Создан новый контрагент из WhatsApp', [
-                            'id' => $counterpartyId,
-                            'wa_id' => $wa_id_clean,
-                            'profile_name' => $profile_name
-                        ]);
+                        if (!$сounterparty) {
+                            // Создаем нового неизвестного контрагента
+                            $counterpartyId = DB::table('сounterparties')->insertGetId([
+                                'name' => $profile_name ?: 'Неизвестный контрагент',
+                                'whatsapp' => $wa_id_clean,
+                                'phone' => $wa_id_clean,
+                                'inn' => "0" . $wa_id_clean,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                            
+                            $сounterparty = DB::table('сounterparties')->where('id', $counterpartyId)->first();
+                            
+                            Log::info('Создан новый контрагент из WhatsApp', [
+                                'id' => $counterpartyId,
+                                'wa_id' => $wa_id_clean,
+                                'profile_name' => $profile_name,
+                                'label' => 'cargo'
+                            ]);
+                        }
                     }
 
                     // Находим или создаем чат
@@ -1036,6 +1042,7 @@ class WhatsAppController extends Controller
                     return [
                         'id' => $message->id,
                         'message' => $message->message,
+                        'csc_file' => $message->csc_file, // Для CSC проекта: "caption, filename, url"
                         'message_id' => $message->message_id,
                         'type' => $message->type,
                         'user_id' => $message->user_id,
