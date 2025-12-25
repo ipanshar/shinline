@@ -171,7 +171,7 @@ class WhatsAppController extends Controller
                         ]);
                     } elseif ($message['type'] === 'image') {
                         // Обрабатываем изображения
-                        $mediaUrl = $this->downloadWhatsAppMedia($message['image']['id']);
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['image']['id'], $wa_phone_number_id);
                         $caption = $message['image']['caption'] ?? '';
                         
                         // Проверяем label для формата сообщения
@@ -197,7 +197,7 @@ class WhatsAppController extends Controller
                         ]);
                     } elseif ($message['type'] === 'document') {
                         // Обрабатываем документы
-                        $mediaUrl = $this->downloadWhatsAppMedia($message['document']['id']);
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['document']['id'], $wa_phone_number_id);
                         $filename = $message['document']['filename'] ?? 'document';
                         $caption = $message['document']['caption'] ?? '';
                         
@@ -223,7 +223,7 @@ class WhatsAppController extends Controller
                         ]);
                     } elseif ($message['type'] === 'audio') {
                         // Обрабатываем аудиосообщения
-                        $mediaUrl = $this->downloadWhatsAppMedia($message['audio']['id']);
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['audio']['id'], $wa_phone_number_id);
                         $messageText = $mediaUrl ? '🎵 <audio controls><source src="' . $mediaUrl . '" type="audio/ogg"></audio>' : 'Не удалось загрузить аудио';
                         
                         WhatsAppChatMessages::create([
@@ -237,7 +237,7 @@ class WhatsAppController extends Controller
                         ]);
                     } elseif ($message['type'] === 'video') {
                         // Обрабатываем видео
-                        $mediaUrl = $this->downloadWhatsAppMedia($message['video']['id']);
+                        $mediaUrl = $this->downloadWhatsAppMedia($message['video']['id'], $wa_phone_number_id);
                         $caption = $message['video']['caption'] ?? '';
                         $messageText = $caption ? $caption . '<br>' : '';
                         $messageText .= $mediaUrl ? '🎬 <video controls style="max-width: 100%; border-radius: 8px;"><source src="' . $mediaUrl . '" type="video/mp4"></video>' : 'Не удалось загрузить видео';
@@ -607,21 +607,33 @@ class WhatsAppController extends Controller
     /**
      * Загрузка медиафайла из WhatsApp
      * @param string $mediaId - ID медиафайла от WhatsApp
+     * @param string|null $phoneNumberId - ID номера телефона (для выбора правильного токена)
      * @return string|null - Путь к сохраненному файлу или null в случае ошибки
      */
-    private function downloadWhatsAppMedia($mediaId)
+    private function downloadWhatsAppMedia($mediaId, $phoneNumberId = null)
     {
         try {
-            $waba = WhatsAppBusinesSeting::first();
+            $waba = $phoneNumberId 
+                ? WhatsAppBusinesSeting::where('phone_number_id', $phoneNumberId)->first() 
+                : WhatsAppBusinesSeting::first();
+
+            if (!$waba) {
+                Log::error('Настройки WhatsApp не найдены для загрузки медиа', ['phone_number_id' => $phoneNumberId]);
+                return null;
+            }
+
+            // Используем клиент с токеном конкретного аккаунта
+            $client = Http::withToken($waba->bearer_token);
             
             // Шаг 1: Получаем URL медиафайла
             $mediaInfoUrl = $waba->host . '/' . $waba->version . '/' . $mediaId.'?phone_number_id=' . $waba->phone_number_id;
             
-            $mediaInfoResponse = $this->http_client->get($mediaInfoUrl);
+            $mediaInfoResponse = $client->get($mediaInfoUrl);
             
             if (!$mediaInfoResponse->successful()) {
                 Log::error('Ошибка получения URL медиафайла', [
                     'media_id' => $mediaId,
+                    'phone_number_id' => $phoneNumberId,
                     'response' => $mediaInfoResponse->body()
                 ]);
                 return null;
@@ -637,7 +649,7 @@ class WhatsAppController extends Controller
             }
             
             // Шаг 2: Скачиваем медиафайл
-            $mediaResponse = $this->http_client->get($mediaUrl);
+            $mediaResponse = $client->get($mediaUrl);
             
             if (!$mediaResponse->successful()) {
                 Log::error('Ошибка скачивания медиафайла', [
