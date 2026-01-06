@@ -589,8 +589,11 @@ class DssService
                 ],
                 'faceComparisonInfo' => [
                     'enableFaceComparisonGroup' => '1' // Включить сравнение лиц
+                ],
+                'entranceInfo' => [
+                    'parkingSpaceQuotas' => [], // Квоты парковочных мест (пустой массив)
+                    'vehicles' => [] // Список транспортных средств (пустой массив)
                 ]
-                // entranceInfo убрано - DSS API не принимает пустой массив
             ];
 
             // Отправка запроса
