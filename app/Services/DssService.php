@@ -589,8 +589,8 @@ class DssService
                 ],
                 'faceComparisonInfo' => [
                     'enableFaceComparisonGroup' => '1' // Включить сравнение лиц
-                ],
-                'entranceInfo' => [] // Дополнительная информация о входе (пусто)
+                ]
+                // entranceInfo убрано - DSS API не принимает пустой массив
             ];
 
             // Отправка запроса
