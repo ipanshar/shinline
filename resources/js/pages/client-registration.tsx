@@ -157,17 +157,14 @@ export default function ClientRegistration() {
                                     </svg>
                                 </div>
                                 <h2 className="text-2xl font-semibold text-slate-800 dark:text-white mb-3">
-                                    Спасибо!
+                                    Спасибо за регистрацию!
                                 </h2>
-                                <p className="text-slate-600 dark:text-slate-300 mb-6">
+                                <p className="text-slate-600 dark:text-slate-300 mb-4">
                                     {successMessage}
                                 </p>
-                                <button
-                                    onClick={resetForm}
-                                    className="w-full sm:w-auto px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-medium rounded-xl transition-colors duration-200 active:scale-[0.98]"
-                                >
-                                    Заполнить ещё раз
-                                </button>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Ваши данные успешно сохранены. Мы свяжемся с вами в ближайшее время.
+                                </p>
                             </div>
                         ) : (
                             /* Registration Form */
