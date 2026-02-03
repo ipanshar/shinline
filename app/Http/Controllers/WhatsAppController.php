@@ -159,9 +159,11 @@ class WhatsAppController extends Controller
                         }
                     } elseif ($message['type'] === 'text') {
                         // Обрабатываем текстовые сообщения
+                        $textBody = $message['text']['body'];
+                        
                         WhatsAppChatMessages::create([
                             'chat_list_id' => $chatList->id,
-                            'message' => $message['text']['body'],
+                            'message' => $textBody,
                             'message_id' => $message['id'],
                             'type' => 1,
                             'response_to_message_id' => $message['context']['id'] ?? null,
@@ -169,6 +171,24 @@ class WhatsAppController extends Controller
                             'status' => 'received',
                             'direction' => 'incoming'
                         ]);
+                        
+                        // CSC: Проверяем запрос на форму кандидата
+                        if ($Wasettings && $Wasettings->label === 'CSC') {
+                            $triggerPhrase = '#Пожалуйста вышлите мне форму заполнения для кандидата.';
+                            
+                            if (trim($textBody) === $triggerPhrase || stripos($textBody, 'форму заполнения для кандидата') !== false) {
+                                // Отправляем ссылку на форму с предзаполненным номером телефона
+                                $formUrl = url('/client-registration') . '?phone=' . urlencode($wa_id_clean) . '&locked=1';
+                                $responseMessage = "📋 Форма для заполнения данных кандидата:\n\n" . $formUrl . "\n\nНомер телефона уже заполнен автоматически.";
+                                
+                                $this->sendTextMessageToNumber($responseMessage, $wa_id, $wa_phone_number_id, $chatList->id);
+                                
+                                Log::info('CSC: Отправлена форма кандидата', [
+                                    'wa_id' => $wa_id,
+                                    'form_url' => $formUrl
+                                ]);
+                            }
+                        }
                     } elseif ($message['type'] === 'image') {
                         // Обрабатываем изображения
                         $mediaUrl = $this->downloadWhatsAppMedia($message['image']['id'], $wa_phone_number_id);
@@ -602,6 +622,67 @@ class WhatsAppController extends Controller
             ->unique()
             ->values()
             ->toArray();
+    }
+
+    /**
+     * Отправка текстового сообщения на указанный номер с определённого аккаунта WhatsApp
+     * @param string $message - Текст сообщения
+     * @param string $toNumber - Номер получателя
+     * @param string $phoneNumberId - ID номера отправителя (аккаунта WhatsApp)
+     * @param int|null $chatListId - ID чата для сохранения сообщения
+     */
+    private function sendTextMessageToNumber($message, $toNumber, $phoneNumberId, $chatListId = null)
+    {
+        try {
+            $waba = WhatsAppBusinesSeting::where('phone_number_id', $phoneNumberId)->first();
+            
+            if (!$waba) {
+                Log::error('Настройки WhatsApp не найдены для отправки сообщения', ['phone_number_id' => $phoneNumberId]);
+                return false;
+            }
+
+            $hostMessage = $waba->host . '/' . $waba->version . '/' . $waba->phone_number_id . '/messages';
+            $client = Http::withToken($waba->bearer_token);
+
+            $response = $client->withHeaders([
+                'Content-Type' => 'application/json',
+            ])->post($hostMessage, [
+                "messaging_product" => "whatsapp",
+                "to" => $toNumber,
+                "type" => "text",
+                "text" => [
+                    "body" => $message
+                ]
+            ]);
+
+            $messageId = $response->json()['messages'][0]['id'] ?? null;
+
+            // Сохраняем сообщение в базе данных
+            if ($chatListId) {
+                WhatsAppChatMessages::create([
+                    'chat_list_id' => $chatListId,
+                    'message' => $message,
+                    'message_id' => $messageId,
+                    'type' => 1,
+                    'user_id' => null,
+                    'direction' => 'outgoing',
+                    'status' => 'sent',
+                ]);
+            }
+
+            Log::info('Текстовое сообщение отправлено', [
+                'to' => $toNumber,
+                'message_id' => $messageId
+            ]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Ошибка отправки текстового сообщения', [
+                'error' => $e->getMessage(),
+                'to' => $toNumber
+            ]);
+            return false;
+        }
     }
 
     /**

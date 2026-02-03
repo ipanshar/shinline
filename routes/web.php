@@ -23,12 +23,17 @@ use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\WhatsAppController;
+use App\Http\Controllers\ClientRegistrationController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']);
 Route::get('/privacy', [RouteController::class, 'privacy']);
+
+// Публичная форма регистрации клиента (без авторизации)
+Route::get('/client-registration', [ClientRegistrationController::class, 'showForm'])->name('client.registration');
+Route::post('/client-registration', [ClientRegistrationController::class, 'store'])->name('client.registration.store');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');
