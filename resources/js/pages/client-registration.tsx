@@ -6,6 +6,7 @@ interface FormData {
     full_name: string;
     iin: string;
     birth_date: string;
+    gender: string;
     phone: string;
     address: string;
 }
@@ -14,6 +15,7 @@ interface FormErrors {
     full_name?: string[];
     iin?: string[];
     birth_date?: string[];
+    gender?: string[];
     phone?: string[];
     address?: string[];
 }
@@ -37,6 +39,7 @@ export default function ClientRegistration() {
         full_name: '',
         iin: '',
         birth_date: '',
+        gender: '',
         phone: formatPhoneFromUrl(phoneFromUrl),
         address: '',
     });
@@ -108,6 +111,7 @@ export default function ClientRegistration() {
                 full_name: '',
                 iin: '',
                 birth_date: '',
+                gender: '',
                 phone: '+7',
                 address: '',
             });
@@ -266,6 +270,56 @@ export default function ClientRegistration() {
                                         />
                                         {errors.birth_date && (
                                             <p className="mt-2 text-sm text-red-500">{errors.birth_date[0]}</p>
+                                        )}
+                                    </div>
+
+                                    {/* Пол */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                                            Пол <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className="flex gap-4">
+                                            <label 
+                                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3.5 border rounded-xl cursor-pointer transition-all duration-200
+                                                    ${formData.gender === 'male' 
+                                                        ? 'bg-red-50 border-red-500 text-red-700 dark:bg-red-900/30 dark:border-red-500 dark:text-red-300' 
+                                                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200'
+                                                    }
+                                                    ${errors.gender ? 'border-red-500' : ''}`}
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    name="gender"
+                                                    value="male"
+                                                    checked={formData.gender === 'male'}
+                                                    onChange={handleChange}
+                                                    className="sr-only"
+                                                />
+                                                <span className="text-xl">👨</span>
+                                                <span className="font-medium">Мужчина</span>
+                                            </label>
+                                            <label 
+                                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3.5 border rounded-xl cursor-pointer transition-all duration-200
+                                                    ${formData.gender === 'female' 
+                                                        ? 'bg-red-50 border-red-500 text-red-700 dark:bg-red-900/30 dark:border-red-500 dark:text-red-300' 
+                                                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200'
+                                                    }
+                                                    ${errors.gender ? 'border-red-500' : ''}`}
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    name="gender"
+                                                    value="female"
+                                                    checked={formData.gender === 'female'}
+                                                    onChange={handleChange}
+                                                    className="sr-only"
+                                                />
+                                                <span className="text-xl">👩</span>
+                                                <span className="font-medium">Женщина</span>
+                                            </label>
+                                        </div>
+                                        {errors.gender && (
+                                            <p className="mt-2 text-sm text-red-500">{errors.gender[0]}</p>
                                         )}
                                     </div>
 

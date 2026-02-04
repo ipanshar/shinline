@@ -29,6 +29,7 @@ class ClientRegistrationController extends Controller
             'full_name' => 'required|string|max:255|min:2',
             'iin' => 'required|string|size:12|regex:/^[0-9]+$/|unique:client_registrations,iin',
             'birth_date' => 'required|date|before:today|after:1900-01-01',
+            'gender' => 'required|in:male,female',
             'phone' => 'required|string|max:20|min:10',
             'address' => 'required|string|max:1000|min:5',
         ], [
@@ -43,6 +44,8 @@ class ClientRegistrationController extends Controller
             'birth_date.date' => 'Некорректный формат даты',
             'birth_date.before' => 'Дата рождения должна быть в прошлом',
             'birth_date.after' => 'Некорректная дата рождения',
+            'gender.required' => 'Укажите пол',
+            'gender.in' => 'Некорректное значение пола',
             'phone.required' => 'Укажите номер телефона',
             'phone.min' => 'Номер телефона должен содержать минимум 10 символов',
             'phone.max' => 'Номер телефона не должен превышать 20 символов',
@@ -73,6 +76,7 @@ class ClientRegistrationController extends Controller
             'full_name' => trim($request->full_name),
             'iin' => $request->iin,
             'birth_date' => $request->birth_date,
+            'gender' => $request->gender,
             'phone' => $cleanPhone,
             'address' => trim($request->address),
         ]);

@@ -15,6 +15,7 @@ class ClientRegistration extends Model
         'full_name',
         'iin',
         'birth_date',
+        'gender',
         'phone',
         'address',
     ];
