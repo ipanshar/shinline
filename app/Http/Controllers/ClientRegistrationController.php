@@ -88,9 +88,34 @@ class ClientRegistrationController extends Controller
      * Получить список всех регистраций (для админки, требует авторизации)
      */
     public function index(Request $request)
-    {
+    {   
         $registrations = ClientRegistration::orderBy('created_at', 'desc')->paginate(20);
         
         return response()->json($registrations);
+    }
+
+    /**
+     * API: Получить регистрации за последние N дней (по умолчанию 5)
+     * GET /api/client-registrations?days=5
+     */
+    public function apiList(Request $request)
+    {
+        $days = $request->input('days', 5);
+        $days = max(1, min(30, (int)$days)); // Ограничиваем от 1 до 30 дней
+        
+        $registrations = ClientRegistration::where('created_at', '>=', now()->subDays($days))
+            ->orderBy('created_at', 'desc')
+            ->get();
+        
+        return response()->json([
+            'success' => true,
+            'filter' => [
+                'days' => $days,
+                'from_date' => now()->subDays($days)->toDateTimeString(),
+                'to_date' => now()->toDateTimeString(),
+            ],
+            'count' => $registrations->count(),
+            'data' => $registrations
+        ]);
     }
 }

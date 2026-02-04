@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\TelegramController;
+use App\Http\Controllers\ClientRegistrationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,8 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
+// Client Registrations API (требует авторизации)
+Route::post('/client-registrations', [ClientRegistrationController::class, 'apiList'])->middleware('auth:sanctum');
 
 
 // Authification routes
