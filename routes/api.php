@@ -56,6 +56,14 @@ Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck'])->
 Route::post('/security/chattest', [VisitorsCotroller::class,'ChatTest']);
 Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePermits'])->middleware('auth:sanctum'); //Получить активные пропуска
 
+// Visitor Confirmation routes (полуавтоматическое подтверждение от камер DSS)
+Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
+Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors'])->middleware('auth:sanctum'); // Получить посетителей на подтверждение
+Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor'])->middleware('auth:sanctum'); // Подтвердить посетителя
+Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor'])->middleware('auth:sanctum'); // Отклонить посетителя
+Route::post('/security/getexpectedvehicles', [VisitorsCotroller::class,'getExpectedVehicles'])->middleware('auth:sanctum'); // Ожидаемые ТС на дворе
+Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates'])->middleware('auth:sanctum'); // Поиск похожих номеров
+
 // Status routes
 Route::post('/setings/getstatus', [StatusCotroller::class,'getStatuses'])->middleware('auth:sanctum'); //Получить все статусы
 Route::post('/setings/addstatus', [StatusCotroller::class,'addStatus'])->middleware('auth:sanctum'); //Добавить статус
@@ -124,6 +132,13 @@ Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->
 Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание 
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
 Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime'])->middleware('auth:sanctum'); //Обновить время задачи
+
+// Task Loading - Прибытие/Убытие ТС на складе
+Route::post('/task/loading/arrival', [TaskCotroller::class, 'recordArrival'])->middleware('auth:sanctum'); // Зафиксировать прибытие
+Route::post('/task/loading/departure', [TaskCotroller::class, 'recordDeparture'])->middleware('auth:sanctum'); // Зафиксировать убытие
+Route::post('/task/loading/vehicles-at-warehouse', [TaskCotroller::class, 'getVehiclesAtWarehouse'])->middleware('auth:sanctum'); // ТС на складе
+Route::post('/task/loading/history', [TaskCotroller::class, 'getTaskLoadingHistory'])->middleware('auth:sanctum'); // История погрузки
+Route::post('/task/loading/reset', [TaskCotroller::class, 'resetLoadingTimes'])->middleware('auth:sanctum'); // Сброс времени (админ)
 
 
 

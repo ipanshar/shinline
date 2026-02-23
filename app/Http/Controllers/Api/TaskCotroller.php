@@ -457,6 +457,8 @@ class TaskCotroller extends Controller
                 'warehouse.*.barcode' => 'nullable|string|max:100',
                 'warehouse.*.yard' => 'nullable|string|max:150',
                 'warehouse.*.document' => 'nullable|string|max:150',
+                'warehouse.*.arrival_at' => 'nullable|date_format:Y-m-d H:i:s',
+                'warehouse.*.departure_at' => 'nullable|date_format:Y-m-d H:i:s',
             ]);
 
             //Добавление или обновление грузовика и его модели
@@ -659,7 +661,9 @@ class TaskCotroller extends Controller
                     null,
                     $plan_gate ? $plan_gate->id : 0,
                     0,
-                    $validate['plan_date']
+                    $validate['plan_date'],
+                    $warehouse_d['arrival_at'] ?? null,
+                    $warehouse_d['departure_at'] ?? null
                 );
             }
             // Удаляем неактивные склады (только если есть активные)
@@ -958,7 +962,9 @@ class TaskCotroller extends Controller
         $comment = null,
         $warehouse_gate_plan_id = 0,
         $warehouse_gate_fact_id = 0,
-        $plan_date = null
+        $plan_date = null,
+        $arrival_at = null,
+        $departure_at = null
     ) {
         if (!$task_id || !$warehouse_id) {
             return null; // Invalid parameters
@@ -976,6 +982,14 @@ class TaskCotroller extends Controller
                 $additional_minutes = ($sorting_order - 1) * 30;
                 $data['plane_date'] = $date->addMinutes($additional_minutes)->format('Y-m-d H:i:s');
             }
+        }
+
+        // Время прибытия и убытия ТС на складе (из 1С)
+        if ($arrival_at !== null) {
+            $data['arrival_at'] = $arrival_at;
+        }
+        if ($departure_at !== null) {
+            $data['departure_at'] = $departure_at;
         }
 
         // Всегда обновляем эти поля (даже если пустые)
@@ -1226,6 +1240,381 @@ class TaskCotroller extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Ошибка при обновлении времени: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Фиксация прибытия ТС на склад
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function recordArrival(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'task_loading_id' => 'required|integer|exists:task_loadings,id',
+                'user_id' => 'required|integer|exists:users,id',
+                'arrival_at' => 'nullable|date', // Если не передано - используется текущее время
+            ]);
+
+            $taskLoading = TaskLoading::with(['task', 'warehouse', 'factGate'])->find($validated['task_loading_id']);
+
+            // Проверяем, не зафиксировано ли уже прибытие
+            if ($taskLoading->hasArrived()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Прибытие уже зафиксировано: ' . $taskLoading->arrival_at->format('d.m.Y H:i:s'),
+                    'data' => $taskLoading
+                ], 409); // Conflict
+            }
+
+            $arrivalTime = isset($validated['arrival_at']) 
+                ? Carbon::parse($validated['arrival_at']) 
+                : now();
+
+            $taskLoading->update([
+                'arrival_at' => $arrivalTime,
+                'arrival_user_id' => $validated['user_id'],
+            ]);
+
+            // Загружаем связи для ответа
+            $taskLoading->load(['task.truck', 'warehouse', 'arrivalUser']);
+
+            // Уведомление в Telegram
+            $truck = $taskLoading->task->truck;
+            $warehouse = $taskLoading->warehouse;
+            $user = $taskLoading->arrivalUser;
+
+            (new TelegramController())->sendNotification(
+                '<b>🚛 Прибытие на склад</b>' . "\n\n" .
+                '<b>📦 Рейс:</b> ' . e($taskLoading->task->name) . "\n" .
+                '<b>🚗 ТС:</b> ' . e($truck ? $truck->plate_number : 'N/A') . "\n" .
+                '<b>🏭 Склад:</b> ' . e($warehouse->name) . "\n" .
+                '<b>⏰ Время:</b> ' . $arrivalTime->format('d.m.Y H:i:s') . "\n" .
+                '<b>👤 Оператор:</b> ' . e($user ? $user->name : 'N/A')
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Прибытие успешно зафиксировано',
+                'data' => [
+                    'task_loading' => $taskLoading,
+                    'arrival_at' => $arrivalTime->format('Y-m-d H:i:s'),
+                ]
+            ], 200);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка валидации',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка при фиксации прибытия: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Фиксация убытия ТС со склада
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function recordDeparture(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'task_loading_id' => 'required|integer|exists:task_loadings,id',
+                'user_id' => 'required|integer|exists:users,id',
+                'departure_at' => 'nullable|date', // Если не передано - используется текущее время
+            ]);
+
+            $taskLoading = TaskLoading::with(['task', 'warehouse'])->find($validated['task_loading_id']);
+
+            // Проверяем, зафиксировано ли прибытие
+            if (!$taskLoading->hasArrived()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Сначала необходимо зафиксировать прибытие',
+                    'data' => $taskLoading
+                ], 400);
+            }
+
+            // Проверяем, не зафиксировано ли уже убытие
+            if ($taskLoading->hasDeparted()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Убытие уже зафиксировано: ' . $taskLoading->departure_at->format('d.m.Y H:i:s'),
+                    'data' => $taskLoading
+                ], 409); // Conflict
+            }
+
+            $departureTime = isset($validated['departure_at']) 
+                ? Carbon::parse($validated['departure_at']) 
+                : now();
+
+            // Проверяем, что время убытия не раньше времени прибытия
+            if ($departureTime->lt($taskLoading->arrival_at)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Время убытия не может быть раньше времени прибытия',
+                ], 400);
+            }
+
+            $taskLoading->update([
+                'departure_at' => $departureTime,
+                'departure_user_id' => $validated['user_id'],
+            ]);
+
+            // Загружаем связи для ответа
+            $taskLoading->load(['task.truck', 'warehouse', 'arrivalUser', 'departureUser']);
+
+            $duration = $taskLoading->getFormattedDuration();
+            $truck = $taskLoading->task->truck;
+            $warehouse = $taskLoading->warehouse;
+            $user = $taskLoading->departureUser;
+
+            // Уведомление в Telegram
+            (new TelegramController())->sendNotification(
+                '<b>🚛 Убытие со склада</b>' . "\n\n" .
+                '<b>📦 Рейс:</b> ' . e($taskLoading->task->name) . "\n" .
+                '<b>🚗 ТС:</b> ' . e($truck ? $truck->plate_number : 'N/A') . "\n" .
+                '<b>🏭 Склад:</b> ' . e($warehouse->name) . "\n" .
+                '<b>⏰ Прибытие:</b> ' . $taskLoading->arrival_at->format('d.m.Y H:i:s') . "\n" .
+                '<b>⏰ Убытие:</b> ' . $departureTime->format('d.m.Y H:i:s') . "\n" .
+                '<b>⏱ Время на складе:</b> ' . $duration . "\n" .
+                '<b>👤 Оператор:</b> ' . e($user ? $user->name : 'N/A')
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Убытие успешно зафиксировано',
+                'data' => [
+                    'task_loading' => $taskLoading,
+                    'departure_at' => $departureTime->format('Y-m-d H:i:s'),
+                    'duration_minutes' => $taskLoading->getDurationInMinutes(),
+                    'duration_formatted' => $duration,
+                ]
+            ], 200);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка валидации',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка при фиксации убытия: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Получение списка ТС на складе (прибыли, но не убыли)
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getVehiclesAtWarehouse(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'warehouse_id' => 'nullable|integer|exists:warehouses,id',
+                'yard_id' => 'nullable|integer|exists:yards,id',
+            ]);
+
+            $query = TaskLoading::with([
+                'task.truck',
+                'task.user',
+                'warehouse',
+                'factGate',
+                'arrivalUser'
+            ])
+            ->currentlyAtWarehouse()
+            ->orderBy('arrival_at', 'asc');
+
+            // Фильтр по складу
+            if (!empty($validated['warehouse_id'])) {
+                $query->where('warehouse_id', $validated['warehouse_id']);
+            }
+
+            // Фильтр по двору (через склад)
+            if (!empty($validated['yard_id'])) {
+                $query->whereHas('warehouse', function ($q) use ($validated) {
+                    $q->where('yard_id', $validated['yard_id']);
+                });
+            }
+
+            $vehicles = $query->get()->map(function ($loading) {
+                return [
+                    'task_loading_id' => $loading->id,
+                    'task_id' => $loading->task_id,
+                    'task_name' => $loading->task->name ?? null,
+                    'truck_plate' => $loading->task->truck->plate_number ?? null,
+                    'driver_name' => $loading->task->user->name ?? null,
+                    'warehouse_id' => $loading->warehouse_id,
+                    'warehouse_name' => $loading->warehouse->name ?? null,
+                    'gate_name' => $loading->factGate->name ?? null,
+                    'arrival_at' => $loading->arrival_at?->format('Y-m-d H:i:s'),
+                    'arrival_user' => $loading->arrivalUser->name ?? null,
+                    'waiting_time_minutes' => $loading->arrival_at 
+                        ? now()->diffInMinutes($loading->arrival_at) 
+                        : null,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Список ТС на складах получен',
+                'count' => $vehicles->count(),
+                'data' => $vehicles
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка получения списка: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Получение истории прибытия/убытия для задачи
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getTaskLoadingHistory(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'task_id' => 'required|integer|exists:tasks,id',
+            ]);
+
+            $loadings = TaskLoading::with([
+                'warehouse',
+                'planGate',
+                'factGate',
+                'arrivalUser',
+                'departureUser'
+            ])
+            ->where('task_id', $validated['task_id'])
+            ->orderBy('sort_order', 'asc')
+            ->get()
+            ->map(function ($loading) {
+                return [
+                    'id' => $loading->id,
+                    'sort_order' => $loading->sort_order,
+                    'warehouse' => [
+                        'id' => $loading->warehouse_id,
+                        'name' => $loading->warehouse->name ?? null,
+                    ],
+                    'gates' => [
+                        'plan' => $loading->planGate->name ?? null,
+                        'fact' => $loading->factGate->name ?? null,
+                    ],
+                    'times' => [
+                        'plan' => $loading->plane_date?->format('Y-m-d H:i:s'),
+                        'arrival' => $loading->arrival_at?->format('Y-m-d H:i:s'),
+                        'departure' => $loading->departure_at?->format('Y-m-d H:i:s'),
+                    ],
+                    'duration' => [
+                        'minutes' => $loading->getDurationInMinutes(),
+                        'formatted' => $loading->getFormattedDuration(),
+                    ],
+                    'operators' => [
+                        'arrival' => $loading->arrivalUser->name ?? null,
+                        'departure' => $loading->departureUser->name ?? null,
+                    ],
+                    'status' => $this->getLoadingStatus($loading),
+                    'barcode' => $loading->barcode,
+                    'document' => $loading->document,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'История погрузки получена',
+                'data' => $loadings
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка получения истории: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Определяет статус погрузки
+     */
+    private function getLoadingStatus(TaskLoading $loading): string
+    {
+        if ($loading->hasDeparted()) {
+            return 'completed'; // Завершено
+        }
+        
+        if ($loading->hasArrived()) {
+            return 'in_progress'; // На складе
+        }
+        
+        return 'pending'; // Ожидает
+    }
+
+    /**
+     * Сброс времени прибытия/убытия (для администраторов)
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function resetLoadingTimes(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'task_loading_id' => 'required|integer|exists:task_loadings,id',
+                'reset_arrival' => 'boolean',
+                'reset_departure' => 'boolean',
+            ]);
+
+            $taskLoading = TaskLoading::find($validated['task_loading_id']);
+
+            $updateData = [];
+
+            if ($validated['reset_departure'] ?? false) {
+                $updateData['departure_at'] = null;
+                $updateData['departure_user_id'] = null;
+            }
+
+            if ($validated['reset_arrival'] ?? false) {
+                $updateData['arrival_at'] = null;
+                $updateData['arrival_user_id'] = null;
+                // При сбросе прибытия также сбрасываем убытие
+                $updateData['departure_at'] = null;
+                $updateData['departure_user_id'] = null;
+            }
+
+            if (!empty($updateData)) {
+                $taskLoading->update($updateData);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Время успешно сброшено',
+                'data' => $taskLoading->fresh()
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка сброса времени: ' . $e->getMessage()
             ], 500);
         }
     }

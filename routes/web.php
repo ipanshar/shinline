@@ -93,6 +93,11 @@ Route::post('/security/updatevisitor', [VisitorsCotroller::class,'updateVisitor'
 Route::post('/security/exitvisitor', [VisitorsCotroller::class,'exitVisitor']); //Выход посетителя
 Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck']); //Поиск грузовика
 Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePermits']); //Получить активные пропуска
+// Система подтверждения посетителей (ошибки OCR камер DSS)
+Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors']); //Получить ожидающих подтверждения
+Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor']); //Подтвердить посетителя
+Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor']); //Отклонить посетителя
+Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates']); //Поиск похожих номеров
 
 
 // Status routes

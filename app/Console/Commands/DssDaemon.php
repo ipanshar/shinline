@@ -13,6 +13,7 @@ class DssDaemon extends Command
     
     private $maxRetries = 3;
     private $retryDelay = 5; // секунды
+    private $reconnectDelay = 30; // секунды между попытками переподключения
 
     public function handle()
     {
@@ -20,15 +21,8 @@ class DssDaemon extends Command
 
         $service = new DssService();
         
-        // Инициализация с повторными попытками
-        $Newsession = $this->executeWithRetry(function() use ($service) {
-            return $service->dssAutorize();
-        });
-        
-        if (!$Newsession) {
-            $this->error("Не удалось инициализировать сессию DSS после нескольких попыток");
-            return 1;
-        }
+        // Инициализация с бесконечными попытками переподключения
+        $Newsession = $this->initializeWithInfiniteRetry($service);
         
         $this->logResult('KeepAlive new session', $Newsession);
 
@@ -58,16 +52,11 @@ class DssDaemon extends Command
                         
                         // Если слишком много ошибок подряд - переподключаемся
                         if ($consecutiveErrors >= $maxConsecutiveErrors) {
-                            $this->warn("Обнаружено {$consecutiveErrors} последовательных ошибок.  Попытка переподключения...");
-                            $Newsession = $this->executeWithRetry(function() use ($service) {
-                                return $service->dssAutorize();
-                            });
-                            
-                            if ($Newsession) {
-                                $consecutiveErrors = 0;
-                                $lastTokenUpdate = time();
-                                $lastKeepAlive = time();
-                            }
+                            $this->warn("Обнаружено {$consecutiveErrors} последовательных ошибок. Попытка переподключения...");
+                            $Newsession = $this->initializeWithInfiniteRetry($service);
+                            $consecutiveErrors = 0;
+                            $lastTokenUpdate = time();
+                            $lastKeepAlive = time();
                         }
                     }
                     $lastVehicleCapture = time();
@@ -111,8 +100,46 @@ class DssDaemon extends Command
                 
             } catch (Exception $e) {
                 $this->error(now()->toDateTimeLocalString() . " Критическая ошибка в главном цикле: " . $e->getMessage());
-                sleep(5); // Подождать перед продолжением
+                $this->warn("Попытка восстановления соединения...");
+                
+                // Пытаемся переподключиться бесконечно
+                $Newsession = $this->initializeWithInfiniteRetry($service);
+                $consecutiveErrors = 0;
+                $lastTokenUpdate = time();
+                $lastKeepAlive = time();
+                $lastVehicleCapture = time();
             }
+        }
+    }
+    
+    /**
+     * Инициализация с бесконечными попытками переподключения
+     * Никогда не завершается, пока соединение не будет установлено
+     */
+    private function initializeWithInfiniteRetry(DssService $service)
+    {
+        $attempt = 0;
+        
+        while (true) {
+            $attempt++;
+            
+            try {
+                $result = $this->executeWithRetry(function() use ($service) {
+                    return $service->dssAutorize();
+                });
+                
+                if ($result) {
+                    if ($attempt > 1) {
+                        $this->info(now()->toDateTimeLocalString() . " Соединение восстановлено после {$attempt} попыток");
+                    }
+                    return $result;
+                }
+            } catch (Exception $e) {
+                $this->error(now()->toDateTimeLocalString() . " Ошибка при подключении: " . $e->getMessage());
+            }
+            
+            $this->warn(now()->toDateTimeLocalString() . " Не удалось подключиться к DSS. Повторная попытка через {$this->reconnectDelay} секунд... (попытка #{$attempt})");
+            sleep($this->reconnectDelay);
         }
     }
     

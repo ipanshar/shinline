@@ -333,19 +333,42 @@ class DssService
                             'truck_category_id' => $truck_category->id
                         ]);
                     }
+                    
+                    // Ищем грузовик по точному номеру
                     $truk = Truck::where('plate_number', $item['plateNo'])->first();
+                    
+                    // Получаем уверенность распознавания (если передаётся от DSS)
+                    $confidence = $item['confidence'] ?? $item['plateScore'] ?? null;
+                    
+                    // Если грузовик не найден в базе и уверенность низкая (или неизвестна)
+                    // НЕ создаём грузовик автоматически - это решит оператор
+                    $truckWasFound = $truk !== null;
+                    
                     if (!$truk) {
-                        // Если грузовик не найден, создаем новый
-                        Truck::create([
-                            'plate_number' => $item['plateNo'],
-                            'color' => $item['vehicleColorName'] ?? null,
-                            'truck_brand_id' => $truck_brand_id,
-                            'truck_model_id' => $truck_model->id ?? null,
-                            'truck_category_id' => $truck_category->id ?? null,
-                        ]);
+                        // Пробуем найти похожий номер (нормализованный поиск)
+                        $normalizedPlate = strtolower(str_replace([' ', '-'], '', $item['plateNo']));
+                        $truk = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate])->first();
+                        
+                        // ВАЖНО: НЕ создаём грузовик автоматически!
+                        // Камеры DSS часто ошибаются, создавая мусор в таблице trucks.
+                        // Грузовик создаётся только оператором через подтверждение посетителя.
+                        // Если confidence неизвестен (null) или < 95% - грузовик не создаётся.
+                        // Номер попадёт в "Ожидают подтверждения" и оператор сам решит.
+                        // Исключение: очень высокая уверенность (>=95%) И номер найден через разрешение.
+                        if (!$truk && $confidence !== null && $confidence >= 95) {
+                            // Даже при высокой уверенности - проверяем есть ли разрешение на въезд
+                            // Если нет - не создаём грузовик
+                            $hasPermitForPlate = EntryPermit::whereHas('truck', function($q) use ($normalizedPlate) {
+                                $q->whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate]);
+                            })->exists();
+                            
+                            if (!$hasPermitForPlate) {
+                                // Грузовик НЕ создаём - пусть оператор решит
+                                Log::info("DSS: Номер {$item['plateNo']} не найден в базе, confidence={$confidence}. Не создаём грузовик - ждём подтверждения оператора.");
+                            }
+                        }
                     } else {
                         // Если грузовик найден, обновляем его данные
-                        $truk->plate_number = $item['plateNo'];
                         $truk->color = $item['vehicleColorName'] ?? null;
                         $truk->truck_brand_id = $truck_brand_id;
                         $truk->truck_model_id = $truck_model->id ?? null;
@@ -379,8 +402,14 @@ class DssService
                             $Vehicle->save();
                         }
                     }
-                    // НОВОЕ: Автоматическая фиксация зоны
-                    $this->recordZoneEntry($device, $truk, $item);
+                    // Передаём данные для системы подтверждения
+                    $captureDataWithConfidence = array_merge($item, [
+                        'confidence' => $confidence,
+                        'truck_was_found' => $truckWasFound,
+                    ]);
+                    
+                    // Автоматическая фиксация зоны и создание посетителя
+                    $this->recordZoneEntry($device, $truk, $captureDataWithConfidence);
                 }
                 return ['success' => true];
             } else {
@@ -411,88 +440,154 @@ class DssService
         $task = $permit ? Task::find($permit->task_id) : null;
 
         $captureTime = \Carbon\Carbon::createFromTimestamp($captureData['captureTime'])->setTimezone(config('app.timezone'));
-       
-        $tr = \App\Models\TruckZoneHistory::updateOrCreate(
-            ['truck_id' => $truck->id, 'zone_id' => $device->zone_id, 'entry_time' => $captureTime],
-            [
-                'truck_id' => $truck->id,
-                'device_id' => $device->id,
-                'zone_id' => $device->zone_id,
-                'task_id' => $task->id ?? null,
-                'entry_time' => $captureTime,
-            ]
-        );
-        $tr->save();
-
         
+        // Записываем историю зон только если грузовик известен
+        if ($truck) {
+            $tr = \App\Models\TruckZoneHistory::updateOrCreate(
+                ['truck_id' => $truck->id, 'zone_id' => $device->zone_id, 'entry_time' => $captureTime],
+                [
+                    'truck_id' => $truck->id,
+                    'device_id' => $device->id,
+                    'zone_id' => $device->zone_id,
+                    'task_id' => $task->id ?? null,
+                    'entry_time' => $captureTime,
+                ]
+            );
+            $tr->save();
+        }
 
         // Если у устройства есть привязанный КПП, создаем или обновляем запись о посетителе
-        if($device->checkpoint_id>0){
-            $this->CreateOrUpdateVisitor($device, $truck, $zone, $permit, $task, $captureTime);
+        if ($device->checkpoint_id > 0) {
+            $this->CreateOrUpdateVisitor($device, $truck, $zone, $permit, $task, $captureTime, $captureData);
         }
     }
 
-    private function CreateOrUpdateVisitor($device, $truck, $zone, $permit=null, $task=null, $captureTime=null)
+    /**
+     * Создаёт или обновляет запись о посетителе с системой подтверждения
+     */
+    private function CreateOrUpdateVisitor($device, $truck, $zone, $permit = null, $task = null, $captureTime = null, $captureData = [])
     {
-       
-            $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
-            $statusRow = Status::where('key', 'on_territory')->first();
+        $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
+        $statusRow = Status::where('key', 'on_territory')->first();
+        
+        // Получаем данные о распознавании
+        $plateNo = $captureData['plateNo'] ?? ($truck ? $truck->plate_number : 'UNKNOWN');
+        $confidence = $captureData['confidence'] ?? null;
+        $truckWasFound = $captureData['truck_was_found'] ?? ($truck !== null);
 
-        if($device->type=='Exit'){
-            $visitor = \App\Models\Visitor::where('truck_id', $truck->id)
-                ->where('exit_device_id', null)
+        if ($device->type == 'Exit') {
+            // Выезд - ищем посетителя по truck_id (если есть) или по plate_number
+            $visitorQuery = \App\Models\Visitor::query()
                 ->where('yard_id', $zone->yard_id)
+                ->whereNull('exit_device_id')
                 ->whereNull('exit_date')
-                ->orderBy('id', 'desc')
-                ->first();
+                ->where('confirmation_status', \App\Models\Visitor::CONFIRMATION_CONFIRMED);
+            
+            if ($truck) {
+                $visitorQuery->where('truck_id', $truck->id);
+            } else {
+                $visitorQuery->where('plate_number', $plateNo);
+            }
+            
+            $visitor = $visitorQuery->orderBy('id', 'desc')->first();
+            
             if ($visitor) {
                 $visitor->exit_device_id = $device->id;
                 $visitor->exit_date = $captureTime ?? now();
                 $visitor->status_id = Status::where('key', 'left_territory')->first()->id;
                 $visitor->save();
-                if($task){
-                    $task->status_id = Status::where('key', 'left_territory')->first()->id;
-                    $task->end_date = now();
-                    $task->save();
+                
+                if ($visitor->task_id) {
+                    $exitTask = Task::find($visitor->task_id);
+                    if ($exitTask) {
+                        $exitTask->status_id = Status::where('key', 'left_territory')->first()->id;
+                        $exitTask->end_date = now();
+                        $exitTask->save();
+                    }
                 }
             }
-        } elseif($device->type=='Entry') {
-            $visitor = \App\Models\Visitor::updateOrCreate(
-                ['yard_id' => $zone->yard_id, 'truck_id' => $truck->id, 'exit_date' => null],
-                [
+        } elseif ($device->type == 'Entry') {
+            // Въезд - система подтверждения
+            // Определяем статус подтверждения:
+            // - Автоподтверждение: грузовик найден + есть разрешение + уверенность >= 80% (или уверенность не передаётся)
+            // - Ожидание: грузовик не найден ИЛИ нет разрешения ИЛИ уверенность < 80%
+            
+            $autoConfirm = $truckWasFound && $permit && ($confidence === null || $confidence >= 80);
+            
+            // Проверяем, нет ли уже посетителя на территории
+            $existingVisitor = $truck ? \App\Models\Visitor::where('yard_id', $zone->yard_id)
+                ->where('truck_id', $truck->id)
+                ->whereNull('exit_date')
+                ->where('confirmation_status', \App\Models\Visitor::CONFIRMATION_CONFIRMED)
+                ->first() : null;
+            
+            if ($existingVisitor) {
+                // Грузовик уже на территории - просто обновляем время
+                return;
+            }
+            
+            // Создаём запись о посетителе
+            $visitor = \App\Models\Visitor::create([
                 'yard_id' => $zone->yard_id,
-                'truck_id' => $truck->id,
-                'plate_number' => $truck->plate_number,
-                'task_id' => $task ? $task->id : null,
+                'truck_id' => $truck?->id,
+                'plate_number' => $plateNo,
+                'original_plate_number' => $plateNo,
+                'task_id' => $task?->id,
                 'entrance_device_id' => $device->id,
-                'entry_permit_id' => $permit ? $permit->id : null,
+                'entry_permit_id' => $permit?->id,
                 'entry_date' => $captureTime ?? now(),
                 'status_id' => $statusRow->id,
+                'confirmation_status' => $autoConfirm 
+                    ? \App\Models\Visitor::CONFIRMATION_CONFIRMED 
+                    : \App\Models\Visitor::CONFIRMATION_PENDING,
+                'confirmed_at' => $autoConfirm ? now() : null,
+                'recognition_confidence' => $confidence,
+                'truck_category_id' => $truck?->truck_category_id,
+                'truck_brand_id' => $truck?->truck_brand_id,
             ]);
-            $visitor->save();
-            if($task){
+            
+            // Если автоподтверждение и есть задача - отправляем уведомление
+            if ($autoConfirm && $task) {
                 $task->status_id = $statusRow->id;
                 $task->begin_date = now();
                 $task->yard_id = $zone->yard_id;
                 $task->save();
 
-                $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $zone->yard_id)->select('warehouses.name as name')->get();
+                $warehouse = DB::table('task_loadings')
+                    ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+                    ->where('task_loadings.task_id', $task->id)
+                    ->where('warehouses.yard_id', $zone->yard_id)
+                    ->select('warehouses.name as name')
+                    ->get();
+                    
                 (new TelegramController())->sendNotification(
-                    '<b>🚛 Въезд на территорию ' . e(Yard::where('id', $zone->yard_id)->value('name')) .  "</b>\n\n" .
-                        '<b>🏷️ ТС:</b> '  . e($truck->plate_number) . "\n" .
-                        '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
-                        '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
-                        '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
-                            ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
-                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                        '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
-                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'. "\n" .
-                        '<b> 📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')).' - '.$device->channelName,
+                    '<b>🚛 Въезд на территорию ' . e(Yard::where('id', $zone->yard_id)->value('name')) . "</b>\n\n" .
+                    '<b>🏷️ ТС:</b> ' . e($truck->plate_number) . "\n" .
+                    '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                    '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                    '<b>👤 Водитель:</b> ' . ($task->user_id 
+                        ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                          ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' 
+                        : 'Не указан') . "\n" .
+                    '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                    '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
+                    '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>' . "\n" .
+                    '<b>📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')) . ' - ' . $device->channelName .
+                    ($confidence !== null ? "\n<b>🎯 Уверенность:</b> {$confidence}%" : ''),
+                );
+            } elseif (!$autoConfirm) {
+                // Отправляем уведомление о необходимости подтверждения
+                (new TelegramController())->sendNotification(
+                    '<b>⚠️ Требуется подтверждение въезда</b>' . "\n\n" .
+                    '<b>🏷️ Распознанный номер:</b> ' . e($plateNo) . "\n" .
+                    '<b>📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')) . ' - ' . $device->channelName . "\n" .
+                    '<b>🏢 Двор:</b> ' . e(Yard::where('id', $zone->yard_id)->value('name')) . "\n" .
+                    ($confidence !== null ? '<b>🎯 Уверенность:</b> ' . $confidence . "%\n" : '') .
+                    '<b>❓ Причина:</b> ' . ($truckWasFound ? ($permit ? 'Низкая уверенность распознавания' : 'Нет разрешения на въезд') : 'ТС не найдено в базе') . "\n\n" .
+                    '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>',
                 );
             }
         }
-
-        
     }
 
     // Удаляем записи о захватах транспортных средств старше 90 дней

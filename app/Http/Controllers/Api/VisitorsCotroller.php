@@ -130,8 +130,14 @@ class VisitorsCotroller extends Controller
 
     public function getVisitors(Request $request)
     {
-
+        // ВАЖНО: Показываем только подтверждённых посетителей!
+        // Посетители с confirmation_status = 'pending' показываются в отдельном блоке для подтверждения
         $query = DB::table('visitors')
+            ->where(function($q) {
+                // Показываем confirmed ИЛИ старые записи без статуса подтверждения (для обратной совместимости)
+                $q->where('visitors.confirmation_status', '=', 'confirmed')
+                  ->orWhereNull('visitors.confirmation_status');
+            })
             ->leftJoin('truck_categories', 'visitors.truck_category_id', '=', 'truck_categories.id')
             ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
             ->leftJoin('truck_brands', 'visitors.truck_brand_id', '=', 'truck_brands.id')
@@ -349,5 +355,525 @@ class VisitorsCotroller extends Controller
             'message' => 'Active Permits Retrieved Successfully',
             'data' => $permits,
         ], 200);
+    }
+
+    /**
+     * Добавить посетителя в режиме ожидания подтверждения (от камеры DSS)
+     * Камера вызывает этот метод, посетитель создаётся со статусом pending
+     */
+    public function addPendingVisitor(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'plate_number' => 'required|string|max:50',
+                'yard_id' => 'required|integer|exists:yards,id',
+                'recognition_confidence' => 'nullable|integer|min:0|max:100',
+                'entrance_device_id' => 'nullable|integer',
+            ]);
+
+            $originalPlate = $validate['plate_number'];
+            $normalizedPlate = $this->normalizePlateNumber($originalPlate);
+            
+            // Ищем грузовик по нормализованному номеру
+            $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate])->first();
+            
+            // Ищем разрешение и задачу
+            $permit = null;
+            $task = null;
+            
+            if ($truck) {
+                $permit = EntryPermit::where('truck_id', $truck->id)
+                    ->where('yard_id', $validate['yard_id'])
+                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->first();
+                    
+                if ($permit) {
+                    $task = Task::find($permit->task_id);
+                }
+            }
+
+            $statusRow = DB::table('statuses')->where('key', 'on_territory')->first();
+            
+            // Определяем статус подтверждения
+            // Если уверенность высокая (>=80%) и есть разрешение - автоподтверждение
+            $confidence = $request->recognition_confidence ?? 0;
+            $autoConfirm = $confidence >= 80 && $permit && $truck;
+            
+            $visitor = Visitor::create([
+                'plate_number' => $originalPlate,
+                'original_plate_number' => $originalPlate,
+                'entry_date' => now(),
+                'status_id' => $statusRow->id,
+                'confirmation_status' => $autoConfirm ? Visitor::CONFIRMATION_CONFIRMED : Visitor::CONFIRMATION_PENDING,
+                'confirmed_at' => $autoConfirm ? now() : null,
+                'recognition_confidence' => $confidence,
+                'yard_id' => $validate['yard_id'],
+                'truck_id' => $truck?->id,
+                'task_id' => $task?->id,
+                'entrance_device_id' => $request->entrance_device_id,
+                'truck_category_id' => $truck?->truck_category_id,
+                'truck_brand_id' => $truck?->truck_brand_id,
+            ]);
+
+            // Если автоподтверждение - обновляем задачу
+            if ($autoConfirm && $task) {
+                $this->processConfirmedVisitor($visitor, $task, $validate['yard_id']);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => $autoConfirm ? 'Visitor auto-confirmed' : 'Visitor pending confirmation',
+                'data' => [
+                    'visitor' => $visitor,
+                    'auto_confirmed' => $autoConfirm,
+                    'truck_found' => $truck !== null,
+                    'permit_found' => $permit !== null,
+                    'task_found' => $task !== null,
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Получить список посетителей, ожидающих подтверждения
+     */
+    public function getPendingVisitors(Request $request)
+    {
+        try {
+            $query = Visitor::query()
+                ->where('confirmation_status', Visitor::CONFIRMATION_PENDING)
+                ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
+                ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
+                ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+                ->leftJoin('devaices', 'visitors.entrance_device_id', '=', 'devaices.id')
+                ->select(
+                    'visitors.*',
+                    'yards.name as yard_name',
+                    'trucks.plate_number as matched_plate_number',
+                    'tasks.name as task_name',
+                    'devaices.channelName as device_name'
+                )
+                ->orderBy('visitors.entry_date', 'desc');
+
+            if ($request->has('yard_id')) {
+                $query->where('visitors.yard_id', $request->yard_id);
+            }
+
+            $visitors = $query->limit(100)->get();
+
+            // Для каждого посетителя найдём похожие номера и ожидаемые задачи
+            $data = $visitors->map(function ($visitor) {
+                return [
+                    'id' => $visitor->id,
+                    'plate_number' => $visitor->plate_number,
+                    'original_plate_number' => $visitor->original_plate_number,
+                    'entry_date' => $visitor->entry_date,
+                    'recognition_confidence' => $visitor->recognition_confidence,
+                    'yard_id' => $visitor->yard_id,
+                    'yard_name' => $visitor->yard_name,
+                    'device_name' => $visitor->device_name,
+                    'matched_truck_id' => $visitor->truck_id,
+                    'matched_plate_number' => $visitor->matched_plate_number,
+                    'task_id' => $visitor->task_id,
+                    'task_name' => $visitor->task_name,
+                    // Похожие номера
+                    'similar_plates' => $this->findSimilarPlates($visitor->plate_number, $visitor->yard_id),
+                    // Ожидаемые задачи на этот двор
+                    'expected_tasks' => $this->getExpectedTasks($visitor->yard_id),
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Pending visitors retrieved',
+                'count' => $data->count(),
+                'data' => $data,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Подтвердить посетителя оператором КПП
+     */
+    public function confirmVisitor(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'visitor_id' => 'required|integer|exists:visitors,id',
+                'operator_user_id' => 'required|integer|exists:users,id',
+                'truck_id' => 'nullable|integer|exists:trucks,id',
+                'task_id' => 'nullable|integer|exists:tasks,id',
+                'corrected_plate_number' => 'nullable|string|max:50',
+            ]);
+
+            $visitor = Visitor::find($validate['visitor_id']);
+            
+            if ($visitor->confirmation_status !== Visitor::CONFIRMATION_PENDING) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Visitor already processed',
+                ], 400);
+            }
+
+            $truck = null;
+            $task = null;
+            $correctedPlate = $validate['corrected_plate_number'] ?? $visitor->plate_number;
+
+            // Если передан truck_id - используем его
+            if (!empty($validate['truck_id'])) {
+                $truck = Truck::find($validate['truck_id']);
+            } 
+            // Иначе ищем по скорректированному номеру
+            else if ($correctedPlate) {
+                $normalizedPlate = $this->normalizePlateNumber($correctedPlate);
+                $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate])->first();
+            }
+
+            // Если передан task_id - используем его
+            if (!empty($validate['task_id'])) {
+                $task = Task::find($validate['task_id']);
+                // Если задача есть, но грузовика нет - берём грузовик из задачи
+                if ($task && !$truck) {
+                    $truck = Truck::find($task->truck_id);
+                }
+            }
+            // Иначе ищем задачу через разрешение
+            else if ($truck) {
+                $permit = EntryPermit::where('truck_id', $truck->id)
+                    ->where('yard_id', $visitor->yard_id)
+                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->first();
+                    
+                if ($permit) {
+                    $task = Task::find($permit->task_id);
+                }
+            }
+
+            // Обновляем посетителя
+            $visitor->update([
+                'plate_number' => $correctedPlate,
+                'truck_id' => $truck?->id,
+                'task_id' => $task?->id,
+                'truck_category_id' => $truck?->truck_category_id,
+                'truck_brand_id' => $truck?->truck_brand_id,
+                'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+                'confirmed_by_user_id' => $validate['operator_user_id'],
+                'confirmed_at' => now(),
+            ]);
+
+            // Обработка подтверждённого посетителя
+            if ($task) {
+                $this->processConfirmedVisitor($visitor, $task, $visitor->yard_id);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Visitor confirmed successfully',
+                'data' => $visitor->fresh(),
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Отклонить посетителя (ложное срабатывание камеры)
+     */
+    public function rejectVisitor(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'visitor_id' => 'required|integer|exists:visitors,id',
+                'operator_user_id' => 'required|integer|exists:users,id',
+                'reason' => 'nullable|string|max:255',
+            ]);
+
+            $visitor = Visitor::find($validate['visitor_id']);
+            
+            $visitor->update([
+                'confirmation_status' => Visitor::CONFIRMATION_REJECTED,
+                'confirmed_by_user_id' => $validate['operator_user_id'],
+                'confirmed_at' => now(),
+                'name' => $validate['reason'] ?? 'Отклонено оператором',
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Visitor rejected',
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Получить ожидаемые ТС (задачи со статусом "new" на указанный двор)
+     */
+    public function getExpectedVehicles(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'yard_id' => 'required|integer|exists:yards,id',
+            ]);
+
+            $tasks = $this->getExpectedTasks($validate['yard_id']);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Expected vehicles retrieved',
+                'count' => count($tasks),
+                'data' => $tasks,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Поиск похожих номеров (для подсказок оператору)
+     */
+    public function searchSimilarPlates(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'plate_number' => 'required|string|max:50',
+                'yard_id' => 'nullable|integer|exists:yards,id',
+            ]);
+
+            $similar = $this->findSimilarPlates(
+                $validate['plate_number'], 
+                $validate['yard_id'] ?? null
+            );
+
+            return response()->json([
+                'status' => true,
+                'data' => $similar,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Нормализация номера (убираем пробелы, приводим к нижнему регистру)
+     */
+    private function normalizePlateNumber(string $plate): string
+    {
+        return strtolower(str_replace([' ', '-'], '', $plate));
+    }
+
+    /**
+     * Поиск похожих номеров с учётом типичных ошибок OCR
+     */
+    private function findSimilarPlates(string $plate, ?int $yardId = null): array
+    {
+        $normalized = $this->normalizePlateNumber($plate);
+        
+        // Создаём варианты с типичными заменами OCR
+        $ocrReplacements = [
+            '0' => ['O', 'o', 'О', 'о', 'Q'],
+            'O' => ['0', 'О', 'о'],
+            'o' => ['0', 'O', 'О'],
+            '1' => ['I', 'i', 'l', '|', 'L'],
+            'I' => ['1', 'i', 'l', '|'],
+            'i' => ['1', 'I', 'l'],
+            'l' => ['1', 'I', 'i', '|'],
+            'B' => ['8', 'В', 'в'],
+            '8' => ['B', 'В'],
+            'S' => ['5', '$'],
+            '5' => ['S', '$'],
+            'Z' => ['2'],
+            '2' => ['Z'],
+            'G' => ['6'],
+            '6' => ['G'],
+            'А' => ['A'],
+            'В' => ['B', '8'],
+            'Е' => ['E'],
+            'К' => ['K'],
+            'М' => ['M'],
+            'Н' => ['H'],
+            'О' => ['O', '0'],
+            'Р' => ['P'],
+            'С' => ['C'],
+            'Т' => ['T'],
+            'У' => ['Y'],
+            'Х' => ['X'],
+        ];
+
+        // Базовый запрос - ищем похожие по LIKE
+        $query = Truck::query()
+            ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->select(
+                'trucks.id',
+                'trucks.plate_number',
+                'truck_models.name as truck_model_name'
+            );
+
+        // Поиск по частичному совпадению (минимум 4 символа)
+        if (strlen($normalized) >= 4) {
+            $searchPattern = '%' . substr($normalized, 0, 4) . '%';
+            $query->whereRaw("REPLACE(LOWER(plate_number), ' ', '') LIKE ?", [$searchPattern]);
+        } else {
+            $query->whereRaw("REPLACE(LOWER(plate_number), ' ', '') LIKE ?", ['%' . $normalized . '%']);
+        }
+
+        $trucks = $query->limit(20)->get();
+
+        // Добавляем информацию о разрешениях и задачах
+        $result = $trucks->map(function ($truck) use ($yardId, $normalized) {
+            $permit = null;
+            $task = null;
+            
+            if ($yardId) {
+                $permit = EntryPermit::where('truck_id', $truck->id)
+                    ->where('yard_id', $yardId)
+                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->first();
+                    
+                if ($permit) {
+                    $task = Task::find($permit->task_id);
+                }
+            }
+
+            // Вычисляем "похожесть" номера
+            $truckNormalized = $this->normalizePlateNumber($truck->plate_number);
+            $similarity = similar_text($normalized, $truckNormalized, $percent);
+
+            return [
+                'truck_id' => $truck->id,
+                'plate_number' => $truck->plate_number,
+                'truck_model_name' => $truck->truck_model_name,
+                'has_permit' => $permit !== null,
+                'permit_id' => $permit?->id,
+                'task_id' => $task?->id,
+                'task_name' => $task?->name,
+                'similarity_percent' => round($percent, 1),
+            ];
+        })
+        ->sortByDesc('similarity_percent')
+        ->values()
+        ->toArray();
+
+        return $result;
+    }
+
+    /**
+     * Получить список ожидаемых задач на двор
+     */
+    private function getExpectedTasks(int $yardId): array
+    {
+        $statusNew = Status::where('key', 'new')->first();
+        
+        if (!$statusNew) {
+            return [];
+        }
+
+        $tasks = Task::query()
+            ->where('status_id', $statusNew->id)
+            ->where(function ($q) use ($yardId) {
+                $q->where('yard_id', $yardId)
+                  ->orWhereExists(function ($subQuery) use ($yardId) {
+                      $subQuery->from('entry_permits')
+                          ->whereRaw('entry_permits.task_id = tasks.id')
+                          ->where('entry_permits.yard_id', $yardId)
+                          ->where('entry_permits.status_id', Status::where('key', 'active')->first()->id);
+                  });
+            })
+            ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+            ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+            ->select(
+                'tasks.id',
+                'tasks.name',
+                'tasks.description',
+                'tasks.plan_date',
+                'tasks.avtor',
+                'trucks.id as truck_id',
+                'trucks.plate_number',
+                'users.name as driver_name',
+                'users.phone as driver_phone'
+            )
+            ->orderBy('tasks.plan_date', 'asc')
+            ->limit(50)
+            ->get()
+            ->toArray();
+
+        return $tasks;
+    }
+
+    /**
+     * Обработка подтверждённого посетителя (обновление задачи, уведомления)
+     */
+    private function processConfirmedVisitor(Visitor $visitor, Task $task, int $yardId): void
+    {
+        $statusOnTerritory = Status::where('key', 'on_territory')->first();
+        $yard = DB::table('yards')->where('id', $yardId)->first();
+
+        // Обновляем задачу
+        $task->update([
+            'begin_date' => $visitor->entry_date ?? now(),
+            'yard_id' => $yardId,
+            'status_id' => $statusOnTerritory->id,
+        ]);
+
+        // Получаем склады для уведомления
+        $warehouses = DB::table('task_loadings')
+            ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+            ->where('task_loadings.task_id', $task->id)
+            ->select('warehouses.name')
+            ->get();
+
+        // Получаем информацию о разрешении
+        $permit = EntryPermit::where('truck_id', $visitor->truck_id)
+            ->where('yard_id', $yardId)
+            ->where('status_id', Status::where('key', 'active')->first()->id)
+            ->first();
+
+        $permitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
+
+        // Отправляем уведомление в Telegram
+        (new TelegramController())->sendNotification(
+            '<b>🚛 Въезд на территорию ' . e($yard->name) . "</b>\n\n" .
+            '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
+            '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+            '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+            '<b>👤 Водитель:</b> ' . ($task->user_id 
+                ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                  ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' 
+                : 'Не указан') . "\n" .
+            '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+            '<b>🏬 Склады:</b> ' . e($warehouses->pluck('name')->implode(', ')) . "\n" .
+            '<b>🛂 Разрешение:</b> <i>' . e($permitText) . '</i>' .
+            ($visitor->original_plate_number !== $visitor->plate_number 
+                ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . " → " . e($visitor->plate_number)
+                : '')
+        );
     }
 }

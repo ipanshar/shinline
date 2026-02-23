@@ -11,6 +11,9 @@ type TaskLoading = {
   warehouse_name: string;
   warehouse_gate_plan_name: string;
   warehouse_gate_fact_name: string;
+  plane_date: string;
+  arrival_at: string | null;
+  departure_at: string | null;
 };
 
 type Task = {
@@ -39,7 +42,7 @@ type Task = {
   task_loadings: TaskLoading[];
 };
 
-const formatDate = (dateStr: string) => {
+const formatDate = (dateStr: string | null) => {
   if (!dateStr) return "—";
   const date = new Date(dateStr);
   return new Intl.DateTimeFormat("ru-RU", {
@@ -49,6 +52,36 @@ const formatDate = (dateStr: string) => {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+};
+
+// Форматирование времени без даты (только часы:минуты)
+const formatTime = (dateStr: string | null) => {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr);
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
+// Вычисление длительности между двумя датами
+const calculateDuration = (arrivalAt: string | null, departureAt: string | null): string => {
+  if (!arrivalAt || !departureAt) return "—";
+  
+  const arrival = new Date(arrivalAt);
+  const departure = new Date(departureAt);
+  const diffMs = departure.getTime() - arrival.getTime();
+  
+  if (diffMs < 0) return "—";
+  
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+  
+  if (hours > 0) {
+    return `${hours} ч ${minutes} мин`;
+  }
+  return `${minutes} мин`;
 };
 
 interface TaskTableProps {
@@ -139,9 +172,21 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks, fetchTasks }) => {
                   ) : (
                     task.task_loadings.map((l, i) => (
                       <div key={i} className="p-2 bg-gray-50 rounded border">
-                        <div className="font-semibold">{l.warehouse_name}</div>
-                        <div>План: {l.warehouse_gate_plan_name || "—"}</div>
-                        <div>Факт: {l.warehouse_gate_fact_name || "—"}</div>
+                        <div className="font-semibold text-gray-800 mb-1">{l.warehouse_name}</div>
+                        <div className="text-gray-600">
+                          <span className="text-gray-400">План:</span> {formatTime(l.plane_date)}
+                        </div>
+                        <div className={l.arrival_at ? "text-green-600" : "text-gray-600"}>
+                          <span className="text-gray-400">Прибытие:</span> {formatTime(l.arrival_at)}
+                        </div>
+                        <div className={l.departure_at ? "text-blue-600" : "text-gray-600"}>
+                          <span className="text-gray-400">Убытие:</span> {formatTime(l.departure_at)}
+                        </div>
+                        {l.arrival_at && l.departure_at && (
+                          <div className="mt-1 pt-1 border-t border-gray-200 text-purple-600 font-medium">
+                            ⏱ {calculateDuration(l.arrival_at, l.departure_at)}
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
