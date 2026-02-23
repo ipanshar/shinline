@@ -57,6 +57,7 @@ Route::get('/chat/counterparty', [RouteController::class, 'chatCounterparty']);
 Route::get('/statistics', [RouteController::class, 'statistics']);
 route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 route::get('/warehouses/kpp', [RouteController::class, 'warehouseKPP']);
+route::get('/warehouses/yards', [RouteController::class, 'yards']);
 Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings']);
 Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices']);
 Route::get('/integration_dss/zones', [RouteController::class, 'dssZones']);
@@ -98,6 +99,15 @@ Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendin
 Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor']); //Подтвердить посетителя
 Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor']); //Отклонить посетителя
 Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates']); //Поиск похожих номеров
+Route::post('/security/getvisitorhistory', [VisitorsCotroller::class,'getVisitorHistory']); //История въездов/выездов
+
+// Управление разрешениями на въезд
+Route::post('/security/getpermits', [VisitorsCotroller::class,'getPermits']); //Получить список разрешений с фильтрами
+Route::post('/security/addpermit', [VisitorsCotroller::class,'addPermit']); //Создать разрешение
+Route::post('/security/updatepermit', [VisitorsCotroller::class,'updatePermit']); //Обновить разрешение
+Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivatePermit']); //Деактивировать разрешение
+Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit']); //Удалить разрешение
+Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck']); //Получить разрешения для ТС
 
 
 // Status routes

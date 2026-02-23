@@ -56,6 +56,14 @@ Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck'])->
 Route::post('/security/chattest', [VisitorsCotroller::class,'ChatTest']);
 Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePermits'])->middleware('auth:sanctum'); //Получить активные пропуска
 
+// Управление разрешениями на въезд
+Route::post('/security/getpermits', [VisitorsCotroller::class,'getPermits'])->middleware('auth:sanctum'); //Получить список разрешений с фильтрами
+Route::post('/security/addpermit', [VisitorsCotroller::class,'addPermit'])->middleware('auth:sanctum'); //Создать разрешение
+Route::post('/security/updatepermit', [VisitorsCotroller::class,'updatePermit'])->middleware('auth:sanctum'); //Обновить разрешение
+Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivatePermit'])->middleware('auth:sanctum'); //Деактивировать разрешение
+Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit'])->middleware('auth:sanctum'); //Удалить разрешение
+Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck'])->middleware('auth:sanctum'); //Получить разрешения для ТС
+
 // Visitor Confirmation routes (полуавтоматическое подтверждение от камер DSS)
 Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
 Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors'])->middleware('auth:sanctum'); // Получить посетителей на подтверждение

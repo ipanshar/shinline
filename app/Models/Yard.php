@@ -8,7 +8,10 @@ class Yard extends Model
 {
     protected $fillable = [
         'name',
+        'strict_mode', // Строгий режим: запрет въезда без разрешения
     ];
 
-
+    protected $casts = [
+        'strict_mode' => 'boolean',
+    ];
 }

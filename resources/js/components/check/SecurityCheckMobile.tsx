@@ -30,14 +30,22 @@ import PendingVisitors from './PendingVisitors';
 interface Yard {
   id: number;
   name: string;
+  strict_mode?: boolean; // Строгий режим: запрет въезда без разрешения
 }
 
 interface Truck {
   id: number;
   plate_number: string;
   driver_name?: string;
+  driver_phone?: string;
   phone?: string;
   vip_level?: number;
+  // Информация о разрешении
+  has_permit?: boolean;
+  permit_id?: number;
+  permit_type?: 'one_time' | 'permanent';
+  task_id?: number;
+  task_name?: string;
 }
 
 interface Visitor {
@@ -152,8 +160,8 @@ const SecurityCheckMobile = () => {
   }, [loadVisitors, loadExpectedTasks]);
 
   const searchTruck = () => {
-    if (searchPlate.length < 3) return;
-    axios.post('/security/searchtruck', { plate_number: searchPlate }, {
+    if (searchPlate.length < 3 || !selectedYardId) return;
+    axios.post('/security/searchtruck', { plate_number: searchPlate, yard_id: selectedYardId }, {
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     })
       .then(res => {
@@ -172,8 +180,18 @@ const SecurityCheckMobile = () => {
       });
   };
 
+  // Получить текущий двор
+  const getCurrentYard = () => yards.find(y => y.id === selectedYardId);
+
   const addVisitor = () => {
     if (!foundTruck || !selectedYardId) return;
+
+    // Проверка строгого режима на фронте
+    const currentYard = getCurrentYard();
+    if (currentYard?.strict_mode && !foundTruck.has_permit) {
+      toast.error('🚫 Въезд запрещён: строгий режим активен, требуется разрешение на въезд');
+      return;
+    }
 
     axios.post('/security/addvisitor', {
       plate_number: foundTruck.plate_number,
@@ -187,13 +205,25 @@ const SecurityCheckMobile = () => {
       setSearchPlate('');
       inputRef.current?.focus();
       loadVisitors();
-    }).catch(() => {
-      toast.error('Ошибка при добавлении ТС');
+    }).catch((err) => {
+      if (err.response?.data?.error_code === 'STRICT_MODE_NO_PERMIT') {
+        toast.error('🚫 Въезд запрещён: строгий режим активен, требуется разрешение');
+      } else {
+        toast.error('Ошибка при добавлении ТС');
+      }
     });
   };
 
   const addVisitorManually = () => {
     if (!newCarNumber || !newModel || !selectedYardId) return;
+    
+    // В строгом режиме запрещаем ручное добавление (нет информации о разрешении)
+    const currentYard = getCurrentYard();
+    if (currentYard?.strict_mode) {
+      toast.error('🚫 Ручной въезд запрещён: строгий режим активен, требуется разрешение на въезд');
+      return;
+    }
+    
     axios.post('/security/addvisitor', {
       plate_number: newCarNumber,
       truck_model_name: newModel,
@@ -209,8 +239,12 @@ const SecurityCheckMobile = () => {
       setFoundTruck(null);
       inputRef.current?.focus();
       loadVisitors();
-    }).catch(() => {
-      toast.error('Ошибка при ручном добавлении ТС');
+    }).catch((err) => {
+      if (err.response?.data?.error_code === 'STRICT_MODE_NO_PERMIT') {
+        toast.error('🚫 Въезд запрещён: строгий режим активен');
+      } else {
+        toast.error('Ошибка при ручном добавлении ТС');
+      }
     });
   };
 
@@ -269,6 +303,12 @@ const SecurityCheckMobile = () => {
             <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <TruckIcon className="w-5 h-5 sm:w-6 sm:h-6" />
               <span className="hidden xs:inline">КПП</span>
+              {/* Индикатор строгого режима */}
+              {getCurrentYard()?.strict_mode && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-500 text-white animate-pulse">
+                  🔒 Строгий
+                </span>
+              )}
             </h1>
             
             {/* Выбор двора */}
@@ -279,7 +319,9 @@ const SecurityCheckMobile = () => {
             >
               <option value="">Выбрать двор</option>
               {yards.map(yard => (
-                <option key={yard.id} value={yard.id}>{yard.name}</option>
+                <option key={yard.id} value={yard.id}>
+                  {yard.name} {yard.strict_mode ? '🔒' : ''}
+                </option>
               ))}
             </select>
 
@@ -323,13 +365,66 @@ const SecurityCheckMobile = () => {
 
             {/* Результат поиска */}
             {foundTruck && (
-              <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-mono font-bold text-lg">{foundTruck.plate_number}</div>
-                    <div className="text-sm text-gray-600">{foundTruck.driver_name || 'Водитель не указан'}</div>
+              <div className={`mt-3 p-3 border rounded-lg ${
+                foundTruck.has_permit 
+                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200' 
+                  : getCurrentYard()?.strict_mode 
+                    ? 'bg-red-50 dark:bg-red-900/20 border-red-300'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300'
+              }`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-bold text-lg">{foundTruck.plate_number}</span>
+                      {foundTruck.has_permit ? (
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                          foundTruck.permit_type === 'one_time' 
+                            ? 'bg-blue-100 text-blue-700' 
+                            : 'bg-green-100 text-green-700'
+                        }`}>
+                          {foundTruck.permit_type === 'one_time' ? '🎫 Разовый' : '♾️ Постоянный'}
+                        </span>
+                      ) : (
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                          getCurrentYard()?.strict_mode 
+                            ? 'bg-red-500 text-white' 
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          {getCurrentYard()?.strict_mode ? '🚫 Въезд запрещён' : '⚠️ Нет разрешения'}
+                        </span>
+                      )}
+                    </div>
+                    {foundTruck.driver_name && (
+                      <div className="text-sm text-gray-600 mt-1">
+                        👤 {foundTruck.driver_name}
+                        {foundTruck.driver_phone && (
+                          <a href={`tel:${foundTruck.driver_phone}`} className="ml-2 text-blue-600">
+                            📞 {foundTruck.driver_phone}
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    {foundTruck.task_name && (
+                      <div className="text-sm text-gray-500 truncate">📦 {foundTruck.task_name}</div>
+                    )}
+                    {/* Предупреждение о строгом режиме */}
+                    {getCurrentYard()?.strict_mode && !foundTruck.has_permit && (
+                      <div className="text-xs text-red-600 mt-1 font-medium">
+                        🔒 Строгий режим: въезд только с разрешением
+                      </div>
+                    )}
                   </div>
-                  <Button onClick={addVisitor} className="bg-green-600 hover:bg-green-700">
+                  <Button 
+                    onClick={addVisitor} 
+                    disabled={getCurrentYard()?.strict_mode && !foundTruck.has_permit}
+                    className={
+                      getCurrentYard()?.strict_mode && !foundTruck.has_permit
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : foundTruck.has_permit 
+                          ? 'bg-green-600 hover:bg-green-700' 
+                          : 'bg-amber-600 hover:bg-amber-700'
+                    }
+                  >
                     <Plus className="w-4 h-4 mr-1" />
                     Въезд
                   </Button>
@@ -341,6 +436,7 @@ const SecurityCheckMobile = () => {
           {/* Ожидающие подтверждения */}
           <PendingVisitors 
             selectedYardId={selectedYardId} 
+            strictMode={getCurrentYard()?.strict_mode}
             onConfirmed={loadVisitors}
           />
 

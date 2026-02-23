@@ -47,6 +47,9 @@ class RouteController extends Controller
      public function warehouseKPP(){
         return Inertia::render('warehouseKPP');
     }
+    public function yards(){
+        return Inertia::render('yards');
+    }
     public function dssSettings(){
         return Inertia::render('integration_dss_settings');
     }

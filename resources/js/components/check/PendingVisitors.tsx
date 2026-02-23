@@ -71,14 +71,16 @@ interface PendingVisitor {
 interface Yard {
   id: number;
   name: string;
+  strict_mode?: boolean;
 }
 
 interface PendingVisitorsProps {
   selectedYardId: number | null;
+  strictMode?: boolean; // Строгий режим двора
   onConfirmed?: () => void;
 }
 
-const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, onConfirmed }) => {
+const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, strictMode, onConfirmed }) => {
   const [pendingVisitors, setPendingVisitors] = useState<PendingVisitor[]>([]);
   const [loading, setLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -160,6 +162,19 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, onCon
   const confirmVisitor = async () => {
     if (!confirmDialog.visitor) return;
 
+    // Проверка строгого режима
+    const selectedTruck = [...confirmDialog.visitor.similar_plates, ...searchResults].find(
+      t => t.truck_id === confirmDialog.selectedTruckId
+    );
+    const hasPermit = selectedTruck?.has_permit || confirmDialog.visitor.expected_tasks.some(
+      t => t.id === confirmDialog.selectedTaskId
+    );
+
+    if (strictMode && !hasPermit) {
+      toast.error('🚫 Въезд запрещён: строгий режим активен, требуется разрешение на въезд');
+      return;
+    }
+
     const userId = localStorage.getItem('user_id') || '1';
     
     try {
@@ -177,8 +192,12 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, onCon
         loadPendingVisitors();
         onConfirmed?.();
       }
-    } catch (error) {
-      toast.error('Ошибка подтверждения');
+    } catch (error: any) {
+      if (error.response?.data?.error_code === 'STRICT_MODE_NO_PERMIT') {
+        toast.error('🚫 Въезд запрещён: строгий режим активен');
+      } else {
+        toast.error('Ошибка подтверждения');
+      }
     }
   };
 
@@ -549,23 +568,57 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, onCon
                 </div>
               </div>
             )}
+
+            {/* Предупреждение о строгом режиме */}
+            {strictMode && (() => {
+              const selectedTruck = [...(confirmDialog.visitor?.similar_plates || []), ...searchResults].find(
+                t => t.truck_id === confirmDialog.selectedTruckId
+              );
+              const hasPermit = selectedTruck?.has_permit || confirmDialog.visitor?.expected_tasks.some(
+                t => t.id === confirmDialog.selectedTaskId
+              );
+              return !hasPermit;
+            })() && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 rounded p-3">
+                <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                  <AlertTriangle className="w-5 h-5" />
+                  <div>
+                    <div className="font-semibold">🔒 Строгий режим активен</div>
+                    <div className="text-xs">Въезд без разрешения запрещён. Выберите ТС с пропуском или задание.</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <DialogFooter className="flex gap-2 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDialog({ ...confirmDialog, open: false })}
-            >
-              Отмена
-            </Button>
-            <Button
-              onClick={confirmVisitor}
-              className="bg-green-600 hover:bg-green-700"
-              disabled={!confirmDialog.correctedPlate}
-            >
-              <Check className="w-4 h-4 mr-2" />
-              Подтвердить въезд
-            </Button>
+          <DialogFooter className="flex gap-2 mt-4">{(() => {
+              const selectedTruck = [...(confirmDialog.visitor?.similar_plates || []), ...searchResults].find(
+                t => t.truck_id === confirmDialog.selectedTruckId
+              );
+              const hasPermit = selectedTruck?.has_permit || confirmDialog.visitor?.expected_tasks.some(
+                t => t.id === confirmDialog.selectedTaskId
+              );
+              const isBlocked = strictMode && !hasPermit;
+              
+              return (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmDialog({ ...confirmDialog, open: false })}
+                  >
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={confirmVisitor}
+                    className={isBlocked ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"}
+                    disabled={!confirmDialog.correctedPlate || isBlocked}
+                  >
+                    <Check className="w-4 h-4 mr-2" />
+                    {isBlocked ? 'Въезд запрещён' : 'Подтвердить въезд'}
+                  </Button>
+                </>
+              );
+            })()}
           </DialogFooter>
         </DialogContent>
       </Dialog>

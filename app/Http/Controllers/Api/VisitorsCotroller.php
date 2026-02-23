@@ -11,6 +11,7 @@ use App\Models\Task;
 use App\Models\Truck;
 use App\Models\TruckModel;
 use App\Models\Visitor;
+use App\Models\Yard;
 use Dotenv\Parser\Entry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
@@ -50,6 +51,16 @@ class VisitorsCotroller extends Controller
                 ->where('yard_id', $request->yard_id)
                 ->where('status_id', '=', Status::where('key', 'active')->first()->id)
                 ->first() : null;
+
+            // Проверка строгого режима
+            $yard = Yard::find($request->yard_id);
+            if ($yard && $yard->strict_mode && !$permit) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Въезд запрещён: строгий режим активен, требуется разрешение на въезд',
+                    'error_code' => 'STRICT_MODE_NO_PERMIT',
+                ], 403);
+            }
 
             $PermitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
             $task = $permit ? DB::table('tasks')->where('id', $permit->task_id)->first() : null;
@@ -189,6 +200,107 @@ class VisitorsCotroller extends Controller
         ], 200);
     }
 
+    /**
+     * Получить историю въездов/выездов за период
+     */
+    public function getVisitorHistory(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'yard_id' => 'required|integer',
+                'date_from' => 'nullable|date',
+                'date_to' => 'nullable|date',
+                'plate_number' => 'nullable|string',
+                'status' => 'nullable|string|in:on_territory,left',
+            ]);
+
+            $query = DB::table('visitors')
+                ->leftJoin('truck_categories', 'visitors.truck_category_id', '=', 'truck_categories.id')
+                ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+                ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+                ->leftJoin('statuses', 'visitors.status_id', '=', 'statuses.id')
+                ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
+                ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
+                ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+                ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+                ->leftJoin('entry_permits', function($join) {
+                    $join->on('entry_permits.task_id', '=', 'visitors.task_id')
+                         ->on('entry_permits.truck_id', '=', 'visitors.truck_id');
+                })
+                ->leftJoin('devaices as entrance_device', 'visitors.entrance_device_id', '=', 'entrance_device.id')
+                ->leftJoin('devaices as exit_device', 'visitors.exit_device_id', '=', 'exit_device.id')
+                ->select(
+                    'visitors.id',
+                    'visitors.plate_number',
+                    'visitors.entry_date',
+                    'visitors.exit_date',
+                    'visitors.truck_id',
+                    'visitors.viche_color as vehicle_color',
+                    'tasks.name as task_name',
+                    'tasks.description as description',
+                    'truck_categories.name as truck_category_name',
+                    'truck_brands.name as truck_brand_name',
+                    'users.name as driver_name',
+                    'users.phone as driver_phone',
+                    'statuses.name as status_name',
+                    'yards.name as yard_name',
+                    'trucks.own as truck_own',
+                    'trucks.vip_level as truck_vip_level',
+                    'trucks.color as truck_color',
+                    'truck_models.name as truck_model_name',
+                    'entrance_device.channelName as entrance_device_name',
+                    'exit_device.channelName as exit_device_name',
+                    'entry_permits.id as permit_id',
+                    'entry_permits.one_permission as permit_one_time'
+                )
+                ->where('visitors.yard_id', $validate['yard_id'])
+                ->where(function($q) {
+                    // Показываем confirmed ИЛИ старые записи без статуса (для обратной совместимости)
+                    $q->where('visitors.confirmation_status', '=', 'confirmed')
+                      ->orWhereNull('visitors.confirmation_status');
+                })
+                ->orderBy('visitors.entry_date', 'desc');
+
+            // Фильтр по датам
+            if (!empty($validate['date_from'])) {
+                $query->whereDate('visitors.entry_date', '>=', $validate['date_from']);
+            }
+            if (!empty($validate['date_to'])) {
+                $query->whereDate('visitors.entry_date', '<=', $validate['date_to']);
+            }
+
+            // Фильтр по номеру
+            if (!empty($validate['plate_number'])) {
+                $plate = strtoupper(str_replace(' ', '', $validate['plate_number']));
+                $query->where('visitors.plate_number', 'LIKE', "%{$plate}%");
+            }
+
+            // Фильтр по статусу (на территории / покинул)
+            if (!empty($validate['status'])) {
+                if ($validate['status'] === 'on_territory') {
+                    $query->whereNull('visitors.exit_date');
+                } else if ($validate['status'] === 'left') {
+                    $query->whereNotNull('visitors.exit_date');
+                }
+            }
+
+            $visitors = $query->limit(2000)->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'History retrieved successfully',
+                'count' => $visitors->count(),
+                'data' => $visitors,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function updateVisitor(Request $request)
     {
         $visitor = Visitor::find($request->id);
@@ -301,13 +413,25 @@ class VisitorsCotroller extends Controller
         }
         //$data = $query->get();
         if ($request->has('yard_id')) {
-            $data = $query->get()->map(function ($truck) use ($request) {
+            $activeStatusId = Status::where('key', 'active')->first()->id;
+            $data = $query->get()->map(function ($truck) use ($request, $activeStatusId) {
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $request->yard_id)
-                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->where('status_id', $activeStatusId)
                     ->first();
+                
+                $task = $permit ? Task::find($permit->task_id) : null;
+                $driver = $task && $task->user_id ? DB::table('users')->find($task->user_id) : null;
 
-                return array_merge($truck->toArray(), ['permit' =>  $permit ? $permit->id : null]);
+                return array_merge($truck->toArray(), [
+                    'permit_id' => $permit?->id,
+                    'permit_type' => $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null,
+                    'has_permit' => $permit !== null,
+                    'task_id' => $task?->id,
+                    'task_name' => $task?->name,
+                    'driver_name' => $driver?->name,
+                    'driver_phone' => $driver?->phone,
+                ]);
             });
         } else {
             $data = $query->get();
@@ -559,6 +683,24 @@ class VisitorsCotroller extends Controller
                 if ($permit) {
                     $task = Task::find($permit->task_id);
                 }
+            }
+
+            // Проверка строгого режима
+            $yard = Yard::find($visitor->yard_id);
+            $hasPermit = false;
+            if ($truck) {
+                $hasPermit = EntryPermit::where('truck_id', $truck->id)
+                    ->where('yard_id', $visitor->yard_id)
+                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->exists();
+            }
+            
+            if ($yard && $yard->strict_mode && !$hasPermit) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Въезд запрещён: строгий режим активен, требуется разрешение на въезд',
+                    'error_code' => 'STRICT_MODE_NO_PERMIT',
+                ], 403);
             }
 
             // Обновляем посетителя
@@ -875,5 +1017,318 @@ class VisitorsCotroller extends Controller
                 ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . " → " . e($visitor->plate_number)
                 : '')
         );
+    }
+
+    /**
+     * Получить список разрешений с фильтрами
+     */
+    public function getPermits(Request $request)
+    {
+        try {
+            $query = EntryPermit::query()
+                ->leftJoin('trucks', 'entry_permits.truck_id', '=', 'trucks.id')
+                ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+                ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+                ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
+                ->leftJoin('users as drivers', 'entry_permits.user_id', '=', 'drivers.id')
+                ->leftJoin('users as granters', 'entry_permits.granted_by_user_id', '=', 'granters.id')
+                ->leftJoin('tasks', 'entry_permits.task_id', '=', 'tasks.id')
+                ->leftJoin('statuses', 'entry_permits.status_id', '=', 'statuses.id')
+                ->select(
+                    'entry_permits.*',
+                    'trucks.plate_number',
+                    'trucks.color as truck_color',
+                    'truck_models.name as truck_model_name',
+                    'truck_brands.name as truck_brand_name',
+                    'yards.name as yard_name',
+                    'yards.strict_mode as yard_strict_mode',
+                    'drivers.name as driver_name',
+                    'drivers.phone as driver_phone',
+                    'granters.name as granted_by_name',
+                    'tasks.name as task_name',
+                    'statuses.name as status_name',
+                    'statuses.key as status_key'
+                );
+
+            // Фильтр по двору
+            if ($request->has('yard_id') && $request->yard_id) {
+                $query->where('entry_permits.yard_id', $request->yard_id);
+            }
+
+            // Фильтр по статусу
+            if ($request->has('status') && $request->status) {
+                if ($request->status === 'active') {
+                    $query->where('statuses.key', 'active');
+                } elseif ($request->status === 'inactive') {
+                    $query->where('statuses.key', 'not_active');
+                }
+            }
+
+            // Фильтр по типу разрешения
+            if ($request->has('permit_type') && $request->permit_type !== 'all') {
+                if ($request->permit_type === 'one_time') {
+                    $query->where('entry_permits.one_permission', true);
+                } elseif ($request->permit_type === 'permanent') {
+                    $query->where('entry_permits.one_permission', false);
+                }
+            }
+
+            // Поиск по номеру ТС
+            if ($request->has('plate_number') && $request->plate_number) {
+                $plate = strtolower(str_replace(' ', '', $request->plate_number));
+                $query->whereRaw("LOWER(REPLACE(trucks.plate_number, ' ', '')) LIKE ?", ['%' . $plate . '%']);
+            }
+
+            // Сортировка
+            $query->orderBy('entry_permits.created_at', 'desc');
+
+            $permits = $query->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Permits retrieved successfully',
+                'data' => $permits,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Создать разрешение на въезд
+     */
+    public function addPermit(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'truck_id' => 'required|integer|exists:trucks,id',
+                'yard_id' => 'required|integer|exists:yards,id',
+                'user_id' => 'nullable|integer|exists:users,id', // Водитель
+                'granted_by_user_id' => 'nullable|integer|exists:users,id', // Кто выдал
+                'task_id' => 'nullable|integer|exists:tasks,id',
+                'one_permission' => 'required|boolean', // true = разовое
+                'begin_date' => 'nullable|date',
+                'end_date' => 'nullable|date',
+                'comment' => 'nullable|string|max:500',
+            ]);
+
+            // Получаем статус "active"
+            $activeStatus = Status::where('key', 'active')->first();
+            if (!$activeStatus) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Active status not found',
+                ], 500);
+            }
+
+            // Проверяем, нет ли уже активного разрешения для этого ТС и двора
+            $existingPermit = EntryPermit::where('truck_id', $validate['truck_id'])
+                ->where('yard_id', $validate['yard_id'])
+                ->where('status_id', $activeStatus->id)
+                ->first();
+
+            if ($existingPermit) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Для этого ТС уже есть активное разрешение на данный двор',
+                    'existing_permit' => $existingPermit,
+                ], 409);
+            }
+
+            $permit = EntryPermit::create([
+                'truck_id' => $validate['truck_id'],
+                'yard_id' => $validate['yard_id'],
+                'user_id' => $validate['user_id'] ?? null,
+                'granted_by_user_id' => $validate['granted_by_user_id'] ?? null,
+                'task_id' => $validate['task_id'] ?? null,
+                'one_permission' => $validate['one_permission'],
+                'begin_date' => $validate['begin_date'] ?? now(),
+                'end_date' => $validate['end_date'] ?? null,
+                'status_id' => $activeStatus->id,
+                'comment' => $validate['comment'] ?? null,
+            ]);
+
+            // Загружаем связи для ответа
+            $permit->load(['truck', 'yard', 'driver', 'grantedBy', 'task']);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Разрешение успешно создано',
+                'data' => $permit,
+            ], 200);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ошибка валидации',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Обновить разрешение
+     */
+    public function updatePermit(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'id' => 'required|integer|exists:entry_permits,id',
+                'user_id' => 'nullable|integer|exists:users,id',
+                'one_permission' => 'nullable|boolean',
+                'begin_date' => 'nullable|date',
+                'end_date' => 'nullable|date',
+                'comment' => 'nullable|string|max:500',
+            ]);
+
+            $permit = EntryPermit::find($validate['id']);
+
+            $updateData = [];
+            if (isset($validate['user_id'])) $updateData['user_id'] = $validate['user_id'];
+            if (isset($validate['one_permission'])) $updateData['one_permission'] = $validate['one_permission'];
+            if (isset($validate['begin_date'])) $updateData['begin_date'] = $validate['begin_date'];
+            if (isset($validate['end_date'])) $updateData['end_date'] = $validate['end_date'];
+            if (isset($validate['comment'])) $updateData['comment'] = $validate['comment'];
+
+            $permit->update($updateData);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Разрешение обновлено',
+                'data' => $permit->fresh(),
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Деактивировать разрешение
+     */
+    public function deactivatePermit(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'id' => 'required|integer|exists:entry_permits,id',
+            ]);
+
+            $permit = EntryPermit::find($validate['id']);
+            
+            $inactiveStatus = Status::where('key', 'not_active')->first();
+            if (!$inactiveStatus) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Inactive status not found',
+                ], 500);
+            }
+
+            $permit->update([
+                'status_id' => $inactiveStatus->id,
+                'end_date' => now(),
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Разрешение деактивировано',
+                'data' => $permit->fresh(),
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Удалить разрешение (только неактивные)
+     */
+    public function deletePermit(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'id' => 'required|integer|exists:entry_permits,id',
+            ]);
+
+            $permit = EntryPermit::find($validate['id']);
+            
+            $activeStatus = Status::where('key', 'active')->first();
+            if ($permit->status_id === $activeStatus->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Нельзя удалить активное разрешение. Сначала деактивируйте его.',
+                ], 400);
+            }
+
+            $permit->delete();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Разрешение удалено',
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Получить разрешения для конкретного ТС
+     */
+    public function getPermitsByTruck(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'truck_id' => 'required|integer|exists:trucks,id',
+            ]);
+
+            $permits = EntryPermit::where('truck_id', $validate['truck_id'])
+                ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
+                ->leftJoin('users as drivers', 'entry_permits.user_id', '=', 'drivers.id')
+                ->leftJoin('users as granters', 'entry_permits.granted_by_user_id', '=', 'granters.id')
+                ->leftJoin('tasks', 'entry_permits.task_id', '=', 'tasks.id')
+                ->leftJoin('statuses', 'entry_permits.status_id', '=', 'statuses.id')
+                ->select(
+                    'entry_permits.*',
+                    'yards.name as yard_name',
+                    'yards.strict_mode as yard_strict_mode',
+                    'drivers.name as driver_name',
+                    'granters.name as granted_by_name',
+                    'tasks.name as task_name',
+                    'statuses.name as status_name',
+                    'statuses.key as status_key'
+                )
+                ->orderBy('entry_permits.created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Permits for truck retrieved successfully',
+                'data' => $permits,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

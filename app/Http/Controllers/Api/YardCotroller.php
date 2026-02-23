@@ -50,12 +50,18 @@ class YardCotroller extends Controller
      $request->validate([
           'id' => 'required|integer|exists:yards,id',
           'name' => 'required|string|max:255',
+          'strict_mode' => 'nullable|boolean',
      ]);
     
      $yard = Yard::find($request->id);
-     $yard->update([
-          'name' => $request->name,
-     ]);
+     $updateData = ['name' => $request->name];
+     
+     // Обновляем strict_mode если передан
+     if ($request->has('strict_mode')) {
+          $updateData['strict_mode'] = $request->strict_mode;
+     }
+     
+     $yard->update($updateData);
     
      return response()->json([
           'status' => true,
