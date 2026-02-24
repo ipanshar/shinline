@@ -300,7 +300,7 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, stric
                       <Clock className="w-3 h-3" />
                       {formatTime(visitor.entry_date)}
                     </span>
-                    {visitor.recognition_confidence !== undefined && (
+                    {visitor.recognition_confidence != null && visitor.recognition_confidence > 0 && (
                       <span className={`text-xs font-medium ${getConfidenceColor(visitor.recognition_confidence)}`}>
                         {visitor.recognition_confidence}%
                       </span>
