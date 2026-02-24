@@ -59,11 +59,15 @@ interface PendingVisitor {
   recognition_confidence?: number;
   yard_id: number;
   yard_name?: string;
+  yard_strict_mode?: boolean;
   device_name?: string;
   matched_truck_id?: number;
   matched_plate_number?: string;
   task_id?: number;
   task_name?: string;
+  has_permit?: boolean;
+  pending_reason?: string;
+  pending_reason_text?: string;
   similar_plates: SimilarPlate[];
   expected_tasks: ExpectedTask[];
 }
@@ -318,6 +322,18 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, stric
                       </span>
                     )}
                   </div>
+
+                  {/* Причина ожидания подтверждения */}
+                  {visitor.pending_reason_text && (
+                    <div className={`mt-1 text-xs font-medium ${
+                      visitor.pending_reason === 'truck_not_found' ? 'text-red-600 dark:text-red-400' :
+                      visitor.pending_reason === 'no_permit' ? 'text-orange-600 dark:text-orange-400' :
+                      visitor.pending_reason === 'low_confidence' ? 'text-amber-600 dark:text-amber-400' :
+                      'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      {visitor.pending_reason_text}
+                    </div>
+                  )}
 
                   {/* Найденное совпадение */}
                   {visitor.matched_plate_number && (

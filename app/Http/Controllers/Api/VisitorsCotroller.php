@@ -576,12 +576,24 @@ class VisitorsCotroller extends Controller
                 ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
                 ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
                 ->leftJoin('devaices', 'visitors.entrance_device_id', '=', 'devaices.id')
+                ->leftJoin('entry_permits', function($join) {
+                    $join->on('visitors.truck_id', '=', 'entry_permits.truck_id')
+                         ->on('visitors.yard_id', '=', 'entry_permits.yard_id')
+                         ->whereExists(function($q) {
+                             $q->selectRaw('1')
+                               ->from('statuses')
+                               ->whereRaw('statuses.id = entry_permits.status_id')
+                               ->where('statuses.key', 'active');
+                         });
+                })
                 ->select(
                     'visitors.*',
                     'yards.name as yard_name',
+                    'yards.strict_mode as yard_strict_mode',
                     'trucks.plate_number as matched_plate_number',
                     'tasks.name as task_name',
-                    'devaices.channelName as device_name'
+                    'devaices.channelName as device_name',
+                    'entry_permits.id as permit_id'
                 )
                 ->orderBy('visitors.entry_date', 'desc');
 
@@ -600,6 +612,9 @@ class VisitorsCotroller extends Controller
             // Формируем данные БЕЗ тяжёлых вызовов findSimilarPlates в цикле
             // similar_plates будут загружаться по запросу с фронтенда
             $data = $visitors->map(function ($visitor) use ($expectedTasks) {
+                // Определяем причину ожидания подтверждения
+                $pendingReason = $this->determinePendingReason($visitor);
+
                 return [
                     'id' => $visitor->id,
                     'plate_number' => $visitor->plate_number,
@@ -608,11 +623,16 @@ class VisitorsCotroller extends Controller
                     'recognition_confidence' => $visitor->recognition_confidence,
                     'yard_id' => $visitor->yard_id,
                     'yard_name' => $visitor->yard_name,
+                    'yard_strict_mode' => (bool) $visitor->yard_strict_mode,
                     'device_name' => $visitor->device_name,
                     'matched_truck_id' => $visitor->truck_id,
                     'matched_plate_number' => $visitor->matched_plate_number,
                     'task_id' => $visitor->task_id,
                     'task_name' => $visitor->task_name,
+                    'has_permit' => !empty($visitor->permit_id),
+                    // Причина ожидания подтверждения
+                    'pending_reason' => $pendingReason['code'],
+                    'pending_reason_text' => $pendingReason['text'],
                     // Похожие номера - загружаются отдельно через searchSimilarPlates
                     'similar_plates' => [],
                     // Ожидаемые задачи - предзагружены один раз
@@ -633,6 +653,42 @@ class VisitorsCotroller extends Controller
                 'message' => 'Error: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Определить причину, почему посетитель ожидает подтверждения
+     */
+    private function determinePendingReason($visitor): array
+    {
+        // 1. ТС не найдено в базе
+        if (empty($visitor->truck_id)) {
+            return [
+                'code' => 'truck_not_found',
+                'text' => '🚫 ТС не найдено в базе',
+            ];
+        }
+
+        // 2. Строгий режим на дворе и нет разрешения
+        if ($visitor->yard_strict_mode && empty($visitor->permit_id)) {
+            return [
+                'code' => 'no_permit',
+                'text' => '🔒 Нет разрешения (строгий режим)',
+            ];
+        }
+
+        // 3. Низкая уверенность распознавания
+        if ($visitor->recognition_confidence !== null && $visitor->recognition_confidence < 80) {
+            return [
+                'code' => 'low_confidence',
+                'text' => '⚠️ Низкая уверенность распознавания',
+            ];
+        }
+
+        // 4. Другая причина (ручное добавление, ошибка OCR и т.д.)
+        return [
+            'code' => 'manual_check',
+            'text' => '👁️ Требуется проверка',
+        ];
     }
 
     /**
