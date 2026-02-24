@@ -585,14 +585,21 @@ class VisitorsCotroller extends Controller
                 )
                 ->orderBy('visitors.entry_date', 'desc');
 
-            if ($request->has('yard_id')) {
-                $query->where('visitors.yard_id', $request->yard_id);
+            $yardId = null;
+            if ($request->has('yard_id') && $request->yard_id) {
+                $yardId = $request->yard_id;
+                $query->where('visitors.yard_id', $yardId);
             }
 
-            $visitors = $query->limit(100)->get();
+            // Ограничиваем до 20 записей для скорости
+            $visitors = $query->limit(20)->get();
 
-            // Для каждого посетителя найдём похожие номера и ожидаемые задачи
-            $data = $visitors->map(function ($visitor) {
+            // Предзагрузка ожидаемых задач один раз для двора (а не для каждого посетителя)
+            $expectedTasks = $yardId ? $this->getExpectedTasksOptimized($yardId) : [];
+
+            // Формируем данные БЕЗ тяжёлых вызовов findSimilarPlates в цикле
+            // similar_plates будут загружаться по запросу с фронтенда
+            $data = $visitors->map(function ($visitor) use ($expectedTasks) {
                 return [
                     'id' => $visitor->id,
                     'plate_number' => $visitor->plate_number,
@@ -606,10 +613,10 @@ class VisitorsCotroller extends Controller
                     'matched_plate_number' => $visitor->matched_plate_number,
                     'task_id' => $visitor->task_id,
                     'task_name' => $visitor->task_name,
-                    // Похожие номера
-                    'similar_plates' => $this->findSimilarPlates($visitor->plate_number, $visitor->yard_id),
-                    // Ожидаемые задачи на этот двор
-                    'expected_tasks' => $this->getExpectedTasks($visitor->yard_id),
+                    // Похожие номера - загружаются отдельно через searchSimilarPlates
+                    'similar_plates' => [],
+                    // Ожидаемые задачи - предзагружены один раз
+                    'expected_tasks' => $expectedTasks,
                 ];
             });
 
@@ -626,6 +633,39 @@ class VisitorsCotroller extends Controller
                 'message' => 'Error: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Оптимизированная версия получения ожидаемых задач (без подзапросов)
+     */
+    private function getExpectedTasksOptimized(int $yardId): array
+    {
+        $statusNew = Status::where('key', 'new')->first();
+        
+        if (!$statusNew) {
+            return [];
+        }
+
+        $tasks = Task::query()
+            ->where('status_id', $statusNew->id)
+            ->where('yard_id', $yardId)
+            ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
+            ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+            ->select(
+                'tasks.id',
+                'tasks.name',
+                'tasks.description',
+                'tasks.plan_date',
+                'trucks.id as truck_id',
+                'trucks.plate_number',
+                'users.name as driver_name',
+                'users.phone as driver_phone'
+            )
+            ->orderBy('tasks.plan_date', 'asc')
+            ->limit(50)
+            ->get();
+
+        return $tasks->toArray();
     }
 
     /**
