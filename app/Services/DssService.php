@@ -474,6 +474,10 @@ class DssService
         $plateNo = $captureData['plateNo'] ?? ($truck ? $truck->plate_number : 'UNKNOWN');
         $confidence = $captureData['confidence'] ?? null;
         $truckWasFound = $captureData['truck_was_found'] ?? ($truck !== null);
+        
+        // Получаем информацию о дворе (строгий режим)
+        $yard = Yard::find($zone->yard_id);
+        $isStrictMode = $yard && $yard->strict_mode;
 
         if ($device->type == 'Exit') {
             // Выезд - ищем посетителя по truck_id (если есть) или по plate_number
@@ -508,11 +512,17 @@ class DssService
             }
         } elseif ($device->type == 'Entry') {
             // Въезд - система подтверждения
-            // Определяем статус подтверждения:
-            // - Автоподтверждение: грузовик найден + есть разрешение + уверенность >= 80% (или уверенность не передаётся)
-            // - Ожидание: грузовик не найден ИЛИ нет разрешения ИЛИ уверенность < 80%
+            // Логика автоподтверждения:
+            // - Строгий режим: ТС должно быть в базе И иметь разрешение
+            // - Нестрогий режим: достаточно найти ТС в базе
             
-            $autoConfirm = $truckWasFound && $permit && ($confidence === null || $confidence >= 80);
+            if ($isStrictMode) {
+                // Строгий режим: ТС + разрешение
+                $autoConfirm = $truckWasFound && $permit;
+            } else {
+                // Нестрогий режим: достаточно ТС
+                $autoConfirm = $truckWasFound;
+            }
             
             // Проверяем, нет ли уже посетителя на территории
             $existingVisitor = $truck ? \App\Models\Visitor::where('yard_id', $zone->yard_id)
@@ -546,44 +556,64 @@ class DssService
                 'truck_brand_id' => $truck?->truck_brand_id,
             ]);
             
-            // Если автоподтверждение и есть задача - отправляем уведомление
-            if ($autoConfirm && $task) {
-                $task->status_id = $statusRow->id;
-                $task->begin_date = now();
-                $task->yard_id = $zone->yard_id;
-                $task->save();
+            // Если автоподтверждение - отправляем уведомление о въезде
+            if ($autoConfirm) {
+                // Обновляем задачу если есть
+                if ($task) {
+                    $task->status_id = $statusRow->id;
+                    $task->begin_date = now();
+                    $task->yard_id = $zone->yard_id;
+                    $task->save();
+                }
 
-                $warehouse = DB::table('task_loadings')
+                $warehouse = $task ? DB::table('task_loadings')
                     ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
                     ->where('task_loadings.task_id', $task->id)
                     ->where('warehouses.yard_id', $zone->yard_id)
                     ->select('warehouses.name as name')
-                    ->get();
+                    ->get() : collect();
+                
+                // Формируем текст уведомления в зависимости от наличия задачи
+                $notificationText = '<b>🚛 Въезд на территорию ' . e($yard->name ?? 'Неизвестный двор') . "</b>\n\n" .
+                    '<b>🏷️ ТС:</b> ' . e($truck->plate_number) . "\n";
+                
+                if ($task) {
+                    $notificationText .= '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                        '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                        '<b>👤 Водитель:</b> ' . ($task->user_id 
+                            ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                              ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' 
+                            : 'Не указан') . "\n" .
+                        '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                        '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n";
+                } else {
+                    $notificationText .= '<b>📦 Задание:</b> <i>Без задания</i>' . "\n";
+                }
+                
+                $notificationText .= '<b>🛂 Разрешение:</b> <i>' . e($PermitText) . '</i>' . "\n" .
+                    '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n" .
+                    '<b>📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')) . ' - ' . $device->channelName;
                     
-                (new TelegramController())->sendNotification(
-                    '<b>🚛 Въезд на территорию ' . e(Yard::where('id', $zone->yard_id)->value('name')) . "</b>\n\n" .
-                    '<b>🏷️ ТС:</b> ' . e($truck->plate_number) . "\n" .
-                    '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
-                    '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
-                    '<b>👤 Водитель:</b> ' . ($task->user_id 
-                        ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
-                          ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' 
-                        : 'Не указан') . "\n" .
-                    '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                    '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
-                    '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>' . "\n" .
-                    '<b>📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')) . ' - ' . $device->channelName .
-                    ($confidence !== null ? "\n<b>🎯 Уверенность:</b> {$confidence}%" : ''),
-                );
-            } elseif (!$autoConfirm) {
+                (new TelegramController())->sendNotification($notificationText);
+                
+            } else {
+                // Определяем причину ожидания подтверждения
+                $reason = 'Требуется проверка';
+                if (!$truckWasFound) {
+                    $reason = '🚫 ТС не найдено в базе';
+                } elseif ($isStrictMode && !$permit) {
+                    $reason = '🔒 Нет разрешения (строгий режим)';
+                }
+                
                 // Отправляем уведомление о необходимости подтверждения
                 (new TelegramController())->sendNotification(
                     '<b>⚠️ Требуется подтверждение въезда</b>' . "\n\n" .
                     '<b>🏷️ Распознанный номер:</b> ' . e($plateNo) . "\n" .
                     '<b>📍 КПП:</b> ' . e(Checkpoint::where('id', $device->checkpoint_id)->value('name')) . ' - ' . $device->channelName . "\n" .
-                    '<b>🏢 Двор:</b> ' . e(Yard::where('id', $zone->yard_id)->value('name')) . "\n" .
+                    '<b>🏢 Двор:</b> ' . e($yard->name ?? 'Неизвестный') . "\n" .
+                    '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n" .
                     ($confidence !== null ? '<b>🎯 Уверенность:</b> ' . $confidence . "%\n" : '') .
-                    '<b>❓ Причина:</b> ' . ($truckWasFound ? ($permit ? 'Низкая уверенность распознавания' : 'Нет разрешения на въезд') : 'ТС не найдено в базе') . "\n\n" .
+                    '<b>❓ Причина:</b> ' . $reason . "\n\n" .
                     '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>',
                 );
             }

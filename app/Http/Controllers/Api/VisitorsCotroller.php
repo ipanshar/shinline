@@ -501,14 +501,19 @@ class VisitorsCotroller extends Controller
             // Ищем грузовик по нормализованному номеру
             $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate])->first();
             
+            // Получаем информацию о дворе (строгий режим)
+            $yard = Yard::find($validate['yard_id']);
+            $isStrictMode = $yard && $yard->strict_mode;
+            
             // Ищем разрешение и задачу
             $permit = null;
             $task = null;
+            $activeStatus = Status::where('key', 'active')->first();
             
-            if ($truck) {
+            if ($truck && $activeStatus) {
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $validate['yard_id'])
-                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->where('status_id', $activeStatus->id)
                     ->first();
                     
                 if ($permit) {
@@ -519,9 +524,18 @@ class VisitorsCotroller extends Controller
             $statusRow = DB::table('statuses')->where('key', 'on_territory')->first();
             
             // Определяем статус подтверждения
-            // Если уверенность высокая (>=80%) и есть разрешение - автоподтверждение
+            // Логика автоподтверждения:
+            // - Если двор СТРОГИЙ: нужен truck + permit
+            // - Если двор НЕ строгий: достаточно truck
             $confidence = $request->recognition_confidence ?? 0;
-            $autoConfirm = $confidence >= 80 && $permit && $truck;
+            
+            if ($isStrictMode) {
+                // Строгий режим: ТС должно быть в базе И иметь разрешение
+                $autoConfirm = $truck && $permit;
+            } else {
+                // Нестрогий режим: достаточно найти ТС в базе
+                $autoConfirm = $truck !== null;
+            }
             
             $visitor = Visitor::create([
                 'plate_number' => $originalPlate,
@@ -535,6 +549,7 @@ class VisitorsCotroller extends Controller
                 'truck_id' => $truck?->id,
                 'task_id' => $task?->id,
                 'entrance_device_id' => $request->entrance_device_id,
+                'entry_permit_id' => $permit?->id,
                 'truck_category_id' => $truck?->truck_category_id,
                 'truck_brand_id' => $truck?->truck_brand_id,
             ]);
