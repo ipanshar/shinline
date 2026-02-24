@@ -247,9 +247,10 @@ class VisitorsCotroller extends Controller
                 ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
                 ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
                 ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
-                ->leftJoin('entry_permits', function($join) {
-                    $join->on('entry_permits.task_id', '=', 'visitors.task_id')
-                         ->on('entry_permits.truck_id', '=', 'visitors.truck_id');
+                ->leftJoin('entry_permits', function($join) use ($validate) {
+                    $join->on('entry_permits.truck_id', '=', 'visitors.truck_id')
+                         ->on('entry_permits.yard_id', '=', 'visitors.yard_id')
+                         ->where('entry_permits.id', '=', DB::raw('(SELECT MAX(ep.id) FROM entry_permits ep WHERE ep.truck_id = visitors.truck_id AND ep.yard_id = visitors.yard_id)'));
                 })
                 ->leftJoin('devaices as entrance_device', 'visitors.entrance_device_id', '=', 'entrance_device.id')
                 ->leftJoin('devaices as exit_device', 'visitors.exit_device_id', '=', 'exit_device.id')
@@ -315,6 +316,101 @@ class VisitorsCotroller extends Controller
                 'message' => 'History retrieved successfully',
                 'count' => $visitors->count(),
                 'data' => $visitors,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Получить данные для акта приёма-передачи смены
+     */
+    public function getShiftReport(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'yard_id' => 'required|integer',
+                'shift_start' => 'required|date',
+                'shift_end' => 'required|date',
+            ]);
+
+            $baseQuery = function() use ($validate) {
+                return DB::table('visitors')
+                    ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+                    ->leftJoin('users', 'tasks.user_id', '=', 'users.id')
+                    ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
+                    ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+                    ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+                    ->leftJoin('entry_permits', function($join) use ($validate) {
+                        $join->on('entry_permits.truck_id', '=', 'visitors.truck_id')
+                             ->on('entry_permits.yard_id', '=', 'visitors.yard_id')
+                             ->where('entry_permits.id', '=', DB::raw('(SELECT MAX(ep.id) FROM entry_permits ep WHERE ep.truck_id = visitors.truck_id AND ep.yard_id = visitors.yard_id)'));
+                    })
+                    ->select(
+                        'visitors.id',
+                        'visitors.plate_number',
+                        'visitors.entry_date',
+                        'visitors.exit_date',
+                        'visitors.viche_color as vehicle_color',
+                        'tasks.name as task_name',
+                        'users.name as driver_name',
+                        'users.phone as driver_phone',
+                        'trucks.color as truck_color',
+                        'truck_models.name as truck_model_name',
+                        'truck_brands.name as truck_brand_name',
+                        'entry_permits.id as permit_id',
+                        'entry_permits.one_permission as permit_one_time'
+                    )
+                    ->where('visitors.yard_id', $validate['yard_id'])
+                    ->where(function($q) {
+                        $q->where('visitors.confirmation_status', '=', 'confirmed')
+                          ->orWhereNull('visitors.confirmation_status');
+                    });
+            };
+
+            // 1. Въехали за смену (entry_date в пределах смены)
+            $enteredVehicles = $baseQuery()
+                ->where('visitors.entry_date', '>=', $validate['shift_start'])
+                ->where('visitors.entry_date', '<=', $validate['shift_end'])
+                ->orderBy('visitors.entry_date', 'asc')
+                ->get();
+
+            // 2. Выехали за смену (exit_date в пределах смены)
+            $exitedVehicles = $baseQuery()
+                ->whereNotNull('visitors.exit_date')
+                ->where('visitors.exit_date', '>=', $validate['shift_start'])
+                ->where('visitors.exit_date', '<=', $validate['shift_end'])
+                ->orderBy('visitors.exit_date', 'asc')
+                ->get();
+
+            // 3. На территории на момент конца смены
+            // Въехали до конца смены И (ещё не выехали ИЛИ выехали после конца смены)
+            $onTerritoryVehicles = $baseQuery()
+                ->where('visitors.entry_date', '<=', $validate['shift_end'])
+                ->where(function($q) use ($validate) {
+                    $q->whereNull('visitors.exit_date')
+                      ->orWhere('visitors.exit_date', '>', $validate['shift_end']);
+                })
+                ->orderBy('visitors.entry_date', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Shift report data retrieved successfully',
+                'data' => [
+                    'entered' => $enteredVehicles,
+                    'exited' => $exitedVehicles,
+                    'on_territory' => $onTerritoryVehicles,
+                ],
+                'stats' => [
+                    'entered_count' => $enteredVehicles->count(),
+                    'exited_count' => $exitedVehicles->count(),
+                    'on_territory_count' => $onTerritoryVehicles->count(),
+                ],
             ], 200);
 
         } catch (\Exception $e) {

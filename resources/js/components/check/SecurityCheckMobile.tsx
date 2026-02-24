@@ -13,7 +13,8 @@ import {
   ChevronRight,
   Search,
   Filter,
-  Truck as TruckIcon
+  Truck as TruckIcon,
+  FileText
 } from 'lucide-react';
 import {
   Dialog,
@@ -26,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import PendingVisitors from './PendingVisitors';
+import ShiftHandoverReport from './ShiftHandoverReport';
 
 interface Yard {
   id: number;
@@ -95,6 +97,7 @@ const SecurityCheckMobile = () => {
   const [showExpectedTasks, setShowExpectedTasks] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [isVisitorsCollapsed, setIsVisitorsCollapsed] = useState(false);
+  const [showShiftReport, setShowShiftReport] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const token = localStorage.getItem('auth_token');
@@ -324,6 +327,15 @@ const SecurityCheckMobile = () => {
                 </option>
               ))}
             </select>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowShiftReport(true)}
+              title="Передача смены"
+            >
+              <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Button>
 
             <Button
               variant="ghost"
@@ -758,6 +770,14 @@ const SecurityCheckMobile = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Отчёт о передаче смены */}
+      <ShiftHandoverReport
+        open={showShiftReport}
+        onOpenChange={setShowShiftReport}
+        yardId={selectedYardId}
+        yardName={getCurrentYard()?.name}
+      />
     </div>
   );
 };

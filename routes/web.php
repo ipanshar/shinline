@@ -101,6 +101,7 @@ Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisito
 Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor']); //Отклонить посетителя
 Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates']); //Поиск похожих номеров
 Route::post('/security/getvisitorhistory', [VisitorsCotroller::class,'getVisitorHistory']); //История въездов/выездов
+Route::post('/security/getshiftreport', [VisitorsCotroller::class,'getShiftReport']); //Данные для акта передачи смены
 
 // Управление разрешениями на въезд
 Route::post('/security/getpermits', [VisitorsCotroller::class,'getPermits']); //Получить список разрешений с фильтрами

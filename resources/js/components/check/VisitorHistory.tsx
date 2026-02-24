@@ -387,9 +387,9 @@ const VisitorHistory: React.FC = () => {
 
         {/* Записи */}
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {records.map((record) => (
+          {records.map((record, index) => (
             <div
-              key={record.id}
+              key={`${record.id}-${index}`}
               className={`p-3 sm:p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 ${
                 !record.exit_date ? 'bg-green-50/50 dark:bg-green-900/10' : ''
               }`}
