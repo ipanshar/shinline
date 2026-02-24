@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, Truck as TruckIcon } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -52,6 +52,7 @@ interface EntryPermit {
   granted_by_user_id: number | null; // Кто выдал
   task_id: number | null;
   one_permission: boolean; // true = разовое, false = постоянное
+  weighing_required: boolean | null; // Требуется ли взвешивание
   begin_date: string | null;
   end_date: string | null;
   status_id: number;
@@ -77,6 +78,7 @@ interface FormData {
   yard_id: number | null;
   user_id: number | null;
   one_permission: boolean;
+  weighing_required: boolean | null;
   begin_date: string;
   end_date: string;
   comment: string;
@@ -104,6 +106,7 @@ const EntryPermitsManager: React.FC = () => {
     yard_id: null,
     user_id: null,
     one_permission: false,
+    weighing_required: null,
     begin_date: "",
     end_date: "",
     comment: "",
@@ -119,6 +122,11 @@ const EntryPermitsManager: React.FC = () => {
   const [driverSearch, setDriverSearch] = useState("");
   const [driverOptions, setDriverOptions] = useState<User[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<User | null>(null);
+
+  // Диалог добавления нового ТС
+  const [addTruckDialogOpen, setAddTruckDialogOpen] = useState(false);
+  const [newTruckPlate, setNewTruckPlate] = useState("");
+  const [savingTruck, setSavingTruck] = useState(false);
 
   const token = localStorage.getItem("auth_token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -200,6 +208,44 @@ const EntryPermitsManager: React.FC = () => {
     }
   };
 
+  // Добавление нового ТС
+  const handleAddNewTruck = async () => {
+    if (!newTruckPlate.trim()) {
+      toast.error("Введите номер ТС");
+      return;
+    }
+    
+    setSavingTruck(true);
+    try {
+      const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+      const response = await axios.post("/trucs/addtruck", {
+        plate_number: newTruckPlate.trim().toUpperCase(),
+        name: newTruckPlate.trim().toUpperCase(),
+        user_id: currentUser?.id || 1,
+      }, { headers });
+      
+      if (response.data.status || response.data.id) {
+        const newTruck = response.data.data || response.data;
+        toast.success("ТС успешно добавлено");
+        
+        // Устанавливаем новое ТС как выбранное
+        setSelectedTruck({
+          id: newTruck.id,
+          plate_number: newTruck.plate_number,
+        });
+        setFormData((prev) => ({ ...prev, truck_id: newTruck.id }));
+        
+        setAddTruckDialogOpen(false);
+        setNewTruckPlate("");
+      }
+    } catch (error: any) {
+      console.error("Ошибка добавления ТС:", error);
+      toast.error(error.response?.data?.message || "Ошибка добавления ТС");
+    } finally {
+      setSavingTruck(false);
+    }
+  };
+
   const openAddDialog = () => {
     setSelectedPermit(null);
     setFormData({
@@ -207,6 +253,7 @@ const EntryPermitsManager: React.FC = () => {
       yard_id: null,
       user_id: null,
       one_permission: false,
+      weighing_required: null,
       begin_date: format(new Date(), "yyyy-MM-dd"),
       end_date: "",
       comment: "",
@@ -225,6 +272,7 @@ const EntryPermitsManager: React.FC = () => {
       yard_id: permit.yard_id,
       user_id: permit.user_id,
       one_permission: permit.one_permission,
+      weighing_required: permit.weighing_required,
       begin_date: permit.begin_date ? format(new Date(permit.begin_date), "yyyy-MM-dd") : "",
       end_date: permit.end_date ? format(new Date(permit.end_date), "yyyy-MM-dd") : "",
       comment: permit.comment || "",
@@ -281,6 +329,7 @@ const EntryPermitsManager: React.FC = () => {
             id: selectedPermit.id,
             user_id: formData.user_id,
             one_permission: formData.one_permission,
+            weighing_required: formData.weighing_required,
             begin_date: formData.begin_date || null,
             end_date: formData.end_date || null,
             comment: formData.comment || null,
@@ -298,6 +347,7 @@ const EntryPermitsManager: React.FC = () => {
             user_id: formData.user_id,
             granted_by_user_id: currentUser?.id || null,
             one_permission: formData.one_permission,
+            weighing_required: formData.weighing_required,
             begin_date: formData.begin_date || null,
             end_date: formData.end_date || null,
             comment: formData.comment || null,
@@ -397,6 +447,19 @@ const EntryPermitsManager: React.FC = () => {
           <Chip icon={<Clock className="w-3 h-3" />} label="Разовое" size="small" color="warning" />
         ) : (
           <Chip icon={<CalendarClock className="w-3 h-3" />} label="Постоянное" size="small" color="success" />
+        ),
+    },
+    {
+      field: "weighing_required",
+      headerName: "Взвешивание",
+      width: 120,
+      renderCell: (params) =>
+        params.value === true ? (
+          <Chip icon={<Scale className="w-3 h-3" />} label="Требуется" size="small" color="info" />
+        ) : params.value === false ? (
+          <Chip label="Не требуется" size="small" color="default" />
+        ) : (
+          <span className="text-gray-400">—</span>
         ),
     },
     {
@@ -599,7 +662,23 @@ const EntryPermitsManager: React.FC = () => {
 
       {/* Диалог добавления/редактирования */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[550px]">
+        <DialogContent 
+          className="sm:max-w-[550px]"
+          onPointerDownOutside={(e) => {
+            // Предотвращаем закрытие диалога при клике на выпадающий список Autocomplete
+            const target = e.target as HTMLElement;
+            if (target.closest('.MuiAutocomplete-popper') || target.closest('.MuiAutocomplete-listbox') || target.closest('.MuiAutocomplete-option')) {
+              e.preventDefault();
+            }
+          }}
+          onInteractOutside={(e) => {
+            // Предотвращаем любое взаимодействие вне диалога при клике на Autocomplete
+            const target = e.target as HTMLElement;
+            if (target.closest('.MuiAutocomplete-popper') || target.closest('.MuiAutocomplete-listbox') || target.closest('.MuiAutocomplete-option')) {
+              e.preventDefault();
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {selectedPermit ? "Редактировать разрешение" : "Добавить разрешение"}
@@ -608,23 +687,54 @@ const EntryPermitsManager: React.FC = () => {
           <div className="grid gap-4 py-4">
             {/* Поиск ТС */}
             <div className="grid gap-2">
-              <Label>Транспортное средство *</Label>
+              <div className="flex items-center justify-between">
+                <Label>Транспортное средство *</Label>
+                {!selectedPermit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => setAddTruckDialogOpen(true)}
+                  >
+                    <TruckIcon className="w-3 h-3 mr-1" />
+                    Добавить новое ТС
+                  </Button>
+                )}
+              </div>
               <Autocomplete
                 options={truckOptions}
                 getOptionLabel={(option) =>
                   `${option.plate_number}${option.truck_brand_name ? ` (${option.truck_brand_name} ${option.truck_model_name || ""})` : ""}`
                 }
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                filterOptions={(x) => x}
                 value={selectedTruck}
                 onChange={(_, newValue) => {
                   setSelectedTruck(newValue);
                   setFormData((prev) => ({ ...prev, truck_id: newValue?.id || null }));
                 }}
-                onInputChange={(_, newInputValue) => {
+                onInputChange={(_, newInputValue, reason) => {
                   setTruckSearch(newInputValue);
-                  searchTrucks(newInputValue);
+                  if (reason === 'input') {
+                    searchTrucks(newInputValue);
+                  }
                 }}
                 loading={searchingTruck}
-                disabled={!!selectedPermit} // Нельзя менять ТС при редактировании
+                disabled={!!selectedPermit}
+                disablePortal
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    <div className="flex flex-col">
+                      <span className="font-mono font-bold">{option.plate_number}</span>
+                      {option.truck_brand_name && (
+                        <span className="text-xs text-gray-500">
+                          {option.truck_brand_name} {option.truck_model_name || ""}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                )}
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -633,7 +743,11 @@ const EntryPermitsManager: React.FC = () => {
                     variant="outlined"
                   />
                 )}
-                noOptionsText="Введите номер для поиска"
+                noOptionsText={
+                  truckSearch.length >= 2 
+                    ? "ТС не найдено. Нажмите 'Добавить новое ТС'" 
+                    : "Введите номер для поиска"
+                }
               />
             </div>
 
@@ -664,15 +778,30 @@ const EntryPermitsManager: React.FC = () => {
               <Autocomplete
                 options={driverOptions}
                 getOptionLabel={(option) => `${option.name}${option.phone ? ` (${option.phone})` : ""}`}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                filterOptions={(x) => x}
                 value={selectedDriver}
                 onChange={(_, newValue) => {
                   setSelectedDriver(newValue);
                   setFormData((prev) => ({ ...prev, user_id: newValue?.id || null }));
                 }}
-                onInputChange={(_, newInputValue) => {
+                onInputChange={(_, newInputValue, reason) => {
                   setDriverSearch(newInputValue);
-                  searchDrivers(newInputValue);
+                  if (reason === 'input') {
+                    searchDrivers(newInputValue);
+                  }
                 }}
+                disablePortal
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{option.name}</span>
+                      {option.phone && (
+                        <span className="text-xs text-gray-500">{option.phone}</span>
+                      )}
+                    </div>
+                  </li>
+                )}
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -702,6 +831,32 @@ const EntryPermitsManager: React.FC = () => {
                   <SelectItem value="one_time">⏱️ Разовое (на один въезд)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Весовой контроль */}
+            <div className="grid gap-2">
+              <Label>Весовой контроль</Label>
+              <Select
+                value={formData.weighing_required === true ? "required" : formData.weighing_required === false ? "not_required" : "default"}
+                onValueChange={(v) =>
+                  setFormData((prev) => ({ 
+                    ...prev, 
+                    weighing_required: v === "required" ? true : v === "not_required" ? false : null 
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">📊 По умолчанию (категория ТС)</SelectItem>
+                  <SelectItem value="required">⚖️ Требуется взвешивание</SelectItem>
+                  <SelectItem value="not_required">❌ Не требуется взвешивание</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                При въезде ТС автоматически создастся задача на взвешивание
+              </p>
             </div>
 
             {/* Даты */}
@@ -783,6 +938,40 @@ const EntryPermitsManager: React.FC = () => {
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={saving}>
               {saving ? "Удаление..." : "Удалить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог добавления нового ТС */}
+      <Dialog open={addTruckDialogOpen} onOpenChange={setAddTruckDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Добавить новое ТС</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>Номер ТС *</Label>
+              <Input
+                placeholder="Например: А123БВ77"
+                value={newTruckPlate}
+                onChange={(e) => setNewTruckPlate(e.target.value.toUpperCase())}
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                ТС будет добавлено в базу с указанным номером
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setAddTruckDialogOpen(false);
+              setNewTruckPlate("");
+            }}>
+              Отмена
+            </Button>
+            <Button onClick={handleAddNewTruck} disabled={savingTruck || !newTruckPlate.trim()}>
+              {savingTruck ? "Добавление..." : "Добавить ТС"}
             </Button>
           </DialogFooter>
         </DialogContent>

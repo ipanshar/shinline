@@ -22,6 +22,7 @@ use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\ClientRegistrationController;
 
@@ -109,6 +110,15 @@ Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivateP
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit']); //Удалить разрешение
 Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck']); //Получить разрешения для ТС
 
+// Весовой контроль (Weighing)
+Route::post('/weighing/pending', [WeighingController::class, 'getPending']); // Ожидающие взвешивания
+Route::post('/weighing/today', [WeighingController::class, 'getToday']); // Взвешивания за сегодня
+Route::post('/weighing/record', [WeighingController::class, 'record']); // Записать взвешивание
+Route::post('/weighing/create-requirement', [WeighingController::class, 'createRequirement']); // Создать требование вручную
+Route::post('/weighing/skip', [WeighingController::class, 'skip']); // Пропустить взвешивание
+Route::post('/weighing/truck-history', [WeighingController::class, 'truckHistory']); // История взвешиваний ТС
+Route::post('/weighing/statistics', [WeighingController::class, 'statistics']); // Статистика
+Route::post('/weighing/list', [WeighingController::class, 'index']); // Список взвешиваний с фильтрами
 
 // Status routes
 Route::post('/setings/getstatus', [StatusCotroller::class,'getStatus']); //Получить все статусы

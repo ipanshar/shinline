@@ -243,9 +243,12 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, stric
   return (
     <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl overflow-hidden">
       {/* Заголовок - кликабельный для сворачивания */}
-      <button
-        className="w-full px-3 py-2 sm:py-3 flex items-center justify-between text-left hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+      <div
+        className="w-full px-3 py-2 sm:py-3 flex items-center justify-between text-left hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
+        role="button"
+        tabIndex={0}
         onClick={() => setIsCollapsed(!isCollapsed)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsCollapsed(!isCollapsed); }}
       >
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-amber-500" />
@@ -267,7 +270,7 @@ const PendingVisitors: React.FC<PendingVisitorsProps> = ({ selectedYardId, stric
           </Button>
           {isCollapsed ? <ChevronDown className="w-5 h-5 text-amber-600" /> : <ChevronUp className="w-5 h-5 text-amber-600" />}
         </div>
-      </button>
+      </div>
 
       {/* Содержимое - скрывается при сворачивании */}
       {!isCollapsed && (

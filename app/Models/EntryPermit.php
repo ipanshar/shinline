@@ -13,6 +13,7 @@ class EntryPermit extends Model
         'granted_by_user_id', // Кто выдал разрешение (null если из 1С)
         'task_id',
         'one_permission',    // true = разовое, false = постоянное
+        'weighing_required', // Требуется ли взвешивание по этому разрешению
         'begin_date',
         'end_date',
         'status_id',
@@ -21,6 +22,7 @@ class EntryPermit extends Model
 
     protected $casts = [
         'one_permission' => 'boolean',
+        'weighing_required' => 'boolean',
         'begin_date' => 'datetime',
         'end_date' => 'datetime',
     ];

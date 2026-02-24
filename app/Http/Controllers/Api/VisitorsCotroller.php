@@ -12,6 +12,7 @@ use App\Models\Truck;
 use App\Models\TruckModel;
 use App\Models\Visitor;
 use App\Models\Yard;
+use App\Services\WeighingService;
 use Dotenv\Parser\Entry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
@@ -103,6 +104,28 @@ class VisitorsCotroller extends Controller
                 'task_id' => $task ? $task->id : null,
             ]);
             $Visitor->save();
+
+            // Загружаем связи для корректной работы WeighingService
+            $Visitor->load(['yard', 'truck', 'task']);
+
+            // Создаём требование на взвешивание, если необходимо
+            $weighingService = new WeighingService();
+            $weighingRequirement = $weighingService->createRequirement($Visitor);
+            
+            if ($weighingRequirement) {
+                logger()->info('Создано требование на взвешивание', [
+                    'visitor_id' => $Visitor->id,
+                    'requirement_id' => $weighingRequirement->id,
+                    'reason' => $weighingRequirement->reason,
+                ]);
+            } else {
+                logger()->info('Взвешивание не требуется', [
+                    'visitor_id' => $Visitor->id,
+                    'yard_id' => $Visitor->yard_id,
+                    'yard_weighing_required' => $Visitor->yard?->weighing_required,
+                ]);
+            }
+
             if ($task) {
                 $yard = DB::table('yards')->where('id', $request->yard_id)->first();
                 Task::where('id', $task->id)->update([
@@ -1138,6 +1161,13 @@ class VisitorsCotroller extends Controller
                 ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . " → " . e($visitor->plate_number)
                 : '')
         );
+
+        // Загружаем связи для корректной работы WeighingService
+        $visitor->load(['yard', 'truck', 'task']);
+
+        // Создаём требование на взвешивание (если нужно)
+        $weighingService = new WeighingService();
+        $weighingService->createRequirement($visitor);
     }
 
     /**
@@ -1232,6 +1262,7 @@ class VisitorsCotroller extends Controller
                 'granted_by_user_id' => 'nullable|integer|exists:users,id', // Кто выдал
                 'task_id' => 'nullable|integer|exists:tasks,id',
                 'one_permission' => 'required|boolean', // true = разовое
+                'weighing_required' => 'nullable|boolean', // Требуется ли взвешивание
                 'begin_date' => 'nullable|date',
                 'end_date' => 'nullable|date',
                 'comment' => 'nullable|string|max:500',
@@ -1268,6 +1299,7 @@ class VisitorsCotroller extends Controller
                 'granted_by_user_id' => $validate['granted_by_user_id'] ?? null,
                 'task_id' => $validate['task_id'] ?? null,
                 'one_permission' => $validate['one_permission'],
+                'weighing_required' => $validate['weighing_required'] ?? null,
                 'begin_date' => $validate['begin_date'] ?? now(),
                 'end_date' => $validate['end_date'] ?? null,
                 'status_id' => $activeStatus->id,
@@ -1307,6 +1339,7 @@ class VisitorsCotroller extends Controller
                 'id' => 'required|integer|exists:entry_permits,id',
                 'user_id' => 'nullable|integer|exists:users,id',
                 'one_permission' => 'nullable|boolean',
+                'weighing_required' => 'nullable|boolean',
                 'begin_date' => 'nullable|date',
                 'end_date' => 'nullable|date',
                 'comment' => 'nullable|string|max:500',
@@ -1317,6 +1350,7 @@ class VisitorsCotroller extends Controller
             $updateData = [];
             if (isset($validate['user_id'])) $updateData['user_id'] = $validate['user_id'];
             if (isset($validate['one_permission'])) $updateData['one_permission'] = $validate['one_permission'];
+            if (array_key_exists('weighing_required', $validate)) $updateData['weighing_required'] = $validate['weighing_required'];
             if (isset($validate['begin_date'])) $updateData['begin_date'] = $validate['begin_date'];
             if (isset($validate['end_date'])) $updateData['end_date'] = $validate['end_date'];
             if (isset($validate['comment'])) $updateData['comment'] = $validate['comment'];

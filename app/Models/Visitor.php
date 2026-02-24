@@ -100,8 +100,45 @@ class Visitor extends Model
     {
         return $this->belongsTo(Yard::class);
     }
+    
     public function truck()
     {
         return $this->belongsTo(Truck::class);
+    }
+
+    public function task()
+    {
+        return $this->belongsTo(Task::class);
+    }
+
+    /**
+     * Получить активное разрешение на въезд для данного visitor
+     * Ищем по truck_id и yard_id
+     */
+    public function entryPermit()
+    {
+        return $this->hasOne(EntryPermit::class, 'truck_id', 'truck_id')
+            ->where('yard_id', $this->yard_id)
+            ->where('status_id', function($query) {
+                $query->select('id')
+                    ->from('statuses')
+                    ->where('key', 'active')
+                    ->limit(1);
+            })
+            ->latest();
+    }
+
+    /**
+     * Получить активное разрешение для visitor (метод для удобства)
+     */
+    public function getActivePermit()
+    {
+        return EntryPermit::where('truck_id', $this->truck_id)
+            ->where('yard_id', $this->yard_id)
+            ->whereHas('status', function($query) {
+                $query->where('key', 'active');
+            })
+            ->orderBy('created_at', 'desc')
+            ->first();
     }
 }

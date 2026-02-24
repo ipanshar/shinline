@@ -51,6 +51,7 @@ class YardCotroller extends Controller
           'id' => 'required|integer|exists:yards,id',
           'name' => 'required|string|max:255',
           'strict_mode' => 'nullable|boolean',
+          'weighing_required' => 'nullable|boolean',
      ]);
     
      $yard = Yard::find($request->id);
@@ -59,6 +60,11 @@ class YardCotroller extends Controller
      // Обновляем strict_mode если передан
      if ($request->has('strict_mode')) {
           $updateData['strict_mode'] = $request->strict_mode;
+     }
+     
+     // Обновляем weighing_required если передан
+     if ($request->has('weighing_required')) {
+          $updateData['weighing_required'] = $request->weighing_required;
      }
      
      $yard->update($updateData);

@@ -14,12 +14,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Shield, ShieldOff } from "lucide-react";
+import { Plus, Pencil, Trash2, Shield, ShieldOff, Scale } from "lucide-react";
 
 interface Yard {
   id: number;
   name: string;
   strict_mode: boolean;
+  weighing_required: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -31,7 +32,7 @@ const YardsTable: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingYard, setEditingYard] = useState<Yard | null>(null);
   const [deletingYard, setDeletingYard] = useState<Yard | null>(null);
-  const [formData, setFormData] = useState({ name: "", strict_mode: false });
+  const [formData, setFormData] = useState({ name: "", strict_mode: false, weighing_required: false });
   const [saving, setSaving] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
 
@@ -57,13 +58,13 @@ const YardsTable: React.FC = () => {
 
   const openAddDialog = () => {
     setEditingYard(null);
-    setFormData({ name: "", strict_mode: false });
+    setFormData({ name: "", strict_mode: false, weighing_required: false });
     setDialogOpen(true);
   };
 
   const openEditDialog = (yard: Yard) => {
     setEditingYard(yard);
-    setFormData({ name: yard.name, strict_mode: yard.strict_mode });
+    setFormData({ name: yard.name, strict_mode: yard.strict_mode, weighing_required: yard.weighing_required });
     setDialogOpen(true);
   };
 
@@ -88,6 +89,7 @@ const YardsTable: React.FC = () => {
             id: editingYard.id,
             name: formData.name,
             strict_mode: formData.strict_mode,
+            weighing_required: formData.weighing_required,
           },
           { headers }
         );
@@ -148,6 +150,28 @@ const YardsTable: React.FC = () => {
     }
   };
 
+  const toggleWeighingRequired = async (yard: Yard) => {
+    try {
+      await axios.post(
+        "/yard/updateyard",
+        {
+          id: yard.id,
+          name: yard.name,
+          weighing_required: !yard.weighing_required,
+        },
+        { headers }
+      );
+      toast.success(
+        yard.weighing_required
+          ? "Весовой контроль отключён"
+          : "Весовой контроль включён"
+      );
+      fetchYards();
+    } catch (error: any) {
+      toast.error("Ошибка изменения настройки");
+    }
+  };
+
   const columns: GridColDef[] = [
     { field: "id", headerName: "ID", width: isMobile ? 50 : 70 },
     { field: "name", headerName: "Название", flex: 1, minWidth: 150 },
@@ -162,6 +186,21 @@ const YardsTable: React.FC = () => {
           color={params.value ? "error" : "default"}
           size="small"
           onClick={() => toggleStrictMode(params.row)}
+          sx={{ cursor: "pointer" }}
+        />
+      ),
+    },
+    {
+      field: "weighing_required",
+      headerName: "Весовой контроль",
+      width: 160,
+      renderCell: (params) => (
+        <Chip
+          icon={<Scale size={16} />}
+          label={params.value ? "Обязателен" : "Не требуется"}
+          color={params.value ? "primary" : "default"}
+          size="small"
+          onClick={() => toggleWeighingRequired(params.row)}
           sx={{ cursor: "pointer" }}
         />
       ),
@@ -260,6 +299,27 @@ const YardsTable: React.FC = () => {
                   </Label>
                   <p className="text-xs text-muted-foreground">
                     Запрет въезда без разрешения
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {editingYard && (
+              <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                <Checkbox
+                  id="weighing_required"
+                  checked={formData.weighing_required}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, weighing_required: checked === true })
+                  }
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="weighing_required" className="flex items-center gap-2 cursor-pointer">
+                    <Scale className="w-4 h-4" />
+                    Весовой контроль
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Обязательное взвешивание при въезде/выезде
                   </p>
                 </div>
               </div>

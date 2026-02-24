@@ -483,11 +483,13 @@ const SecurityCheckMobile = () => {
           {/* Блок посетителей - сворачиваемый */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
             {/* Заголовок - кликабельный для сворачивания */}
-            <button
-              className="w-full px-3 py-2 sm:py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-              onClick={() => setIsVisitorsCollapsed(!isVisitorsCollapsed)}
+            <div
+              className="w-full px-3 py-2 sm:py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
             >
-              <div className="flex items-center gap-2">
+              <div 
+                className="flex items-center gap-2 flex-1"
+                onClick={() => setIsVisitorsCollapsed(!isVisitorsCollapsed)}
+              >
                 <Car className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
                 <span className="font-semibold text-sm sm:text-base">
                   {getFilterName()}
@@ -535,9 +537,11 @@ const SecurityCheckMobile = () => {
                   )}
                 </div>
                 
-                {isVisitorsCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                <div onClick={() => setIsVisitorsCollapsed(!isVisitorsCollapsed)} className="cursor-pointer">
+                  {isVisitorsCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </div>
               </div>
-            </button>
+            </div>
 
             {/* Содержимое - скрывается при сворачивании */}
             {!isVisitorsCollapsed && (

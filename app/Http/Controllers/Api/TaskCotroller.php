@@ -23,6 +23,7 @@ use App\Events\MessageSent;
 use App\Http\Controllers\TelegramController;
 use App\Models\EntryPermit;
 use App\Models\Visitor;
+use App\Models\WeighingRequirement;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Telegram\Bot\Laravel\Facades\Telegram;
@@ -595,7 +596,14 @@ class TaskCotroller extends Controller
 
             //Задача взвешивание
             $weighing = 0;
-            $weighing = $this->createUpdateTaskWeighing($task->id, $validate['weighing'], $yard ? $yard->id : 1, Count($validate['warehouse']));
+            $weighing = $this->createUpdateTaskWeighing(
+                $task->id, 
+                $validate['weighing'], 
+                $yard ? $yard->id : 1, 
+                Count($validate['warehouse']),
+                $truck ? $truck->id : null,
+                $validate['plate_number'] ?? null
+            );
             //--
 
             //Задачи для погрузки
@@ -1034,18 +1042,27 @@ class TaskCotroller extends Controller
         return $user;
     }
 
-    private function createUpdateTaskWeighing($task_id, $weighing = null, $yard_id = 1, $warehouseCount = 1)
+    private function createUpdateTaskWeighing($task_id, $weighing = null, $yard_id = 1, $warehouseCount = 1, $truck_id = null, $plate_number = null)
     {
         if (!$task_id) {
             return 0;
         }
+        
+        // Работа со старой системой TaskWeighing
         $taskWeighing = TaskWeighing::where('task_id', $task_id)->where('yard_id', $yard_id)->first();
+        
         if ($taskWeighing && $weighing) {
-            return 1; // Проверяем наличие задачи
+            // Задача уже существует, проверяем WeighingRequirement
+            $this->syncWeighingRequirement($task_id, $yard_id, $truck_id, $plate_number, true);
+            return 1;
         } else if ($taskWeighing && $weighing == null) {
+            // Удаляем задачу на взвешивания
             TaskWeighing::where('task_id', $task_id)->where('yard_id', $yard_id)->delete();
-            return 0; // Удаляем задачу на взвешивания
+            // Также удаляем требование в новой системе (если не было взвешиваний)
+            $this->syncWeighingRequirement($task_id, $yard_id, $truck_id, $plate_number, false);
+            return 0;
         } else if ($taskWeighing == null && $weighing) {
+            // Создаем задание на взвешивания в старой системе
             TaskWeighing::create([
                 'task_id' => $task_id,
                 'sort_order' =>  1,
@@ -1058,7 +1075,90 @@ class TaskCotroller extends Controller
                 'statuse_weighing_id' => 2,
                 'yard_id' => $yard_id,
             ]);
-            return 1; // Создаем задание на взвешивания
+            // Создаем требование в новой системе
+            $this->syncWeighingRequirement($task_id, $yard_id, $truck_id, $plate_number, true);
+            return 1;
+        }
+        
+        return 0;
+    }
+
+    /**
+     * Синхронизирует WeighingRequirement с TaskWeighing
+     * @param int $task_id ID задачи
+     * @param int $yard_id ID двора
+     * @param int|null $truck_id ID грузовика
+     * @param string|null $plate_number Номер ТС
+     * @param bool $needsWeighing Требуется ли взвешивание
+     */
+    private function syncWeighingRequirement($task_id, $yard_id, $truck_id = null, $plate_number = null, $needsWeighing = true)
+    {
+        // Если нет truck_id - пытаемся получить из задачи
+        if (!$truck_id) {
+            $task = Task::find($task_id);
+            if ($task && $task->truck_id) {
+                $truck_id = $task->truck_id;
+            }
+        }
+        
+        // Получаем plate_number из truck если не передан
+        if (!$plate_number && $truck_id) {
+            $truck = Truck::find($truck_id);
+            $plate_number = $truck ? $truck->plate_number : null;
+        }
+        
+        // Если нет truck_id или plate_number - не создаём требование
+        if (!$truck_id || !$plate_number) {
+            return;
+        }
+        
+        // Ищем существующее требование по task_id и yard_id
+        $requirement = WeighingRequirement::where('task_id', $task_id)
+            ->where('yard_id', $yard_id)
+            ->first();
+        
+        if ($needsWeighing) {
+            // Если требование не существует - создаем
+            if (!$requirement) {
+                WeighingRequirement::create([
+                    'yard_id' => $yard_id,
+                    'task_id' => $task_id,
+                    'truck_id' => $truck_id,
+                    'plate_number' => $plate_number,
+                    'required_type' => WeighingRequirement::TYPE_BOTH,
+                    'reason' => WeighingRequirement::REASON_TASK,
+                    'status' => WeighingRequirement::STATUS_PENDING,
+                ]);
+            } else {
+                // Обновляем существующее требование если нужно
+                $updateData = [];
+                if ($truck_id && $requirement->truck_id !== $truck_id) {
+                    $updateData['truck_id'] = $truck_id;
+                    // При смене truck обновляем plate_number
+                    $updateData['plate_number'] = $plate_number;
+                }
+                if ($plate_number && $requirement->plate_number !== $plate_number) {
+                    $updateData['plate_number'] = $plate_number;
+                }
+                // Если статус skipped - восстанавливаем на pending
+                if ($requirement->status === WeighingRequirement::STATUS_SKIPPED) {
+                    $updateData['status'] = WeighingRequirement::STATUS_PENDING;
+                    $updateData['skipped_reason'] = null;
+                    $updateData['skipped_by_user_id'] = null;
+                    $updateData['skipped_at'] = null;
+                }
+                if (!empty($updateData)) {
+                    $requirement->update($updateData);
+                }
+            }
+        } else {
+            // Удаляем требование только если нет связанных взвешиваний
+            if ($requirement && 
+                $requirement->status === WeighingRequirement::STATUS_PENDING &&
+                !$requirement->entry_weighing_id && 
+                !$requirement->exit_weighing_id) {
+                $requirement->delete();
+            }
         }
     }
 

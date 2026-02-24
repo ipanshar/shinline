@@ -18,6 +18,7 @@ use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\Api\RegionController;
+use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\ClientRegistrationController;
 use Illuminate\Http\Request;
@@ -197,3 +198,13 @@ Route::post('/whatsapp/chat-messages', [\App\Http\Controllers\WhatsAppController
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones'])->middleware('auth:sanctum'); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone'])->middleware('auth:sanctum'); // Создать или обновить зону
+
+// Weighing routes (Весовой контроль)
+Route::post('/weighing/pending', [WeighingController::class, 'getPending'])->middleware('auth:sanctum'); // Ожидающие взвешивания
+Route::post('/weighing/today', [WeighingController::class, 'getToday'])->middleware('auth:sanctum'); // Взвешивания за сегодня
+Route::post('/weighing/record', [WeighingController::class, 'record'])->middleware('auth:sanctum'); // Записать взвешивание
+Route::post('/weighing/create-requirement', [WeighingController::class, 'createRequirement'])->middleware('auth:sanctum'); // Создать требование вручную
+Route::post('/weighing/skip', [WeighingController::class, 'skip'])->middleware('auth:sanctum'); // Пропустить взвешивание
+Route::post('/weighing/truck-history', [WeighingController::class, 'truckHistory'])->middleware('auth:sanctum'); // История взвешиваний ТС
+Route::post('/weighing/statistics', [WeighingController::class, 'statistics'])->middleware('auth:sanctum'); // Статистика
+Route::post('/weighing/list', [WeighingController::class, 'index'])->middleware('auth:sanctum'); // Список взвешиваний с фильтрами
