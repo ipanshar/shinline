@@ -890,14 +890,15 @@ class VisitorsCotroller extends Controller
         $trucks = $query->limit(20)->get();
 
         // Добавляем информацию о разрешениях и задачах
-        $result = $trucks->map(function ($truck) use ($yardId, $normalized) {
+        $activeStatus = Status::where('key', 'active')->first();
+        $result = $trucks->map(function ($truck) use ($yardId, $normalized, $activeStatus) {
             $permit = null;
             $task = null;
             
-            if ($yardId) {
+            if ($yardId && $activeStatus) {
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $yardId)
-                    ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->where('status_id', $activeStatus->id)
                     ->first();
                     
                 if ($permit) {
@@ -933,20 +934,21 @@ class VisitorsCotroller extends Controller
     private function getExpectedTasks(int $yardId): array
     {
         $statusNew = Status::where('key', 'new')->first();
+        $activeStatus = Status::where('key', 'active')->first();
         
-        if (!$statusNew) {
+        if (!$statusNew || !$activeStatus) {
             return [];
         }
 
         $tasks = Task::query()
             ->where('status_id', $statusNew->id)
-            ->where(function ($q) use ($yardId) {
+            ->where(function ($q) use ($yardId, $activeStatus) {
                 $q->where('yard_id', $yardId)
-                  ->orWhereExists(function ($subQuery) use ($yardId) {
+                  ->orWhereExists(function ($subQuery) use ($yardId, $activeStatus) {
                       $subQuery->from('entry_permits')
                           ->whereRaw('entry_permits.task_id = tasks.id')
                           ->where('entry_permits.yard_id', $yardId)
-                          ->where('entry_permits.status_id', Status::where('key', 'active')->first()->id);
+                          ->where('entry_permits.status_id', $activeStatus->id);
                   });
             })
             ->leftJoin('trucks', 'tasks.truck_id', '=', 'trucks.id')
