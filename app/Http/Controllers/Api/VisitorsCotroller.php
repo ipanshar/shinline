@@ -50,6 +50,7 @@ class VisitorsCotroller extends Controller
             $permit = $truck ? EntryPermit::where('truck_id', $truck ? $truck->id : null)
                 ->where('yard_id', $request->yard_id)
                 ->where('status_id', '=', Status::where('key', 'active')->first()->id)
+                ->orderBy('created_at', 'desc')
                 ->first() : null;
 
             // Проверка строгого режима
@@ -343,6 +344,7 @@ class VisitorsCotroller extends Controller
                 ->where('yard_id', $visitor->yard_id)
                 ->where('one_permission', true)
                 ->where('status_id', Status::where('key', 'active')->first()->id)
+                ->orderBy('created_at', 'desc')
                 ->first();
 
             if ($permit) {
@@ -418,6 +420,7 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $request->yard_id)
                     ->where('status_id', $activeStatusId)
+                    ->orderBy('created_at', 'desc')
                     ->first();
                 
                 $task = $permit ? Task::find($permit->task_id) : null;
@@ -511,9 +514,11 @@ class VisitorsCotroller extends Controller
             $activeStatus = Status::where('key', 'active')->first();
             
             if ($truck && $activeStatus) {
+                // Получаем последнее активное разрешение (по дате создания)
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $validate['yard_id'])
                     ->where('status_id', $activeStatus->id)
+                    ->orderBy('created_at', 'desc')
                     ->first();
                     
                 if ($permit) {
@@ -789,6 +794,7 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $visitor->yard_id)
                     ->where('status_id', Status::where('key', 'active')->first()->id)
+                    ->orderBy('created_at', 'desc')
                     ->first();
                     
                 if ($permit) {
@@ -1010,6 +1016,7 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $yardId)
                     ->where('status_id', $activeStatus->id)
+                    ->orderBy('created_at', 'desc')
                     ->first();
                     
                 if ($permit) {
@@ -1105,10 +1112,11 @@ class VisitorsCotroller extends Controller
             ->select('warehouses.name')
             ->get();
 
-        // Получаем информацию о разрешении
+        // Получаем информацию о разрешении (последнее активное)
         $permit = EntryPermit::where('truck_id', $visitor->truck_id)
             ->where('yard_id', $yardId)
             ->where('status_id', Status::where('key', 'active')->first()->id)
+            ->orderBy('created_at', 'desc')
             ->first();
 
         $permitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
@@ -1242,6 +1250,7 @@ class VisitorsCotroller extends Controller
             $existingPermit = EntryPermit::where('truck_id', $validate['truck_id'])
                 ->where('yard_id', $validate['yard_id'])
                 ->where('status_id', $activeStatus->id)
+                ->orderBy('created_at', 'desc')
                 ->first();
 
             if ($existingPermit) {
