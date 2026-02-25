@@ -426,6 +426,12 @@ class TaskCotroller extends Controller
     public function addApiTask(Request $request)
     {
         try {
+            // Очистка task_id от пробелов и преобразование в число
+            if ($request->has('task_id') && $request->task_id) {
+                $cleanTaskId = str_replace(' ', '', $request->task_id);
+                $request->merge(['task_id' => is_numeric($cleanTaskId) ? (int)$cleanTaskId : null]);
+            }
+
             $validate = $request->validate([
                 'task_id' => 'nullable|integer',
                 'name' => 'nullable|string|max:255',
