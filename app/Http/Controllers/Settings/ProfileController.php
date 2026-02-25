@@ -72,13 +72,18 @@ class ProfileController extends Controller
             return response()->json(['message' => 'Пользователь не найден'], 404);
         }
 
+        // Получаем все разрешения пользователя через его роли
+        $permissions = $user->getAllPermissions()->pluck('name');
+
         // Формируем ответ с данными пользователя
         return response()->json([
             'id' => $user->id,
             'name' => $user->name,
-            'roles' => $user->roles->pluck('name'), // Получение ролей (если установлен relation roles)
-            'avatar' => $user->avatar, // Например, если у пользователя есть поле avatar
+            'roles' => $user->roles->pluck('name'), // Получение ролей
+            'permissions' => $permissions, // Все разрешения пользователя
+            'avatar' => $user->avatar,
             'email'=> $user->email,
+            'isAdmin' => $user->isAdmin(),
         ], 200);
     }
 }

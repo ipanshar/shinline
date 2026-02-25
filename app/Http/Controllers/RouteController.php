@@ -83,5 +83,9 @@ class RouteController extends Controller
     public function chatCounterparty(){
         return Inertia::render('chat_counterparty');
     }
+    
+    public function permits(){
+        return Inertia::render('permits');
+    }
 
 }

@@ -50,6 +50,7 @@ Route::get('/tasks/scheduling', [RouteController::class, 'taskHourlySchedule']);
 Route::get('/tasks/operator-workplace', [RouteController::class, 'operatorWorkplace']);
 Route::get('/weighing', [RouteController::class, 'weighing']);
 Route::get('/check', [RouteController::class, 'check']);
+Route::get('/permits', [RouteController::class, 'permits']);
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
@@ -80,6 +81,20 @@ Route::get('/roles', [RoleController::class, 'index']);
 Route::post('/roles', [RoleController::class, 'store']);
 Route::post('/roles/assign', [RoleController::class, 'assignRole']);
 Route::post('/roles/revoke', [RoleController::class, 'revoke']);
+
+// RBAC routes (Управление ролями и разрешениями)
+Route::prefix('rbac')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\RbacController::class, 'index']); // Получить все роли и разрешения
+    Route::get('/stats', [\App\Http\Controllers\Api\RbacController::class, 'getStats']); // Статистика RBAC
+    Route::get('/users', [\App\Http\Controllers\Api\RbacController::class, 'getUsers']); // Пользователи с пагинацией
+    Route::put('/users/{user}/roles', [\App\Http\Controllers\Api\RbacController::class, 'updateUserRoles']); // Обновить роли пользователя
+    Route::post('/users/bulk-assign', [\App\Http\Controllers\Api\RbacController::class, 'bulkAssignRole']); // Массовое назначение роли
+    Route::post('/users/bulk-revoke', [\App\Http\Controllers\Api\RbacController::class, 'bulkRevokeRole']); // Массовое удаление роли
+    Route::post('/roles', [\App\Http\Controllers\Api\RbacController::class, 'createRole']); // Создать роль
+    Route::put('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'updateRole']); // Обновить роль
+    Route::delete('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'deleteRole']); // Удалить роль
+    Route::put('/roles/{role}/permissions', [\App\Http\Controllers\Api\RbacController::class, 'updateRolePermissions']); // Обновить разрешения роли
+});
 
 Route::get('/profile/user', [ProfileController::class, 'getUser']);
 

@@ -4,13 +4,17 @@ interface User {
     id: number;
     name: string;
     roles: string[];
+    permissions?: string[]; // Разрешения пользователя
     email?: string;
-    avatar?: string; // Аватар пользователя (если требуется)
+    avatar?: string;
+    isAdmin?: boolean;
 }
 
 interface UserContextType {
     user: User | null;
     setUser: (user: User | null) => void;
+    hasPermission: (permission: string) => boolean;
+    hasAnyPermission: (permissions: string[]) => boolean;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -21,23 +25,37 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Обновляем состояние и записываем в сессию
     const setUser = (user: User | null) => {
         if (user) {
-            sessionStorage.setItem('user', JSON.stringify(user)); // Сохраняем в сессии
+            sessionStorage.setItem('user', JSON.stringify(user));
         } else {
-            sessionStorage.removeItem('user'); // Удаляем из сессии, если пользователь сбрасывается
+            sessionStorage.removeItem('user');
         }
-        setUserState(user); // Обновляем состояние
+        setUserState(user);
+    };
+
+    // Проверка разрешения
+    const hasPermission = (permission: string): boolean => {
+        if (!user) return false;
+        if (user.isAdmin || user.roles.includes('Администратор')) return true;
+        return user.permissions?.includes(permission) ?? false;
+    };
+
+    // Проверка любого из разрешений
+    const hasAnyPermission = (permissions: string[]): boolean => {
+        if (!user) return false;
+        if (user.isAdmin || user.roles.includes('Администратор')) return true;
+        return permissions.some(p => user.permissions?.includes(p));
     };
 
     // Загружаем данные из сессии при монтировании
     useEffect(() => {
         const userFromSession = sessionStorage.getItem('user');
         if (userFromSession) {
-            setUserState(JSON.parse(userFromSession)); // Устанавливаем пользователя из сессии
+            setUserState(JSON.parse(userFromSession));
         }
     }, []);
 
     return (
-        <UserContext.Provider value={{ user, setUser }}>
+        <UserContext.Provider value={{ user, setUser, hasPermission, hasAnyPermission }}>
             {children}
         </UserContext.Provider>
     );

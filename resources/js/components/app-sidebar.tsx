@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { MessageCircle,MessageCircleCodeIcon,LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen } from 'lucide-react';
+import { MessageCircle,MessageCircleCodeIcon,LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -12,6 +12,10 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher2 from './LanguageSwitcher2';
 
+// Расширенный тип для навигации с поддержкой разрешений
+interface NavItemWithPermission extends NavItem {
+    permission?: string; // Требуемое разрешение (например: 'references.view')
+}
 
 export function AppSidebar() {
     const { user, setUser } = useUser(); 
@@ -19,85 +23,91 @@ export function AppSidebar() {
 
     const { t } = useTranslation();
 
-// Навигация основного меню
-const mainNavItems: NavItem[] = [
+// Навигация основного меню с разрешениями
+const mainNavItems: NavItemWithPermission[] = [
      {
         title: t('home'),
         href: '/dashboard',
         icon: LayoutGrid,
-        role: '',
+        permission: '', // Доступно всем авторизованным
     },
     {
         title: 'Статистика',
         href: '/statistics',
         icon: LineChart,
-        role: 'Статистика',
+        permission: 'statistics.view',
     },
     {
         title: t('roles'),
         href: '/roles_permissions',
         icon: ShieldCheck,
-        role: 'Администратор', // Доступ только для администраторов
+        permission: 'roles.view', // Требуется разрешение на просмотр ролей
     },
     {
         title: t('dss_integration'),
         href: '/integration_dss',
         icon: Boxes,
-        role: 'Интегратор', // Доступ  для роль интегратор
+        permission: 'integrations.dss',
     },
        {
         title: t('WhatsApp Business Settings'),
         href: '/integration_whatsapp_business',
         icon: MessageCircleCodeIcon,
-        role: 'Интегратор', // Доступ  для роль интегратор
+        permission: 'integrations.whatsapp',
     },
     {
         title: 'Справочники',
         href: '/references',
         icon: BookOpen,
-        role: 'Оператор', // Доступ для роль Оператор
+        permission: 'references.view',
     },
     {
         title: t('warehouses'),
         href: '/warehouses',
         icon: Warehouse,
-        role: 'Оператор', // Доступ  для роль Оператор
+        permission: 'warehouses.view',
     },
     {
         title: t('trucks'),
         href: '/trucks',
         icon: Truck,
-        role: 'Оператор', // Доступ  для роль Оператор
+        permission: 'trucks.view',
     },
     {
         title: t('tasks'),
         href: '/tasks',
         icon: ListChecks,
-        role: 'Оператор', // Доступ  для роль Оператор
+        permission: 'tasks.view',
     },
     {
         title: t('chat'),
         href: '/chat',
         icon: MessageCircle,
-        role: 'Оператор', // Доступ только для администраторов
+        permission: 'chat.view',
     },
     {
         title: t('check'),
         href: '/check',
         icon: ShieldCheck,
-        role: 'Охрана', // Доступ  для роль Охрана
+        permission: 'checkpoint.view',
+    },
+    {
+        title: 'Разрешения',
+        href: '/permits',
+        icon: Ticket,
+        permission: 'permits.view',
     },
     {
         title: t('weighing'),
         href: '/weighing',
         icon: Scale,
-        role: 'Охрана', // Доступ  для роль Охрана
+        permission: 'weighing.view',
     },
     {
         title: t('history'),
         href: '/history',
         icon: History,
-        role: 'Охрана', // Доступ  для роль Охрана
+        permission: 'history.view',
     },
    
 ];
@@ -108,8 +118,14 @@ const footerNavItems: NavItem[] = [
 ];
 
 
+    // Фильтрация на основе разрешений пользователя
     const filteredMainNavItems = mainNavItems.filter((item) => {
-        return !item.role || user?.roles.includes(item.role);
+        // Если разрешение не указано - доступно всем авторизованным
+        if (!item.permission) return true;
+        // Администратор видит все пункты меню
+        if (user?.isAdmin) return true;
+        // Проверяем наличие требуемого разрешения
+        return user?.permissions?.includes(item.permission);
     });
     useEffect(() => {
         if (!user) {
@@ -118,8 +134,10 @@ const footerNavItems: NavItem[] = [
                     id: response.data.id,
                     name: response.data.name,
                     roles: response.data.roles,
+                    permissions: response.data.permissions,
                     avatar: response.data.avatar,
                     email: response.data.email,
+                    isAdmin: response.data.isAdmin,
                 });
             }).catch((error) => {
                 console.error('Ошибка при получении данных пользователя:', error);

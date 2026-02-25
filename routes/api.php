@@ -208,3 +208,17 @@ Route::post('/weighing/skip', [WeighingController::class, 'skip'])->middleware('
 Route::post('/weighing/truck-history', [WeighingController::class, 'truckHistory'])->middleware('auth:sanctum'); // История взвешиваний ТС
 Route::post('/weighing/statistics', [WeighingController::class, 'statistics'])->middleware('auth:sanctum'); // Статистика
 Route::post('/weighing/list', [WeighingController::class, 'index'])->middleware('auth:sanctum'); // Список взвешиваний с фильтрами
+
+// RBAC routes (Управление ролями и разрешениями)
+Route::prefix('rbac')->middleware('auth:sanctum')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\RbacController::class, 'index']); // Получить все роли и разрешения
+    Route::get('/stats', [\App\Http\Controllers\Api\RbacController::class, 'getStats']); // Статистика RBAC
+    Route::get('/users', [\App\Http\Controllers\Api\RbacController::class, 'getUsers']); // Пользователи с пагинацией
+    Route::put('/users/{user}/roles', [\App\Http\Controllers\Api\RbacController::class, 'updateUserRoles']); // Обновить роли пользователя
+    Route::post('/users/bulk-assign', [\App\Http\Controllers\Api\RbacController::class, 'bulkAssignRole']); // Массовое назначение роли
+    Route::post('/users/bulk-revoke', [\App\Http\Controllers\Api\RbacController::class, 'bulkRevokeRole']); // Массовое удаление роли
+    Route::post('/roles', [\App\Http\Controllers\Api\RbacController::class, 'createRole']); // Создать роль
+    Route::put('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'updateRole']); // Обновить роль
+    Route::delete('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'deleteRole']); // Удалить роль
+    Route::put('/roles/{role}/permissions', [\App\Http\Controllers\Api\RbacController::class, 'updateRolePermissions']); // Обновить разрешения роли
+});
