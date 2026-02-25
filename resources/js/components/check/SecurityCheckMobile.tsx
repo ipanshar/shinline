@@ -14,7 +14,11 @@ import {
   Search,
   Filter,
   Truck as TruckIcon,
-  FileText
+  FileText,
+  UserRound,
+  Building2,
+  Target,
+  CheckCircle
 } from 'lucide-react';
 import {
   Dialog,
@@ -81,6 +85,26 @@ interface Task {
   name?: string;
 }
 
+interface GuestPermit {
+  id: number;
+  truck_id: number;
+  yard_id: number;
+  plate_number: string;
+  truck_model_name?: string;
+  yard_name: string;
+  is_guest: boolean;
+  guest_name: string;
+  guest_company: string | null;
+  guest_destination: string | null;
+  guest_purpose: string | null;
+  guest_phone: string | null;
+  begin_date: string | null;
+  end_date: string | null;
+  status_key: string;
+  granted_by_name?: string;
+  comment?: string;
+}
+
 const SecurityCheckMobile = () => {
   const [yards, setYards] = useState<Yard[]>([]);
   const [selectedYardId, setSelectedYardId] = useState<number | null>(null);
@@ -98,6 +122,10 @@ const SecurityCheckMobile = () => {
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [isVisitorsCollapsed, setIsVisitorsCollapsed] = useState(false);
   const [showShiftReport, setShowShiftReport] = useState(false);
+  // Гостевые пропуска
+  const [expectedGuests, setExpectedGuests] = useState<GuestPermit[]>([]);
+  const [showExpectedGuests, setShowExpectedGuests] = useState(false);
+  const [processingGuestId, setProcessingGuestId] = useState<number | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const token = localStorage.getItem('auth_token');
@@ -146,21 +174,70 @@ const SecurityCheckMobile = () => {
       .catch(err => console.error('Ошибка при загрузке задач:', err));
   }, [token]);
 
+  // Загрузка ожидаемых гостей
+  const loadExpectedGuests = useCallback(() => {
+    if (!selectedYardId) return;
+    
+    axios.post('/security/getpermits', { 
+      yard_id: selectedYardId, 
+      status: 'active',
+      is_guest: true  // Только гостевые пропуска
+    }, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+      .then(res => {
+        if (res.data.status) {
+          // Фильтруем только гостевые пропуска
+          const guests = res.data.data.filter((p: GuestPermit) => p.is_guest === true);
+          setExpectedGuests(guests);
+        }
+      })
+      .catch(err => console.error('Ошибка при загрузке гостей:', err));
+  }, [selectedYardId, token]);
+
   useEffect(() => {
     if (selectedYardId !== null) {
       setVisitors([]);
       loadVisitors();
       loadExpectedTasks();
+      loadExpectedGuests();
     }
-  }, [selectedYardId, loadVisitors, loadExpectedTasks]);
+  }, [selectedYardId, loadVisitors, loadExpectedTasks, loadExpectedGuests]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       loadVisitors();
       loadExpectedTasks();
+      loadExpectedGuests();
     }, 15000);
     return () => clearInterval(interval);
-  }, [loadVisitors, loadExpectedTasks]);
+  }, [loadVisitors, loadExpectedTasks, loadExpectedGuests]);
+
+  // Быстрый пропуск гостя
+  const quickAdmitGuest = async (guest: GuestPermit) => {
+    if (!selectedYardId) return;
+    
+    setProcessingGuestId(guest.id);
+    try {
+      // Добавляем посетителя по номеру ТС из разрешения
+      await axios.post('/security/addvisitor', {
+        plate_number: guest.plate_number,
+        truck_model_name: guest.truck_model_name || 'Unknown',
+        yard_id: selectedYardId,
+        permit_id: guest.id  // Передаём ID разрешения для связи
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      
+      toast.success(`✅ Гость ${guest.guest_name} пропущен`);
+      loadVisitors();
+      loadExpectedGuests();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Ошибка при пропуске гостя');
+    } finally {
+      setProcessingGuestId(null);
+    }
+  };
 
   const searchTruck = () => {
     if (searchPlate.length < 3 || !selectedYardId) return;
@@ -484,6 +561,105 @@ const SecurityCheckMobile = () => {
                       <div className="text-xs sm:text-sm text-gray-600 mt-0.5">
                         {task.name && <span>📦 {task.name}</span>}
                         {task.user_name && <span className="ml-2">👤 {task.user_name}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 🎫 Ожидаемые ГОСТИ (сворачиваемый блок) */}
+          {expectedGuests.length > 0 && (
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/30 dark:to-pink-900/30 rounded-xl shadow-sm overflow-hidden border border-purple-200 dark:border-purple-700">
+              <button
+                className="w-full px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between text-left"
+                onClick={() => setShowExpectedGuests(!showExpectedGuests)}
+              >
+                <div className="flex items-center gap-2">
+                  <UserRound className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+                  <span className="font-semibold text-sm sm:text-base text-purple-700 dark:text-purple-300">
+                    Ожидаемые гости
+                  </span>
+                  <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                    {expectedGuests.length}
+                  </span>
+                </div>
+                {showExpectedGuests ? <ChevronDown className="w-5 h-5 text-purple-600" /> : <ChevronRight className="w-5 h-5 text-purple-600" />}
+              </button>
+
+              {showExpectedGuests && (
+                <div className="border-t border-purple-200 dark:border-purple-700 max-h-80 overflow-y-auto">
+                  {expectedGuests.map((guest) => (
+                    <div 
+                      key={guest.id} 
+                      className="px-3 py-3 sm:px-4 sm:py-4 border-b border-purple-100 dark:border-purple-800 last:border-b-0 hover:bg-purple-100/50 dark:hover:bg-purple-900/50"
+                    >
+                      {/* Верхняя строка: ТС и кнопка пропуска */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <TruckIcon className="w-4 h-4 text-gray-500" />
+                          <span className="font-mono font-bold text-sm">{guest.plate_number}</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => quickAdmitGuest(guest)}
+                          disabled={processingGuestId === guest.id}
+                        >
+                          {processingGuestId === guest.id ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4 mr-1" />
+                              Пропустить
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* Информация о госте */}
+                      <div className="space-y-1 pl-6">
+                        <div className="flex items-center gap-2">
+                          <User className="w-3.5 h-3.5 text-purple-500" />
+                          <span className="font-medium text-sm">{guest.guest_name}</span>
+                        </div>
+                        
+                        {guest.guest_company && (
+                          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                            <Building2 className="w-3.5 h-3.5" />
+                            <span className="text-xs">{guest.guest_company}</span>
+                          </div>
+                        )}
+                        
+                        {guest.guest_destination && (
+                          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                            <Target className="w-3.5 h-3.5" />
+                            <span className="text-xs">К кому: {guest.guest_destination}</span>
+                          </div>
+                        )}
+                        
+                        {guest.guest_purpose && (
+                          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                            <FileText className="w-3.5 h-3.5" />
+                            <span className="text-xs">Цель: {guest.guest_purpose}</span>
+                          </div>
+                        )}
+                        
+                        {guest.guest_phone && (
+                          <div className="flex items-center gap-2">
+                            <Phone className="w-3.5 h-3.5 text-green-500" />
+                            <a href={`tel:${guest.guest_phone}`} className="text-xs text-blue-600 underline">
+                              {guest.guest_phone}
+                            </a>
+                          </div>
+                        )}
+
+                        {guest.comment && (
+                          <div className="text-xs text-gray-500 italic mt-1">
+                            💬 {guest.comment}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

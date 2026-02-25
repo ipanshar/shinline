@@ -1326,6 +1326,12 @@ class VisitorsCotroller extends Controller
                 $query->whereRaw("LOWER(REPLACE(trucks.plate_number, ' ', '')) LIKE ?", ['%' . $plate . '%']);
             }
 
+            // Фильтр по гостевым пропускам
+            if ($request->has('is_guest')) {
+                $isGuest = filter_var($request->is_guest, FILTER_VALIDATE_BOOLEAN);
+                $query->where('entry_permits.is_guest', $isGuest);
+            }
+
             // Сортировка
             $query->orderBy('entry_permits.created_at', 'desc');
 
@@ -1362,6 +1368,13 @@ class VisitorsCotroller extends Controller
                 'begin_date' => 'nullable|date',
                 'end_date' => 'nullable|date',
                 'comment' => 'nullable|string|max:500',
+                // Гостевые поля
+                'is_guest' => 'nullable|boolean',
+                'guest_name' => 'nullable|string|max:255',
+                'guest_company' => 'nullable|string|max:255',
+                'guest_destination' => 'nullable|string|max:255',
+                'guest_purpose' => 'nullable|string|max:500',
+                'guest_phone' => 'nullable|string|max:50',
             ]);
 
             // Получаем статус "active"
@@ -1400,6 +1413,13 @@ class VisitorsCotroller extends Controller
                 'end_date' => $validate['end_date'] ?? null,
                 'status_id' => $activeStatus->id,
                 'comment' => $validate['comment'] ?? null,
+                // Гостевые поля
+                'is_guest' => $validate['is_guest'] ?? false,
+                'guest_name' => $validate['guest_name'] ?? null,
+                'guest_company' => $validate['guest_company'] ?? null,
+                'guest_destination' => $validate['guest_destination'] ?? null,
+                'guest_purpose' => $validate['guest_purpose'] ?? null,
+                'guest_phone' => $validate['guest_phone'] ?? null,
             ]);
 
             // Загружаем связи для ответа
@@ -1439,6 +1459,13 @@ class VisitorsCotroller extends Controller
                 'begin_date' => 'nullable|date',
                 'end_date' => 'nullable|date',
                 'comment' => 'nullable|string|max:500',
+                // Гостевые поля
+                'is_guest' => 'nullable|boolean',
+                'guest_name' => 'nullable|string|max:255',
+                'guest_company' => 'nullable|string|max:255',
+                'guest_destination' => 'nullable|string|max:255',
+                'guest_purpose' => 'nullable|string|max:500',
+                'guest_phone' => 'nullable|string|max:50',
             ]);
 
             $permit = EntryPermit::find($validate['id']);
@@ -1450,6 +1477,13 @@ class VisitorsCotroller extends Controller
             if (isset($validate['begin_date'])) $updateData['begin_date'] = $validate['begin_date'];
             if (isset($validate['end_date'])) $updateData['end_date'] = $validate['end_date'];
             if (isset($validate['comment'])) $updateData['comment'] = $validate['comment'];
+            // Гостевые поля
+            if (array_key_exists('is_guest', $validate)) $updateData['is_guest'] = $validate['is_guest'];
+            if (array_key_exists('guest_name', $validate)) $updateData['guest_name'] = $validate['guest_name'];
+            if (array_key_exists('guest_company', $validate)) $updateData['guest_company'] = $validate['guest_company'];
+            if (array_key_exists('guest_destination', $validate)) $updateData['guest_destination'] = $validate['guest_destination'];
+            if (array_key_exists('guest_purpose', $validate)) $updateData['guest_purpose'] = $validate['guest_purpose'];
+            if (array_key_exists('guest_phone', $validate)) $updateData['guest_phone'] = $validate['guest_phone'];
 
             $permit->update($updateData);
 

@@ -18,11 +18,19 @@ class EntryPermit extends Model
         'end_date',
         'status_id',
         'comment',
+        // Гостевые поля
+        'is_guest',
+        'guest_name',
+        'guest_company',
+        'guest_destination',
+        'guest_purpose',
+        'guest_phone',
     ];
 
     protected $casts = [
         'one_permission' => 'boolean',
         'weighing_required' => 'boolean',
+        'is_guest' => 'boolean',
         'begin_date' => 'datetime',
         'end_date' => 'datetime',
     ];

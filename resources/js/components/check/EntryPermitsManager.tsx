@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, Truck as TruckIcon } from "lucide-react";
+import { Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, Truck as TruckIcon, UserRound } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -58,6 +58,13 @@ interface EntryPermit {
   status_id: number;
   comment: string | null;
   created_at: string;
+  // Гостевые поля
+  is_guest: boolean;
+  guest_name: string | null;
+  guest_company: string | null;
+  guest_destination: string | null;
+  guest_purpose: string | null;
+  guest_phone: string | null;
   // Связанные данные
   plate_number: string;
   truck_color?: string;
@@ -82,6 +89,13 @@ interface FormData {
   begin_date: string;
   end_date: string;
   comment: string;
+  // Гостевые поля
+  is_guest: boolean;
+  guest_name: string;
+  guest_company: string;
+  guest_destination: string;
+  guest_purpose: string;
+  guest_phone: string;
 }
 
 const EntryPermitsManager: React.FC = () => {
@@ -110,6 +124,12 @@ const EntryPermitsManager: React.FC = () => {
     begin_date: "",
     end_date: "",
     comment: "",
+    is_guest: false,
+    guest_name: "",
+    guest_company: "",
+    guest_destination: "",
+    guest_purpose: "",
+    guest_phone: "",
   });
 
   // Поиск ТС
@@ -127,6 +147,9 @@ const EntryPermitsManager: React.FC = () => {
   const [addTruckDialogOpen, setAddTruckDialogOpen] = useState(false);
   const [newTruckPlate, setNewTruckPlate] = useState("");
   const [savingTruck, setSavingTruck] = useState(false);
+
+  // Ошибка формы
+  const [formError, setFormError] = useState<string | null>(null);
 
   const token = localStorage.getItem("auth_token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -257,11 +280,18 @@ const EntryPermitsManager: React.FC = () => {
       begin_date: format(new Date(), "yyyy-MM-dd"),
       end_date: "",
       comment: "",
+      is_guest: false,
+      guest_name: "",
+      guest_company: "",
+      guest_destination: "",
+      guest_purpose: "",
+      guest_phone: "",
     });
     setSelectedTruck(null);
     setSelectedDriver(null);
     setTruckSearch("");
     setDriverSearch("");
+    setFormError(null);
     setDialogOpen(true);
   };
 
@@ -276,6 +306,12 @@ const EntryPermitsManager: React.FC = () => {
       begin_date: permit.begin_date ? format(new Date(permit.begin_date), "yyyy-MM-dd") : "",
       end_date: permit.end_date ? format(new Date(permit.end_date), "yyyy-MM-dd") : "",
       comment: permit.comment || "",
+      is_guest: permit.is_guest || false,
+      guest_name: permit.guest_name || "",
+      guest_company: permit.guest_company || "",
+      guest_destination: permit.guest_destination || "",
+      guest_purpose: permit.guest_purpose || "",
+      guest_phone: permit.guest_phone || "",
     });
     setSelectedTruck({
       id: permit.truck_id,
@@ -293,6 +329,7 @@ const EntryPermitsManager: React.FC = () => {
     } else {
       setSelectedDriver(null);
     }
+    setFormError(null);
     setDialogOpen(true);
   };
 
@@ -307,12 +344,20 @@ const EntryPermitsManager: React.FC = () => {
   };
 
   const handleSave = async () => {
+    setFormError(null);
+    
     if (!formData.truck_id) {
-      toast.error("Выберите транспортное средство");
+      setFormError("Выберите транспортное средство");
       return;
     }
     if (!formData.yard_id) {
-      toast.error("Выберите двор");
+      setFormError("Выберите двор");
+      return;
+    }
+
+    // Валидация гостевых полей
+    if (formData.is_guest && !formData.guest_name.trim()) {
+      setFormError("Укажите ФИО гостя");
       return;
     }
 
@@ -333,6 +378,13 @@ const EntryPermitsManager: React.FC = () => {
             begin_date: formData.begin_date || null,
             end_date: formData.end_date || null,
             comment: formData.comment || null,
+            // Гостевые поля
+            is_guest: formData.is_guest,
+            guest_name: formData.guest_name || null,
+            guest_company: formData.guest_company || null,
+            guest_destination: formData.guest_destination || null,
+            guest_purpose: formData.guest_purpose || null,
+            guest_phone: formData.guest_phone || null,
           },
           { headers }
         );
@@ -351,6 +403,13 @@ const EntryPermitsManager: React.FC = () => {
             begin_date: formData.begin_date || null,
             end_date: formData.end_date || null,
             comment: formData.comment || null,
+            // Гостевые поля
+            is_guest: formData.is_guest,
+            guest_name: formData.guest_name || null,
+            guest_company: formData.guest_company || null,
+            guest_destination: formData.guest_destination || null,
+            guest_purpose: formData.guest_purpose || null,
+            guest_phone: formData.guest_phone || null,
           },
           { headers }
         );
@@ -360,6 +419,7 @@ const EntryPermitsManager: React.FC = () => {
       fetchPermits();
     } catch (error: any) {
       const message = error.response?.data?.message || "Ошибка сохранения";
+      setFormError(message);
       toast.error(message);
     } finally {
       setSaving(false);
@@ -472,6 +532,28 @@ const EntryPermitsManager: React.FC = () => {
         ) : (
           <Chip label="Неактивно" size="small" color="default" />
         ),
+    },
+    {
+      field: "is_guest",
+      headerName: "Гость",
+      width: 180,
+      renderCell: (params) =>
+        params.value ? (
+          <div className="flex flex-col">
+            <Chip 
+              label="Гость" 
+              size="small" 
+              color="secondary" 
+              className="mb-1"
+            />
+            {params.row.guest_name && (
+              <span className="text-xs font-medium">{params.row.guest_name}</span>
+            )}
+            {params.row.guest_destination && (
+              <span className="text-xs text-gray-500">→ {params.row.guest_destination}</span>
+            )}
+          </div>
+        ) : null,
     },
     {
       field: "driver_name",
@@ -661,9 +743,12 @@ const EntryPermitsManager: React.FC = () => {
       </div>
 
       {/* Диалог добавления/редактирования */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) setFormError(null);
+      }}>
         <DialogContent 
-          className="sm:max-w-[550px]"
+          className="sm:max-w-[550px] max-h-[90vh] flex flex-col"
           onPointerDownOutside={(e) => {
             // Предотвращаем закрытие диалога при клике на выпадающий список Autocomplete
             const target = e.target as HTMLElement;
@@ -679,12 +764,21 @@ const EntryPermitsManager: React.FC = () => {
             }
           }}
         >
-          <DialogHeader>
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>
               {selectedPermit ? "Редактировать разрешение" : "Добавить разрешение"}
             </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          
+          {/* Блок ошибки */}
+          {formError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg flex items-start gap-2 flex-shrink-0">
+              <Ban className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">{formError}</div>
+            </div>
+          )}
+          
+          <div className="grid gap-4 py-4 overflow-y-auto flex-1 pr-2">
             {/* Поиск ТС */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
@@ -879,6 +973,70 @@ const EntryPermitsManager: React.FC = () => {
               </div>
             </div>
 
+            {/* Гостевой пропуск */}
+            <div className="border rounded-lg p-4 space-y-4 bg-purple-50 dark:bg-purple-900/20">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="is_guest"
+                  checked={formData.is_guest}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, is_guest: e.target.checked }))}
+                  className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                />
+                <Label htmlFor="is_guest" className="flex items-center gap-2 cursor-pointer text-purple-700 dark:text-purple-300 font-medium">
+                  <UserRound className="w-4 h-4" />
+                  Гостевой пропуск
+                </Label>
+              </div>
+              
+              {formData.is_guest && (
+                <div className="space-y-3 pl-7 animate-in slide-in-from-top-2">
+                  <div className="grid gap-2">
+                    <Label>ФИО гостя *</Label>
+                    <Input
+                      placeholder="Иванов Иван Иванович"
+                      value={formData.guest_name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, guest_name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-2">
+                      <Label>Компания</Label>
+                      <Input
+                        placeholder="ООО Компания"
+                        value={formData.guest_company}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, guest_company: e.target.value }))}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Телефон гостя</Label>
+                      <Input
+                        placeholder="+7 (999) 999-99-99"
+                        value={formData.guest_phone}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, guest_phone: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>К кому / куда направляется</Label>
+                    <Input
+                      placeholder="К Петрову П.П., отдел закупок, каб. 215"
+                      value={formData.guest_destination}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, guest_destination: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Цель визита</Label>
+                    <Input
+                      placeholder="Подписание договора, встреча, собеседование..."
+                      value={formData.guest_purpose}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, guest_purpose: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Комментарий */}
             <div className="grid gap-2">
               <Label>Комментарий</Label>
@@ -889,7 +1047,7 @@ const EntryPermitsManager: React.FC = () => {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Отмена
             </Button>
