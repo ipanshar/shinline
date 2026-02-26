@@ -529,6 +529,7 @@ export default function RolesPermissions() {
                                                 />
                                             </TableHead>
                                             <TableHead>Имя</TableHead>
+                                            <TableHead>Логин</TableHead>
                                             <TableHead>Email</TableHead>
                                             <TableHead>Телефон</TableHead>
                                             <TableHead>Роли</TableHead>
@@ -551,6 +552,7 @@ export default function RolesPermissions() {
                                                     />
                                                 </TableCell>
                                                 <TableCell className="font-medium">{user.name}</TableCell>
+                                                <TableCell className="font-mono text-sm">{user.login || '—'}</TableCell>
                                                 <TableCell>{user.email}</TableCell>
                                                 <TableCell>{user.phone || '—'}</TableCell>
                                                 <TableCell>

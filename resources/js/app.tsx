@@ -9,7 +9,7 @@ import '@/pages/css/all.css';
 import './i18n';
 import axios from 'axios';
 
-// Настройка axios для отправки cookies (Sanctum токен)
+// Настройка axios для отправки cookies
 axios.defaults.withCredentials = true;
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
