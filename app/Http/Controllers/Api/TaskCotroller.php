@@ -606,6 +606,67 @@ class TaskCotroller extends Controller
             }
             //--
 
+            // Дедупликация складов по имени - объединяем документы для одинаковых складов
+            $uniqueWarehouses = [];
+            foreach ($validate['warehouse'] as $warehouse_d) {
+                $warehouseName = trim($warehouse_d['name']);
+                
+                if (isset($uniqueWarehouses[$warehouseName])) {
+                    // Склад уже есть - объединяем документы
+                    $existing = &$uniqueWarehouses[$warehouseName];
+                    
+                    // Объединяем документы через запятую
+                    if (!empty($warehouse_d['document'])) {
+                        if (!empty($existing['document'])) {
+                            $existing['document'] .= ', ' . $warehouse_d['document'];
+                        } else {
+                            $existing['document'] = $warehouse_d['document'];
+                        }
+                    }
+                    
+                    // Объединяем barcodes через запятую  
+                    if (!empty($warehouse_d['barcode'])) {
+                        if (!empty($existing['barcode'])) {
+                            $existing['barcode'] .= ', ' . $warehouse_d['barcode'];
+                        } else {
+                            $existing['barcode'] = $warehouse_d['barcode'];
+                        }
+                    }
+                    
+                    // Объединяем описания
+                    if (!empty($warehouse_d['description'])) {
+                        if (!empty($existing['description'])) {
+                            $existing['description'] .= '; ' . $warehouse_d['description'];
+                        } else {
+                            $existing['description'] = $warehouse_d['description'];
+                        }
+                    }
+                    
+                    // Берём самое раннее arrival_at
+                    if (!empty($warehouse_d['arrival_at'])) {
+                        if (empty($existing['arrival_at']) || $warehouse_d['arrival_at'] < $existing['arrival_at']) {
+                            $existing['arrival_at'] = $warehouse_d['arrival_at'];
+                        }
+                    }
+                    
+                    // Берём самое позднее departure_at
+                    if (!empty($warehouse_d['departure_at'])) {
+                        if (empty($existing['departure_at']) || $warehouse_d['departure_at'] > $existing['departure_at']) {
+                            $existing['departure_at'] = $warehouse_d['departure_at'];
+                        }
+                    }
+                } else {
+                    // Новый склад - добавляем
+                    $uniqueWarehouses[$warehouseName] = $warehouse_d;
+                }
+            }
+            
+            // Переиндексируем и пересчитываем sorting_order
+            $deduplicatedWarehouses = array_values($uniqueWarehouses);
+            foreach ($deduplicatedWarehouses as $index => &$wh) {
+                $wh['sorting_order'] = $index;
+            }
+            unset($wh);
 
             //Задача взвешивание
             $weighing = 0;
@@ -613,7 +674,7 @@ class TaskCotroller extends Controller
                 $task->id, 
                 $validate['weighing'], 
                 $yard ? $yard->id : 1, 
-                Count($validate['warehouse']),
+                count($deduplicatedWarehouses), // Используем количество уникальных складов
                 $truck ? $truck->id : null,
                 $validate['plate_number'] ?? null
             );
@@ -621,7 +682,8 @@ class TaskCotroller extends Controller
 
             //Задачи для погрузки
             $warehouseActive = [];
-            foreach ($validate['warehouse'] as $warehouse_d) {
+            
+            foreach ($deduplicatedWarehouses as $warehouse_d) {
 
                 $weighing++;
 
