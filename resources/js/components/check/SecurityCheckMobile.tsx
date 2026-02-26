@@ -18,7 +18,10 @@ import {
   UserRound,
   Building2,
   Target,
-  CheckCircle
+  CheckCircle,
+  Camera,
+  X,
+  Loader2
 } from 'lucide-react';
 import {
   Dialog,
@@ -32,6 +35,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import PendingVisitors from './PendingVisitors';
 import ShiftHandoverReport from './ShiftHandoverReport';
+import { createWorker } from 'tesseract.js';
 
 interface Yard {
   id: number;
@@ -126,6 +130,13 @@ const SecurityCheckMobile = () => {
   const [expectedGuests, setExpectedGuests] = useState<GuestPermit[]>([]);
   const [showExpectedGuests, setShowExpectedGuests] = useState(false);
   const [processingGuestId, setProcessingGuestId] = useState<number | null>(null);
+  // Сканирование номера камерой
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const token = localStorage.getItem('auth_token');
@@ -263,8 +274,30 @@ const SecurityCheckMobile = () => {
   // Получить текущий двор
   const getCurrentYard = () => yards.find(y => y.id === selectedYardId);
 
+  // Проверка, находится ли ТС уже на территории
+  const isTruckOnTerritory = (plateNumber: string) => {
+    return visitors.some(v => 
+      v.plate_number.toUpperCase() === plateNumber.toUpperCase() && 
+      !v.exit_date
+    );
+  };
+
+  // Получить посетителя по номеру ТС (для выезда)
+  const getVisitorByPlate = (plateNumber: string) => {
+    return visitors.find(v => 
+      v.plate_number.toUpperCase() === plateNumber.toUpperCase() && 
+      !v.exit_date
+    );
+  };
+
   const addVisitor = () => {
     if (!foundTruck || !selectedYardId) return;
+
+    // Проверка, что ТС уже на территории
+    if (isTruckOnTerritory(foundTruck.plate_number)) {
+      toast.error('🚫 ТС уже находится на территории');
+      return;
+    }
 
     // Проверка строгого режима на фронте
     const currentYard = getCurrentYard();
@@ -337,6 +370,161 @@ const SecurityCheckMobile = () => {
         loadVisitors();
       })
       .catch(() => toast.error('Ошибка при выходе'));
+  };
+
+  // Функции для сканирования номера камерой
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      streamRef.current = stream;
+      setShowCameraScanner(true);
+      // Привязываем поток к видео после открытия модального окна
+      setTimeout(() => {
+        if (videoRef.current && streamRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+          videoRef.current.play().catch(console.error);
+        }
+      }, 100);
+    } catch (err) {
+      console.error('Ошибка доступа к камере:', err);
+      toast.error('Не удалось получить доступ к камере');
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setShowCameraScanner(false);
+    setIsScanning(false);
+    setScanProgress(0);
+  };
+
+  const captureAndRecognize = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Проверяем, что видео готово
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      toast.error('Камера не готова. Подождите немного.');
+      return;
+    }
+
+    // Установить размер canvas равным видео
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    // Захватить кадр
+    ctx.drawImage(video, 0, 0);
+    
+    setIsScanning(true);
+    setScanProgress(0);
+
+    try {
+      // Создаём воркер для распознавания
+      const worker = await createWorker('rus+eng', 1, {
+        logger: (m: any) => {
+          if (m.status === 'recognizing text') {
+            setScanProgress(Math.round(m.progress * 100));
+          }
+        }
+      });
+      
+      // Распознавание текста
+      const { data } = await worker.recognize(canvas);
+      await worker.terminate();
+
+      // Извлечь текст и найти номер
+      const text = data.text;
+      const plateNumber = extractPlateNumber(text);
+
+      if (plateNumber) {
+        setSearchPlate(plateNumber);
+        toast.success(`Распознан номер: ${plateNumber}`);
+        stopCamera();
+        // Автоматический поиск
+        setTimeout(() => {
+          axios.post('/security/searchtruck', { plate_number: plateNumber, yard_id: selectedYardId }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          })
+            .then(res => {
+              if (res.data.data.length > 0) {
+                setFoundTruck(res.data.data[0]);
+              } else {
+                setFoundTruck(null);
+                setNewCarNumber(plateNumber);
+                setShowAddModal(true);
+              }
+            })
+            .catch(() => {
+              setFoundTruck(null);
+              setNewCarNumber(plateNumber);
+              setShowAddModal(true);
+            });
+        }, 100);
+      } else {
+        toast.error('Номер не распознан. Попробуйте навести камеру ближе.');
+      }
+    } catch (err) {
+      console.error('Ошибка распознавания:', err);
+      toast.error('Ошибка при распознавании номера');
+    } finally {
+      setIsScanning(false);
+      setScanProgress(0);
+    }
+  };
+
+  // Функция извлечения номера из распознанного текста
+  const extractPlateNumber = (text: string): string | null => {
+    // Очистка текста
+    const cleanText = text.toUpperCase().replace(/[^A-ZА-Я0-9]/g, '');
+    
+    // Паттерны для российских номеров
+    // Стандартный: А123ВС77, А123ВС777
+    const russianPattern = /([АВЕКМНОРСТУХ])(\d{3})([АВЕКМНОРСТУХ]{2})(\d{2,3})/;
+    // Также проверяем латиницу, которую может распознать OCR
+    const latinPattern = /([ABEKMHOPCTYX])(\d{3})([ABEKMHOPCTYX]{2})(\d{2,3})/;
+    
+    let match = cleanText.match(russianPattern);
+    if (match) {
+      return match[0];
+    }
+    
+    match = cleanText.match(latinPattern);
+    if (match) {
+      // Конвертируем латиницу в кириллицу
+      const latinToCyrillic: { [key: string]: string } = {
+        'A': 'А', 'B': 'В', 'E': 'Е', 'K': 'К', 'M': 'М', 
+        'H': 'Н', 'O': 'О', 'P': 'Р', 'C': 'С', 'T': 'Т', 
+        'Y': 'У', 'X': 'Х'
+      };
+      return match[0].split('').map(c => latinToCyrillic[c] || c).join('');
+    }
+
+    // Если стандартный паттерн не найден, пробуем найти любую последовательность
+    // букв и цифр длиной 8-9 символов
+    const anyPattern = /[A-ZА-Я0-9]{6,9}/g;
+    const matches = cleanText.match(anyPattern);
+    if (matches && matches.length > 0) {
+      // Возвращаем самый длинный результат
+      return matches.sort((a, b) => b.length - a.length)[0];
+    }
+
+    return null;
   };
 
   const filteredVisitors = visitors.filter(v => {
@@ -446,6 +634,14 @@ const SecurityCheckMobile = () => {
                   className="pl-9 text-base sm:text-lg font-mono"
                 />
               </div>
+              <Button 
+                onClick={startCamera}
+                variant="outline"
+                className="px-3"
+                title="Сканировать номер камерой"
+              >
+                <Camera className="w-5 h-5" />
+              </Button>
               <Button onClick={searchTruck} disabled={searchPlate.length < 3}>
                 <Search className="w-4 h-4 sm:mr-2" />
                 <span className="hidden sm:inline">Найти</span>
@@ -455,17 +651,23 @@ const SecurityCheckMobile = () => {
             {/* Результат поиска */}
             {foundTruck && (
               <div className={`mt-3 p-3 border rounded-lg ${
-                foundTruck.has_permit 
-                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200' 
-                  : getCurrentYard()?.strict_mode 
-                    ? 'bg-red-50 dark:bg-red-900/20 border-red-300'
-                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300'
+                isTruckOnTerritory(foundTruck.plate_number)
+                  ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300'
+                  : foundTruck.has_permit 
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200' 
+                    : getCurrentYard()?.strict_mode 
+                      ? 'bg-red-50 dark:bg-red-900/20 border-red-300'
+                      : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300'
               }`}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono font-bold text-lg">{foundTruck.plate_number}</span>
-                      {foundTruck.has_permit ? (
+                      {isTruckOnTerritory(foundTruck.plate_number) ? (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-500 text-white">
+                          📍 На территории
+                        </span>
+                      ) : foundTruck.has_permit ? (
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                           foundTruck.permit_type === 'one_time' 
                             ? 'bg-blue-100 text-blue-700' 
@@ -496,27 +698,50 @@ const SecurityCheckMobile = () => {
                     {foundTruck.task_name && (
                       <div className="text-sm text-gray-500 truncate">📦 {foundTruck.task_name}</div>
                     )}
+                    {/* Предупреждение о нахождении на территории */}
+                    {isTruckOnTerritory(foundTruck.plate_number) && (
+                      <div className="text-xs text-blue-600 mt-1 font-medium">
+                        🚛 ТС уже находится на территории
+                      </div>
+                    )}
                     {/* Предупреждение о строгом режиме */}
-                    {getCurrentYard()?.strict_mode && !foundTruck.has_permit && (
+                    {!isTruckOnTerritory(foundTruck.plate_number) && getCurrentYard()?.strict_mode && !foundTruck.has_permit && (
                       <div className="text-xs text-red-600 mt-1 font-medium">
                         🔒 Строгий режим: въезд только с разрешением
                       </div>
                     )}
                   </div>
-                  <Button 
-                    onClick={addVisitor} 
-                    disabled={getCurrentYard()?.strict_mode && !foundTruck.has_permit}
-                    className={
-                      getCurrentYard()?.strict_mode && !foundTruck.has_permit
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : foundTruck.has_permit 
-                          ? 'bg-green-600 hover:bg-green-700' 
-                          : 'bg-amber-600 hover:bg-amber-700'
-                    }
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Въезд
-                  </Button>
+                  {isTruckOnTerritory(foundTruck.plate_number) ? (
+                    <Button 
+                      onClick={() => {
+                        const visitor = getVisitorByPlate(foundTruck.plate_number);
+                        if (visitor) {
+                          exitVisitor(visitor.id);
+                          setFoundTruck(null);
+                          setSearchPlate('');
+                        }
+                      }}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      <LogOut className="w-4 h-4 mr-1" />
+                      Выезд
+                    </Button>
+                  ) : (
+                    <Button 
+                      onClick={addVisitor} 
+                      disabled={getCurrentYard()?.strict_mode && !foundTruck.has_permit}
+                      className={
+                        getCurrentYard()?.strict_mode && !foundTruck.has_permit
+                          ? 'bg-gray-400 cursor-not-allowed'
+                          : foundTruck.has_permit 
+                            ? 'bg-green-600 hover:bg-green-700' 
+                            : 'bg-amber-600 hover:bg-amber-700'
+                      }
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Въезд
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -954,6 +1179,62 @@ const SecurityCheckMobile = () => {
         yardId={selectedYardId}
         yardName={getCurrentYard()?.name}
       />
+
+      {/* Модальное окно сканера номера */}
+      <Dialog open={showCameraScanner} onOpenChange={(open) => !open && stopCamera()}>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+          <DialogHeader className="p-4 pb-2">
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="w-5 h-5" />
+              Сканирование номера
+            </DialogTitle>
+          </DialogHeader>
+          <div className="relative bg-black">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full aspect-video object-cover"
+            />
+            {/* Рамка для наведения */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="border-2 border-white/70 rounded-lg w-4/5 h-16 flex items-center justify-center">
+                <span className="text-white/70 text-sm bg-black/50 px-2 py-1 rounded">
+                  Наведите на номер
+                </span>
+              </div>
+            </div>
+            {/* Индикатор сканирования */}
+            {isScanning && (
+              <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
+                <Loader2 className="w-10 h-10 text-white animate-spin mb-2" />
+                <span className="text-white text-sm">Распознавание... {scanProgress}%</span>
+              </div>
+            )}
+            {/* Скрытый canvas для захвата кадра */}
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
+          <div className="p-4 flex gap-2">
+            <Button
+              onClick={stopCamera}
+              variant="outline"
+              className="flex-1"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Отмена
+            </Button>
+            <Button
+              onClick={captureAndRecognize}
+              disabled={isScanning}
+              className="flex-1 bg-blue-600 hover:bg-blue-700"
+            >
+              <Camera className="w-4 h-4 mr-2" />
+              {isScanning ? 'Распознаю...' : 'Сфотографировать'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

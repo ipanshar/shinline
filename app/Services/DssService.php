@@ -496,19 +496,7 @@ class DssService
             $visitor = $visitorQuery->orderBy('id', 'desc')->first();
 
             if ($visitor) {
-                $visitor->exit_device_id = $device->id;
-                $visitor->exit_date = $captureTime ?? now();
-                $visitor->status_id = Status::where('key', 'left_territory')->first()->id;
-                $visitor->save();
-
-                if ($visitor->task_id) {
-                    $exitTask = Task::find($visitor->task_id);
-                    if ($exitTask) {
-                        $exitTask->status_id = Status::where('key', 'left_territory')->first()->id;
-                        $exitTask->end_date = now();
-                        $exitTask->save();
-                    }
-                }
+                $this->closeVisitorExit($visitor, $device, $captureTime);
             }
         } elseif ($device->type == 'Entry') {
             // Въезд - система подтверждения
@@ -532,8 +520,37 @@ class DssService
                 ->first() : null;
 
             if ($existingVisitor) {
-                // Грузовик уже на территории - просто обновляем время
-                return;
+                // Грузовик уже числится на территории, но камера зафиксировала повторный въезд
+                // Это значит, что камера выезда "промахнулась" и не зафиксировала выезд
+                
+                Log::warning('DSS: Повторный въезд ТС - выезд не был зафиксирован камерой', [
+                    'plate_number' => $plateNo,
+                    'truck_id' => $truck->id,
+                    'yard_id' => $zone->yard_id,
+                    'previous_entry_date' => $existingVisitor->entry_date,
+                    'new_entry_time' => $captureTime,
+                    'device_id' => $device->id,
+                    'device_name' => $device->channelName ?? 'Unknown',
+                ]);
+
+                // Автоматически закрываем предыдущий визит (пропущенный выезд)
+                $this->closeVisitorExit($existingVisitor, null, $captureTime, true);
+
+                // Отправляем уведомление о проблеме
+                $checkpoint = Checkpoint::find($device->checkpoint_id);
+                $notificationText = "<b>⚠️ Пропущенный выезд ТС</b>\n\n" .
+                    "<b>🏷️ ТС:</b> " . e($plateNo) . "\n" .
+                    "<b>🏢 Двор:</b> " . e($yard->name ?? 'Неизвестный') . "\n" .
+                    "<b>📍 КПП въезда:</b> " . e($checkpoint->name ?? 'Неизвестный') . "\n" .
+                    "<b>⏰ Предыдущий въезд:</b> " . $existingVisitor->entry_date->format('d.m.Y H:i') . "\n" .
+                    "<b>⏰ Новый въезд:</b> " . ($captureTime ? $captureTime->format('d.m.Y H:i') : now()->format('d.m.Y H:i')) . "\n\n" .
+                    "<i>Камера выезда не зафиксировала выезд. Предыдущий визит автоматически закрыт.</i>";
+                
+                try {
+                    (new TelegramController())->sendNotification($notificationText);
+                } catch (\Exception $e) {
+                    Log::error('DSS: Ошибка отправки уведомления о пропущенном выезде', ['error' => $e->getMessage()]);
+                }
             }
 
             // Создаём запись о посетителе
@@ -846,6 +863,93 @@ class DssService
             }
         } else {
             return ['error' => 'Ошибка запроса: ' . $response->getStatusCode()];
+        }
+    }
+
+    /**
+     * Закрывает визит посетителя (фиксирует выезд)
+     * Аннулирует разовые разрешения и завершает связанные задания
+     * 
+     * @param \App\Models\Visitor $visitor - запись посетителя
+     * @param mixed $device - устройство выезда (null если выезд не зафиксирован камерой)
+     * @param mixed $exitTime - время выезда
+     * @param bool $missedExit - флаг пропущенного выезда (камера не зафиксировала)
+     */
+    private function closeVisitorExit($visitor, $device = null, $exitTime = null, $missedExit = false)
+    {
+        $leftTerritoryStatus = Status::where('key', 'left_territory')->first();
+        $inactiveStatus = Status::where('key', 'not_active')->first();
+        $completedStatus = Status::where('key', 'completed')->firstOr(function() use ($leftTerritoryStatus) {
+            return $leftTerritoryStatus; // fallback если нет статуса completed
+        });
+
+        // Обновляем запись посетителя
+        $visitor->exit_device_id = $device?->id;
+        $visitor->exit_date = $exitTime ?? now();
+        $visitor->status_id = $leftTerritoryStatus->id;
+        
+        // Если это пропущенный выезд - добавляем комментарий
+        if ($missedExit) {
+            $visitor->comment = ($visitor->comment ? $visitor->comment . "\n" : '') . 
+                '[AUTO] Выезд не зафиксирован камерой. Закрыт автоматически при повторном въезде ' . now()->format('d.m.Y H:i');
+        }
+        
+        $visitor->save();
+
+        // Завершаем задание если есть
+        if ($visitor->task_id) {
+            $task = Task::find($visitor->task_id);
+            if ($task) {
+                $task->status_id = $completedStatus->id;
+                $task->end_date = $exitTime ?? now();
+                $task->save();
+
+                Log::info('DSS: Задание завершено при выезде ТС', [
+                    'task_id' => $task->id,
+                    'task_name' => $task->name,
+                    'visitor_id' => $visitor->id,
+                    'missed_exit' => $missedExit,
+                ]);
+            }
+        }
+
+        // Аннулируем разовое разрешение если есть
+        if ($visitor->entry_permit_id) {
+            $permit = EntryPermit::find($visitor->entry_permit_id);
+            if ($permit && $permit->one_permission && $inactiveStatus) {
+                $permit->status_id = $inactiveStatus->id;
+                $permit->end_date = $exitTime ?? now();
+                $permit->save();
+
+                Log::info('DSS: Разовое разрешение аннулировано при выезде ТС', [
+                    'permit_id' => $permit->id,
+                    'truck_id' => $permit->truck_id,
+                    'visitor_id' => $visitor->id,
+                    'missed_exit' => $missedExit,
+                ]);
+            }
+        }
+
+        // Также проверяем и аннулируем все активные разовые разрешения для этого ТС в этом дворе
+        if ($visitor->truck_id) {
+            $activeStatus = Status::where('key', 'active')->first();
+            $oneTimePermits = EntryPermit::where('truck_id', $visitor->truck_id)
+                ->where('yard_id', $visitor->yard_id)
+                ->where('one_permission', true)
+                ->where('status_id', $activeStatus->id)
+                ->get();
+
+            foreach ($oneTimePermits as $oneTimePermit) {
+                $oneTimePermit->status_id = $inactiveStatus->id;
+                $oneTimePermit->end_date = $exitTime ?? now();
+                $oneTimePermit->save();
+
+                Log::info('DSS: Дополнительное разовое разрешение аннулировано', [
+                    'permit_id' => $oneTimePermit->id,
+                    'truck_id' => $oneTimePermit->truck_id,
+                    'visitor_id' => $visitor->id,
+                ]);
+            }
         }
     }
 }
