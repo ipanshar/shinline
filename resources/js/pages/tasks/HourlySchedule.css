@@ -1,53 +1,394 @@
+/* Основной контейнер */
 .schedule-container {
   width: 100%;
-  max-width: 800px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
-  font-family: Arial, sans-serif;
-  background-color: #f9f9f9;
-  border-radius: 8px;
+  padding: 24px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-.schedule {
+/* Заголовок страницы */
+.schedule-container h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 20px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 10px;
 }
 
-.hour-block {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background-color: #fff;
-  border-radius: 5px;
-  padding: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+.schedule-container h2::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 24px;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  border-radius: 2px;
 }
 
+/* Фильтры */
+.filters {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  margin-bottom: 24px;
+  border: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.filters .MuiTextField-root,
+.filters .MuiFormControl-root {
+  background: white;
+  border-radius: 12px;
+}
+
+.filters .MuiOutlinedInput-root {
+  border-radius: 12px;
+}
+
+/* Сетка расписания */
+.schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Блок часа */
+.hour-block {
+  display: flex;
+  align-items: stretch;
+  background-color: #fff;
+  min-height: 60px;
+  transition: all 0.2s ease;
+}
+
+.hour-block:hover {
+  background-color: #f8fafc;
+}
+
+/* Линия времени */
 .hour-line {
   display: flex;
   align-items: center;
-  width: 50px;
+  justify-content: center;
+  min-width: 80px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  border-right: 3px solid #3b82f6;
+  position: relative;
+}
+
+.hour-line::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  width: 12px;
+  height: 12px;
+  background: #3b82f6;
+  border-radius: 50%;
+  border: 3px solid white;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
 }
 
 .hour {
-  font-weight: bold;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
 }
 
-.event {
-  flex-grow: 1;
-  padding: 10px;
-  background-color: #f1f1f1;
-  border-radius: 5px;
+/* Контейнер таблицы задач */
+.tasks-table-container {
+  flex: 1;
+  padding: 12px 16px 12px 24px;
+  display: flex;
+  align-items: center;
+}
+
+/* Таблица задач */
+.task-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.task-table thead tr {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.task-table thead th {
+  padding: 14px 16px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: white;
   text-align: center;
+  border: none;
+}
+
+.task-table tbody tr {
+  transition: all 0.15s ease;
+}
+
+.task-table tbody tr:hover {
+  background-color: #f0f9ff;
+}
+
+.task-table tbody tr:not(:last-child) td {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.task-table tbody td {
+  padding: 14px 16px;
+  font-size: 0.9rem;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.task-table tbody td:first-child {
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+/* Бейдж номера ТС */
+.plate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #92400e;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Время */
+.time-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #1e40af;
+}
+
+/* Описание */
+.task-description {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+/* Кнопка редактирования */
+.edit-time-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #475569;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.event:hover {
-  background-color: #e0e0e0;
+.edit-time-btn:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-color: #3b82f6;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
-.event:active {
-  background-color: #c0c0c0;
+.edit-time-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Пустой час */
+.empty-hour {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 36px;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+/* Статистика */
+.schedule-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  flex: 1;
+  padding: 20px;
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.stat-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.stat-card-icon.blue {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #2563eb;
+}
+
+.stat-card-icon.green {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #16a34a;
+}
+
+.stat-card-icon.orange {
+  background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+  color: #ea580c;
+}
+
+.stat-card-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.stat-card-label {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+/* Адаптив */
+@media (max-width: 768px) {
+  .schedule-container {
+    padding: 16px;
+  }
+  
+  .filters {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .hour-line {
+    min-width: 60px;
+    padding: 12px;
+  }
+  
+  .tasks-table-container {
+    padding: 8px 12px 8px 16px;
+    overflow-x: auto;
+  }
+  
+  .task-table thead th,
+  .task-table tbody td {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .schedule-stats {
+    flex-direction: column;
+  }
+}
+
+/* Темная тема */
+.dark .schedule-container {
+  background: transparent;
+}
+
+.dark .schedule-container h2 {
+  color: #f1f5f9;
+}
+
+.dark .filters {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-color: #334155;
+}
+
+.dark .schedule {
+  background: #334155;
+}
+
+.dark .hour-block {
+  background-color: #1e293b;
+}
+
+.dark .hour-block:hover {
+  background-color: #253449;
+}
+
+.dark .hour-line {
+  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+}
+
+.dark .hour {
+  color: #e2e8f0;
+}
+
+.dark .task-table {
+  border-color: #334155;
+}
+
+.dark .task-table tbody tr:hover {
+  background-color: #253449;
+}
+
+.dark .task-table tbody tr:not(:last-child) td {
+  border-bottom-color: #334155;
+}
+
+.dark .task-table tbody td {
+  color: #e2e8f0;
+}
+
+.dark .stat-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.dark .stat-card-value {
+  color: #f1f5f9;
+}
+
+.dark .stat-card-label {
+  color: #94a3b8;
 }
 

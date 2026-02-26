@@ -13,7 +13,7 @@ import "./HourlySchedule.css";
 import { ru } from 'date-fns/locale';
 import EditTaskTimeModal from '@/components/tasks/EditTaskTimeModal';
 import { Button } from '@/components/ui/button';
-import { Clock } from 'lucide-react';
+import { Clock, Truck, CalendarDays, ClipboardList, Timer } from 'lucide-react';
 
 interface Warehouse {
   id: number;
@@ -81,12 +81,15 @@ const HourlySchedule = () => {
         warehouse_id: selectedWarehouse
       })
         .then(response => {
-          if (response.data.status) {
-            setTasks(response.data.data);
+          if (response.data.status && response.data.data?.tasks) {
+            setTasks(Array.isArray(response.data.data.tasks) ? response.data.data.tasks : []);
+          } else {
+            setTasks([]);
           }
         })
         .catch(error => {
           console.error('Ошибка при загрузке задач:', error);
+          setTasks([]);
         })
         .finally(() => {
           setLoading(false);
@@ -144,12 +147,15 @@ const HourlySchedule = () => {
         warehouse_id: selectedWarehouse
       })
         .then(response => {
-          if (response.data.status) {
-            setTasks(response.data.data);
+          if (response.data.status && response.data.data?.tasks) {
+            setTasks(Array.isArray(response.data.data.tasks) ? response.data.data.tasks : []);
+          } else {
+            setTasks([]);
           }
         })
         .catch(error => {
           console.error('Ошибка при загрузке задач:', error);
+          setTasks([]);
         })
         .finally(() => {
           setLoading(false);
@@ -163,30 +169,44 @@ const HourlySchedule = () => {
       href: '/tasks',
     },
   ];
+
+  // Подсчет статистики
+  const totalTasks = tasks.length;
+  const uniqueTrucks = new Set(tasks.map(t => t.truck_plate_number)).size;
+  const busiestHour = hours.reduce((max, hour) => {
+    const count = getTasksForHour(hour).length;
+    return count > max.count ? { hour, count } : max;
+  }, { hour: 0, count: 0 });
+
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
       <Head title={t('tasks')} />
       <TaskLayouts>
         <div className="schedule-container">
-          <div className="filters mb-4 flex gap-4">
-            {/* Выбор даты */}
+          {/* Фильтры */}
+          <div className="filters">
             <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ru}>
               <DatePicker
-                label="Выберите дату"
+                label="Дата"
                 value={selectedDate}
                 onChange={handleDateChange}
                 format="dd.MM.yyyy"
+                slotProps={{
+                  textField: {
+                    size: 'small',
+                    sx: { minWidth: 180 }
+                  }
+                }}
               />
             </LocalizationProvider>
 
-            {/* Выбор склада */}
-            <FormControl fullWidth sx={{ maxWidth: 300 }}>
-              <InputLabel id="warehouse-select-label">Выберите склад</InputLabel>
+            <FormControl sx={{ minWidth: 250 }} size="small">
+              <InputLabel id="warehouse-select-label">Склад</InputLabel>
               <Select
                 labelId="warehouse-select-label"
                 id="warehouse-select"
                 value={selectedWarehouse}
-                label="Выберите склад"
+                label="Склад"
                 onChange={handleWarehouseChange}
               >
                 {warehouses.map((warehouse) => (
@@ -198,123 +218,129 @@ const HourlySchedule = () => {
             </FormControl>
           </div>
 
-          <h2>План-график по часам</h2>
-          <div className="schedule">
-            {hours.map((hour) => (
-              <div key={hour} className="hour-block">
-                <div className="hour-line">
-                  <span className="hour">{hour.toString().padStart(2, '0')}:00</span>
+          {/* Статистика */}
+          {selectedWarehouse && (
+            <div className="schedule-stats">
+              <div className="stat-card">
+                <div className="stat-card-icon blue">
+                  <ClipboardList size={24} />
                 </div>
-                <div className="tasks-table-container" style={{ width: '100%', paddingRight: '20px' }}>
-                  {getTasksForHour(hour).length > 0 && (
-                    <table style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
-                      border: '1px solid #ccc',
-                      backgroundColor: 'white'
-                    }}>
-                      <thead>
-                        <tr>
-                          <th style={{
-                            padding: '12px',
-                            border: '1px solid #ccc',
-                            backgroundColor: '#f5f5f5',
-                            width: '10%',
-                            textAlign: 'center'
-                          }}>№ Задачи</th>
-                          <th style={{
-                            padding: '12px',
-                            border: '1px solid #ccc',
-                            backgroundColor: '#f5f5f5',
-                            width: '20%',
-                            textAlign: 'center'
-                          }}>Номер ТС</th>
-                          <th style={{
-                            padding: '12px',
-                            border: '1px solid #ccc',
-                            backgroundColor: '#f5f5f5',
-                            width: '15%',
-                            textAlign: 'center'
-                          }}>Время</th>
-                          <th style={{
-                            padding: '12px',
-                            border: '1px solid #ccc',
-                            backgroundColor: '#f5f5f5',
-                            width: '40%',
-                            textAlign: 'center'
-                          }}>Примечание</th>
-                          <th style={{
-                            padding: '12px',
-                            border: '1px solid #ccc',
-                            backgroundColor: '#f5f5f5',
-                            width: '15%',
-                            textAlign: 'center'
-                          }}>Действия</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {getTasksForHour(hour).map(task => (
-                          <tr key={task.id}>
-                            <td style={{
-                              padding: '8px',
-                              border: '1px solid #ccc',
-                              textAlign: 'center'
-                            }}>№{task.name}</td>
-                            <td style={{
-                              padding: '8px',
-                              border: '1px solid #ccc',
-                              textAlign: 'center'
-                            }}>{task.truck_plate_number}</td>
-                             <td style={{
-                              padding: '8px',
-                              border: '1px solid #ccc',
-                              textAlign: 'center'
-                            }}>
-                              {(() => {
-                                const taskLoading = task.task_loadings?.find(
-                                  loading => loading.warehouse_id === Number(selectedWarehouse)
-                                );
-                                return taskLoading?.plane_date ? 
-                                  new Date(taskLoading.plane_date).toLocaleTimeString('ru-RU', {
+                <div className="stat-card-value">{totalTasks}</div>
+                <div className="stat-card-label">Всего задач</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-icon green">
+                  <Truck size={24} />
+                </div>
+                <div className="stat-card-value">{uniqueTrucks}</div>
+                <div className="stat-card-label">Транспортных средств</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-icon orange">
+                  <Timer size={24} />
+                </div>
+                <div className="stat-card-value">
+                  {busiestHour.count > 0 ? `${busiestHour.hour.toString().padStart(2, '0')}:00` : '—'}
+                </div>
+                <div className="stat-card-label">Пик загрузки ({busiestHour.count} задач)</div>
+              </div>
+            </div>
+          )}
+
+          <h2>
+            <CalendarDays size={20} />
+            План-график на {selectedDate?.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </h2>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            </div>
+          ) : !selectedWarehouse ? (
+            <div className="text-center py-20 text-gray-400">
+              <Truck size={48} className="mx-auto mb-4 opacity-50" />
+              <p>Выберите склад для просмотра расписания</p>
+            </div>
+          ) : (
+            <div className="schedule">
+              {hours.map((hour) => {
+                const hourTasks = getTasksForHour(hour);
+                return (
+                  <div key={hour} className="hour-block">
+                    <div className="hour-line">
+                      <span className="hour">{hour.toString().padStart(2, '0')}:00</span>
+                    </div>
+                    <div className="tasks-table-container">
+                      {hourTasks.length > 0 ? (
+                        <table className="task-table">
+                          <thead>
+                            <tr>
+                              <th style={{ width: '10%' }}>№ Задачи</th>
+                              <th style={{ width: '20%' }}>Номер ТС</th>
+                              <th style={{ width: '12%' }}>Время</th>
+                              <th style={{ width: '40%' }}>Примечание</th>
+                              <th style={{ width: '18%' }}>Действия</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {hourTasks.map(task => {
+                              const taskLoading = task.task_loadings?.find(
+                                loading => loading.warehouse_id === Number(selectedWarehouse)
+                              );
+                              const timeStr = taskLoading?.plane_date 
+                                ? new Date(taskLoading.plane_date).toLocaleTimeString('ru-RU', {
                                     hour: '2-digit',
                                     minute: '2-digit'
                                   })
-                                  : '-';
-                              })()}
-                            </td>
-                            <td style={{
-                              padding: '8px',
-                              border: '1px solid #ccc',
-                              textAlign: 'left'
-                            }}>{task.description || '-'}</td>
-                            <td style={{
-                              padding: '8px',
-                              border: '1px solid #ccc',
-                              textAlign: 'center'
-                            }}>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleEditTime(task)}
-                              >
-                                <Clock className="mr-2 h-4 w-4" />
-                                Изменить время
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>                {/* <div className="event" onClick={() => addEvent(hour)}>
-              {events[hour] ? events[hour] : "Добавить событие"}
-            </div> */}
-              </div>
-            ))}
-          </div>
+                                : '—';
+                              
+                              return (
+                                <tr key={task.id}>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <span style={{ fontWeight: 600 }}>№{task.name}</span>
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <span className="plate-badge">
+                                      <Truck size={14} />
+                                      {task.truck_plate_number}
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <span className="time-badge">
+                                      <Clock size={14} />
+                                      {timeStr}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <div className="task-description" title={task.description || ''}>
+                                      {task.description || '—'}
+                                    </div>
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <button
+                                      className="edit-time-btn"
+                                      onClick={() => handleEditTime(task)}
+                                    >
+                                      <Clock size={14} />
+                                      Изменить
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="empty-hour">Нет запланированных задач</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* Модальное окно редактирования времени */}
         <EditTaskTimeModal
           isOpen={isEditModalOpen}
           onClose={handleCloseModal}
@@ -322,11 +348,8 @@ const HourlySchedule = () => {
           onTaskUpdated={handleTaskUpdated}
           warehouseId={selectedWarehouse}
         />
-
       </TaskLayouts>
-
     </AppLayout>
-
   );
 };
 

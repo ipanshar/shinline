@@ -11,19 +11,19 @@ const sidebarNavItems: NavItem[] = [
         title:  'Задачи',
         href: '/tasks',
         icon: null,
-        role:'',
+
     },
     {
         title:  'Планирование',
         href: '/tasks/scheduling',
         icon: null,
-        role:'',
+   
     },
     {
         title:  'Рабочее место оператора',
         href: '/tasks/operator-workplace',
         icon: null,
-        role:'',
+
     },
 ];
 
