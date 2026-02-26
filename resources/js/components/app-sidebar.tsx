@@ -89,7 +89,7 @@ const mainNavItems: NavItemWithPermission[] = [
         title: t('check'),
         href: '/check',
         icon: ShieldCheck,
-        permission: 'checkpoint.view',
+        permission: 'visitors.view',
     },
     {
         title: 'Разрешения',
