@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -35,9 +37,20 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+  MoreVertical,
+  User,
+  FileText,
+  Weight,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
 interface Yard {
   id: number;
@@ -76,6 +89,20 @@ interface Weighing {
   notes: string | null;
 }
 
+// Группированное взвешивание (въезд + выезд в одной записи)
+interface GroupedWeighing {
+  plate_number: string;
+  entry_weight: number | null;
+  entry_time: string | null;
+  exit_weight: number | null;
+  exit_time: string | null;
+  weight_diff: number | null;
+  operator_name: string | null;
+  notes: string | null;
+  hasEntry: boolean;
+  hasExit: boolean;
+}
+
 interface WeighFormData {
   plate_number: string;
   weight: string;
@@ -85,13 +112,72 @@ interface WeighFormData {
   visitor_id: number | null;
 }
 
+// Функция группировки взвешиваний по номеру ТС
+const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
+  const grouped: Record<string, GroupedWeighing> = {};
+  
+  weighings.forEach(w => {
+    const key = w.plate_number;
+    
+    if (!grouped[key]) {
+      grouped[key] = {
+        plate_number: w.plate_number,
+        entry_weight: null,
+        entry_time: null,
+        exit_weight: null,
+        exit_time: null,
+        weight_diff: null,
+        operator_name: null,
+        notes: null,
+        hasEntry: false,
+        hasExit: false,
+      };
+    }
+    
+    if (w.weighing_type === "entry") {
+      grouped[key].entry_weight = w.weight;
+      grouped[key].entry_time = w.weighed_at;
+      grouped[key].hasEntry = true;
+      if (!grouped[key].operator_name) grouped[key].operator_name = w.operator_name;
+      if (!grouped[key].notes && w.notes) grouped[key].notes = w.notes;
+    } else if (w.weighing_type === "exit") {
+      grouped[key].exit_weight = w.weight;
+      grouped[key].exit_time = w.weighed_at;
+      grouped[key].weight_diff = w.weight_diff;
+      grouped[key].hasExit = true;
+      if (w.operator_name) grouped[key].operator_name = w.operator_name;
+      if (w.notes) grouped[key].notes = w.notes;
+    }
+  });
+  
+  // Сортируем по времени последнего взвешивания (выезд или въезд)
+  return Object.values(grouped).sort((a, b) => {
+    const timeA = a.exit_time || a.entry_time || '';
+    const timeB = b.exit_time || b.entry_time || '';
+    return new Date(timeB).getTime() - new Date(timeA).getTime();
+  });
+};
+
 const WeighingControl: React.FC = () => {
   const [yards, setYards] = useState<Yard[]>([]);
   const [selectedYardId, setSelectedYardId] = useState<number | null>(null);
   const [pendingRequirements, setPendingRequirements] = useState<WeighingRequirement[]>([]);
-  const [todayWeighings, setTodayWeighings] = useState<Weighing[]>([]);
+  const [historyWeighings, setHistoryWeighings] = useState<Weighing[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"pending" | "today" | "stats">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Фильтр по периоду
+  const [dateFrom, setDateFrom] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+
+  // Определяем мобильное устройство
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Диалоги
   const [weighDialogOpen, setWeighDialogOpen] = useState(false);
@@ -145,23 +231,27 @@ const WeighingControl: React.FC = () => {
       .finally(() => setLoading(false));
   }, [selectedYardId]);
 
-  // Загрузка сегодняшних взвешиваний
-  const fetchToday = useCallback(() => {
+  // Загрузка истории взвешиваний
+  const fetchHistory = useCallback(() => {
     if (!selectedYardId) return;
     setLoading(true);
     axios
-      .post("/weighing/today", { yard_id: selectedYardId }, { headers })
+      .post("/weighing/history", { 
+        yard_id: selectedYardId,
+        date_from: dateFrom,
+        date_to: dateTo
+      }, { headers })
       .then((res) => {
         if (res.data.status) {
-          setTodayWeighings(res.data.data);
+          setHistoryWeighings(res.data.data);
         }
       })
       .catch((err) => {
         console.error("Ошибка загрузки взвешиваний:", err);
-        toast.error("Ошибка загрузки взвешиваний за сегодня");
+        toast.error("Ошибка загрузки истории взвешиваний");
       })
       .finally(() => setLoading(false));
-  }, [selectedYardId]);
+  }, [selectedYardId, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchYards();
@@ -170,9 +260,9 @@ const WeighingControl: React.FC = () => {
   useEffect(() => {
     if (selectedYardId) {
       fetchPending();
-      fetchToday();
+      fetchHistory();
     }
-  }, [selectedYardId, fetchPending, fetchToday]);
+  }, [selectedYardId, fetchPending, fetchHistory]);
 
   // Обработчики
   const handleWeigh = (req: WeighingRequirement, type: "entry" | "exit") => {
@@ -434,7 +524,7 @@ const WeighingControl: React.FC = () => {
           );
         }
 
-        if (req.needs_exit) {
+        if (req.needs_exit && !req.needs_entry) {
           actions.push(
             <GridActionsCellItem
               key="weigh-exit"
@@ -559,18 +649,18 @@ const WeighingControl: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
       {/* Заголовок и выбор двора */}
-      <div className="bg-white dark:bg-gray-800 border-b p-4">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Scale className="w-6 h-6 text-blue-600" />
-            <h1 className="text-xl font-semibold">Весовой контроль</h1>
+      <div className="bg-white dark:bg-gray-800 border-b p-3 sm:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4 sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Scale className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+            <h1 className="text-lg sm:text-xl font-semibold">Весовой контроль</h1>
           </div>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
             <Select
               value={selectedYardId?.toString() || ""}
               onValueChange={(val) => setSelectedYardId(parseInt(val))}
             >
-              <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectTrigger className="flex-1 sm:flex-none sm:w-[200px]">
                 <SelectValue placeholder="Выберите двор" />
               </SelectTrigger>
               <SelectContent>
@@ -586,7 +676,7 @@ const WeighingControl: React.FC = () => {
               size="icon"
               onClick={() => {
                 fetchPending();
-                fetchToday();
+                fetchHistory();
               }}
               disabled={loading}
             >
@@ -601,7 +691,7 @@ const WeighingControl: React.FC = () => {
         <div className="flex">
           <button
             onClick={() => setActiveTab("pending")}
-            className={`flex-1 sm:flex-none px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors ${
+            className={`flex-1 px-3 sm:px-4 py-2.5 flex items-center justify-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium transition-colors ${
               activeTab === "pending"
                 ? "text-blue-600 border-b-2 border-blue-600"
                 : "text-gray-600 hover:text-gray-900"
@@ -611,82 +701,382 @@ const WeighingControl: React.FC = () => {
             <span>Ожидают ({pendingRequirements.length})</span>
           </button>
           <button
-            onClick={() => setActiveTab("today")}
-            className={`flex-1 sm:flex-none px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors ${
-              activeTab === "today"
+            onClick={() => setActiveTab("history")}
+            className={`flex-1 px-3 sm:px-4 py-2.5 flex items-center justify-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium transition-colors ${
+              activeTab === "history"
                 ? "text-blue-600 border-b-2 border-blue-600"
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
             <History className="w-4 h-4" />
-            <span>Сегодня ({todayWeighings.length})</span>
+            <span>История ({new Set(historyWeighings.map(w => w.plate_number)).size})</span>
           </button>
         </div>
       </div>
 
+      {/* Фильтр по периоду для истории */}
+      {activeTab === "history" && (
+        <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 border-b">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 sm:items-center">
+            <div className="flex items-center gap-2 flex-1">
+              <Label className="whitespace-nowrap text-sm">С:</Label>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="flex-1 sm:w-[150px]"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-1">
+              <Label className="whitespace-nowrap text-sm">По:</Label>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="flex-1 sm:w-[150px]"
+              />
+            </div>
+            <Button onClick={fetchHistory} disabled={loading} className="gap-2">
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              Показать
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Кнопка ручного взвешивания */}
-      <div className="p-4 bg-white dark:bg-gray-800 border-b">
-        <Button onClick={handleManualWeigh} className="gap-2">
+      <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 border-b">
+        <Button onClick={handleManualWeigh} className="gap-2 w-full sm:w-auto">
           <Plus className="w-4 h-4" />
           Ручное взвешивание
         </Button>
       </div>
 
       {/* Контент */}
-      <div className="flex-1 p-4 overflow-auto">
+      <div className="flex-1 p-2 sm:p-4 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <CircularProgress />
           </div>
         ) : activeTab === "pending" ? (
-          <Box sx={{ height: "100%", width: "100%", minHeight: 400 }}>
-            <DataGrid
-              rows={pendingRequirements}
-              columns={pendingColumns}
-              pageSizeOptions={[10, 25, 50]}
-              initialState={{
-                pagination: { paginationModel: { pageSize: 10 } },
-              }}
-              disableRowSelectionOnClick
-              localeText={{
-                noRowsLabel: "Нет ожидающих взвешивания",
-                MuiTablePagination: {
-                  labelRowsPerPage: "Строк:",
-                },
-              }}
-              sx={{
-                bgcolor: "white",
-                "& .MuiDataGrid-cell": {
-                  borderColor: "#e5e7eb",
-                },
-              }}
-            />
-          </Box>
+          isMobile ? (
+            // Мобильный вид - карточки ожидающих
+            <div className="space-y-3">
+              {pendingRequirements.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <Scale className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>Нет ожидающих взвешивания</p>
+                </div>
+              ) : (
+                pendingRequirements.map((req) => (
+                  <Card key={req.id} className="p-3">
+                    {/* Верхняя часть - номер и статус */}
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <TruckIcon className="w-5 h-5 text-gray-400" />
+                        <span className="font-mono font-bold text-lg">{req.plate_number}</span>
+                      </div>
+                      <Badge 
+                        variant={req.status === "pending" && req.needs_entry ? "default" : "secondary"}
+                        className={cn(
+                          req.status === "pending" && req.needs_entry && "bg-orange-500",
+                          req.status === "entry_done" && req.needs_exit && "bg-blue-500"
+                        )}
+                      >
+                        {req.status === "pending" && req.needs_entry && "Ожидает въезд"}
+                        {req.status === "entry_done" && req.needs_exit && "Ожидает выезд"}
+                        {req.status === "completed" && "Завершено"}
+                        {req.status === "skipped" && "Пропущено"}
+                      </Badge>
+                    </div>
+
+                    {/* Информация */}
+                    <div className="space-y-1 text-sm text-gray-600 mb-3">
+                      <p className="flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5" />
+                        {req.reason_text || "Не указано"}
+                      </p>
+                      {req.entry_weight && (
+                        <p className="flex items-center gap-2">
+                          <Scale className="w-3.5 h-3.5" />
+                          Вес въезда: <span className="font-medium">{parseFloat(String(req.entry_weight)).toFixed(2)} кг</span>
+                        </p>
+                      )}
+                      {req.task_name && (
+                        <p className="flex items-center gap-2 text-blue-600">
+                          <FileText className="w-3.5 h-3.5" />
+                          {req.task_name}
+                        </p>
+                      )}
+                      {req.visitor_entry_date && (
+                        <p className="flex items-center gap-2">
+                          <Clock className="w-3.5 h-3.5" />
+                          Въехал {formatDistanceToNow(new Date(req.visitor_entry_date), { locale: ru, addSuffix: true })}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Кнопки действий */}
+                    <div className="flex gap-2">
+                      {req.needs_entry && (
+                        <Button
+                          size="sm"
+                          className="flex-1 gap-1.5 bg-green-600 hover:bg-green-700"
+                          onClick={() => handleWeigh(req, "entry")}
+                        >
+                          <ArrowDownToLine className="w-4 h-4" />
+                          Взвесить (въезд)
+                        </Button>
+                      )}
+                      {req.needs_exit && !req.needs_entry && (
+                        <Button
+                          size="sm"
+                          className="flex-1 gap-1.5 bg-orange-600 hover:bg-orange-700"
+                          onClick={() => handleWeigh(req, "exit")}
+                        >
+                          <ArrowUpFromLine className="w-4 h-4" />
+                          Взвесить (выезд)
+                        </Button>
+                      )}
+                      {req.status !== "completed" && req.status !== "skipped" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          onClick={() => handleSkipOpen(req)}
+                        >
+                          <SkipForward className="w-4 h-4" />
+                          <span className="hidden sm:inline">Пропустить</span>
+                        </Button>
+                      )}
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          ) : (
+            // Десктоп вид - таблица
+            <Box sx={{ height: "100%", width: "100%", minHeight: 400 }}>
+              <DataGrid
+                rows={pendingRequirements}
+                columns={pendingColumns}
+                pageSizeOptions={[10, 25, 50]}
+                initialState={{
+                  pagination: { paginationModel: { pageSize: 10 } },
+                }}
+                disableRowSelectionOnClick
+                localeText={{
+                  noRowsLabel: "Нет ожидающих взвешивания",
+                  MuiTablePagination: {
+                    labelRowsPerPage: "Строк:",
+                  },
+                }}
+                sx={{
+                  bgcolor: "white",
+                  "& .MuiDataGrid-cell": {
+                    borderColor: "#e5e7eb",
+                  },
+                }}
+              />
+            </Box>
+          )
+        ) : isMobile ? (
+          // Мобильный вид - группированные карточки истории взвешиваний
+          <div className="space-y-3">
+            {historyWeighings.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>Нет взвешиваний за выбранный период</p>
+              </div>
+            ) : (
+              groupWeighings(historyWeighings).map((g, idx) => (
+                <Card key={`${g.plate_number}-${idx}`} className="p-3">
+                  {/* Верхняя часть - номер и статус */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <TruckIcon className="w-5 h-5 text-gray-400" />
+                      <span className="font-mono font-bold text-lg">{g.plate_number}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {g.hasEntry && (
+                        <Badge variant="outline" className="border-green-300 text-green-600 bg-green-50">
+                          <ArrowDownToLine className="w-3 h-3 mr-1" />
+                          Въезд
+                        </Badge>
+                      )}
+                      {g.hasExit && (
+                        <Badge variant="outline" className="border-orange-300 text-orange-600 bg-orange-50">
+                          <ArrowUpFromLine className="w-3 h-3 mr-1" />
+                          Выезд
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Веса в таблице */}
+                  <div className="grid grid-cols-3 gap-2 py-2 border-t border-b mb-2">
+                    {/* Въезд */}
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500 mb-1">Въезд</p>
+                      {g.entry_weight ? (
+                        <>
+                          <p className="font-bold text-green-600">{parseFloat(String(g.entry_weight)).toFixed(0)} кг</p>
+                          <p className="text-xs text-gray-400">
+                            {g.entry_time && format(new Date(g.entry_time), "HH:mm")}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-gray-300">—</p>
+                      )}
+                    </div>
+                    
+                    {/* Выезд */}
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500 mb-1">Выезд</p>
+                      {g.exit_weight ? (
+                        <>
+                          <p className="font-bold text-orange-600">{parseFloat(String(g.exit_weight)).toFixed(0)} кг</p>
+                          <p className="text-xs text-gray-400">
+                            {g.exit_time && format(new Date(g.exit_time), "HH:mm")}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-gray-300">—</p>
+                      )}
+                    </div>
+                    
+                    {/* Разница */}
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500 mb-1">Разница</p>
+                      {g.weight_diff !== null && g.weight_diff !== undefined ? (
+                        <p className={cn(
+                          "font-bold",
+                          parseFloat(String(g.weight_diff)) > 0 ? "text-green-600" : 
+                          parseFloat(String(g.weight_diff)) < 0 ? "text-red-600" : "text-gray-600"
+                        )}>
+                          {parseFloat(String(g.weight_diff)) > 0 ? "+" : ""}
+                          {parseFloat(String(g.weight_diff)).toFixed(0)} кг
+                        </p>
+                      ) : g.hasEntry && g.hasExit ? (
+                        <p className="text-gray-300">—</p>
+                      ) : (
+                        <p className="text-xs text-gray-400">ожидание</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Дополнительная информация */}
+                  {(g.operator_name || g.notes) && (
+                    <div className="space-y-1 text-sm text-gray-600">
+                      {g.operator_name && (
+                        <p className="flex items-center gap-2">
+                          <User className="w-3.5 h-3.5" />
+                          {g.operator_name}
+                        </p>
+                      )}
+                      {g.notes && (
+                        <p className="flex items-start gap-2">
+                          <FileText className="w-3.5 h-3.5 mt-0.5" />
+                          <span className="line-clamp-2">{g.notes}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              ))
+            )}
+          </div>
         ) : (
-          <Box sx={{ height: "100%", width: "100%", minHeight: 400 }}>
-            <DataGrid
-              rows={todayWeighings}
-              columns={todayColumns}
-              pageSizeOptions={[10, 25, 50, 100]}
-              initialState={{
-                pagination: { paginationModel: { pageSize: 25 } },
-                sorting: { sortModel: [{ field: "weighed_at", sort: "desc" }] },
-              }}
-              disableRowSelectionOnClick
-              localeText={{
-                noRowsLabel: "Нет взвешиваний за сегодня",
-                MuiTablePagination: {
-                  labelRowsPerPage: "Строк:",
-                },
-              }}
-              sx={{
-                bgcolor: "white",
-                "& .MuiDataGrid-cell": {
-                  borderColor: "#e5e7eb",
-                },
-              }}
-            />
-          </Box>
+          // Десктоп вид - группированная таблица
+          <div className="bg-white rounded-lg border">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Номер ТС</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Въезд</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Выезд</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Разница</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Оператор</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Примечание</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {historyWeighings.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                      <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                      <p>Нет взвешиваний за выбранный период</p>
+                    </td>
+                  </tr>
+                ) : (
+                  groupWeighings(historyWeighings).map((g, idx) => (
+                    <tr key={`${g.plate_number}-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <TruckIcon className="w-4 h-4 text-gray-400" />
+                          <span className="font-mono font-bold">{g.plate_number}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {g.entry_weight ? (
+                          <div>
+                            <span className="font-medium text-green-600">
+                              {parseFloat(String(g.entry_weight)).toFixed(2)} кг
+                            </span>
+                            <p className="text-xs text-gray-400">
+                              {g.entry_time && format(new Date(g.entry_time), "HH:mm")}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {g.exit_weight ? (
+                          <div>
+                            <span className="font-medium text-orange-600">
+                              {parseFloat(String(g.exit_weight)).toFixed(2)} кг
+                            </span>
+                            <p className="text-xs text-gray-400">
+                              {g.exit_time && format(new Date(g.exit_time), "HH:mm")}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {g.weight_diff !== null && g.weight_diff !== undefined ? (
+                          <span className={cn(
+                            "font-semibold",
+                            parseFloat(String(g.weight_diff)) > 0 ? "text-green-600" : 
+                            parseFloat(String(g.weight_diff)) < 0 ? "text-red-600" : "text-gray-600"
+                          )}>
+                            {parseFloat(String(g.weight_diff)) > 0 ? "+" : ""}
+                            {parseFloat(String(g.weight_diff)).toFixed(2)} кг
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {g.operator_name || <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">
+                        {g.notes ? (
+                          <Tooltip title={g.notes}>
+                            <span>{g.notes}</span>
+                          </Tooltip>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

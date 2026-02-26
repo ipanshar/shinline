@@ -202,6 +202,26 @@ class WeighingService
     }
 
     /**
+     * Получить историю взвешиваний по двору за период
+     */
+    public function getHistoryByYard(int $yardId, ?string $dateFrom = null, ?string $dateTo = null): \Illuminate\Database\Eloquent\Collection
+    {
+        $query = Weighing::with(['visitor', 'truck', 'operator'])
+            ->byYard($yardId)
+            ->orderBy('weighed_at', 'desc');
+
+        if ($dateFrom) {
+            $query->whereDate('weighed_at', '>=', $dateFrom);
+        }
+
+        if ($dateTo) {
+            $query->whereDate('weighed_at', '<=', $dateTo);
+        }
+
+        return $query->get();
+    }
+
+    /**
      * Получить историю взвешиваний ТС
      */
     public function getTruckHistory(int $truckId, ?string $dateFrom = null, ?string $dateTo = null): \Illuminate\Database\Eloquent\Collection

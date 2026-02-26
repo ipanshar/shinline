@@ -111,6 +111,54 @@ class WeighingController extends Controller
     }
 
     /**
+     * Получить историю взвешиваний за период
+     */
+    public function getHistory(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'yard_id' => 'required|integer|exists:yards,id',
+                'date_from' => 'nullable|date',
+                'date_to' => 'nullable|date',
+            ]);
+
+            $weighings = $this->weighingService->getHistoryByYard(
+                $validate['yard_id'],
+                $validate['date_from'] ?? null,
+                $validate['date_to'] ?? null
+            );
+
+            $data = $weighings->map(function ($w) {
+                return [
+                    'id' => $w->id,
+                    'plate_number' => $w->plate_number,
+                    'weighing_type' => $w->weighing_type,
+                    'weight' => $w->weight,
+                    'weighed_at' => $w->weighed_at,
+                    'weight_diff' => $w->getWeightDifference(),
+                    'visitor_id' => $w->visitor_id,
+                    'truck_id' => $w->truck_id,
+                    'operator_name' => $w->operator?->name,
+                    'notes' => $w->notes,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Weighings history retrieved',
+                'count' => $data->count(),
+                'data' => $data,
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Записать взвешивание
      */
     public function record(Request $request)

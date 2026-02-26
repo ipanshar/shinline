@@ -215,13 +215,16 @@ class TaskCotroller extends Controller
 
             $cur_page = 0;
             $last_page = 0;
+            $total = 0;
             if ($request->has('page')) {
                 $paginated = $tasks->paginate(50);
                 $cur_page = $paginated->currentPage();
                 $last_page = $paginated->lastPage();
+                $total = $paginated->total();
                 $tasks = $paginated->items();
             } else {
                 $tasks = $tasks->limit(150)->get();
+                $total = count($tasks);
             }
 
             if (!$tasks) {
@@ -301,9 +304,13 @@ class TaskCotroller extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Tasks retrieved successfully',
-                'data' => $data,
-                'current_page' => $cur_page,
-                'last_page' => $last_page,
+                'data' => [
+                    'tasks' => $data,
+                    'totalPages' => $last_page,
+                    'total' => $total,
+                    'current_page' => $cur_page,
+                    'last_page' => $last_page,
+                ],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

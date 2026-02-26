@@ -32,6 +32,7 @@ export type Task = {
   user_name: string;
   user_login: string;
   user_phone: string;
+  created_at?: string;
 
   task_weighings: TaskWeighing[];
   task_loadings: TaskLoading[];

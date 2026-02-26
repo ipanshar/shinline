@@ -1335,12 +1335,27 @@ class VisitorsCotroller extends Controller
             // Сортировка
             $query->orderBy('entry_permits.created_at', 'desc');
 
-            $permits = $query->get();
+            // Пагинация
+            $perPage = $request->input('per_page', 25); // По умолчанию 25 записей
+            $page = $request->input('page', 1);
+            
+            // Ограничиваем максимальное количество записей на страницу
+            $perPage = min((int)$perPage, 100);
+            
+            $paginated = $query->paginate($perPage, ['*'], 'page', $page);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Permits retrieved successfully',
-                'data' => $permits,
+                'data' => $paginated->items(),
+                'pagination' => [
+                    'current_page' => $paginated->currentPage(),
+                    'last_page' => $paginated->lastPage(),
+                    'per_page' => $paginated->perPage(),
+                    'total' => $paginated->total(),
+                    'from' => $paginated->firstItem(),
+                    'to' => $paginated->lastItem(),
+                ],
             ], 200);
 
         } catch (\Exception $e) {

@@ -129,6 +129,7 @@ Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermits
 // Весовой контроль (Weighing)
 Route::post('/weighing/pending', [WeighingController::class, 'getPending']); // Ожидающие взвешивания
 Route::post('/weighing/today', [WeighingController::class, 'getToday']); // Взвешивания за сегодня
+Route::post('/weighing/history', [WeighingController::class, 'getHistory']); // История взвешиваний за период
 Route::post('/weighing/record', [WeighingController::class, 'record']); // Записать взвешивание
 Route::post('/weighing/create-requirement', [WeighingController::class, 'createRequirement']); // Создать требование вручную
 Route::post('/weighing/skip', [WeighingController::class, 'skip']); // Пропустить взвешивание
@@ -137,7 +138,7 @@ Route::post('/weighing/statistics', [WeighingController::class, 'statistics']); 
 Route::post('/weighing/list', [WeighingController::class, 'index']); // Список взвешиваний с фильтрами
 
 // Status routes
-Route::post('/setings/getstatus', [StatusCotroller::class,'getStatus']); //Получить все статусы
+Route::post('/setings/getstatus', [StatusCotroller::class,'getStatuses']); //Получить все статусы
 Route::post('/setings/addstatus', [StatusCotroller::class,'addStatus']); //Добавить статус
 Route::post('/setings/updatestatus', [StatusCotroller::class,'updateStatus']); //Обновить статус
 

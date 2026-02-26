@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
-import { DataGrid, GridColDef, GridActionsCellItem } from "@mui/x-data-grid";
-import { Box, CircularProgress, Chip, TextField, Autocomplete } from "@mui/material";
+import { TextField, Autocomplete, CircularProgress as MuiCircularProgress } from "@mui/material";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -19,10 +21,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, Truck as TruckIcon, UserRound } from "lucide-react";
+import { 
+  Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, 
+  Truck as TruckIcon, UserRound, MoreVertical, MapPin, Phone, Building2, MessageSquare,
+  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp
+} from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
 interface Yard {
   id: number;
@@ -98,6 +111,15 @@ interface FormData {
   guest_phone: string;
 }
 
+interface Pagination {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from: number | null;
+  to: number | null;
+}
+
 const EntryPermitsManager: React.FC = () => {
   const [permits, setPermits] = useState<EntryPermit[]>([]);
   const [yards, setYards] = useState<Yard[]>([]);
@@ -107,6 +129,18 @@ const EntryPermitsManager: React.FC = () => {
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
   const [selectedPermit, setSelectedPermit] = useState<EntryPermit | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Пагинация
+  const [pagination, setPagination] = useState<Pagination>({
+    current_page: 1,
+    last_page: 1,
+    per_page: 25,
+    total: 0,
+    from: null,
+    to: null,
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
 
   // Фильтры
   const [filterYardId, setFilterYardId] = useState<number | null>(null);
@@ -154,9 +188,12 @@ const EntryPermitsManager: React.FC = () => {
   const token = localStorage.getItem("auth_token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-  const fetchPermits = useCallback(() => {
+  const fetchPermits = useCallback((page = currentPage) => {
     setLoading(true);
-    const params: any = {};
+    const params: any = {
+      page,
+      per_page: perPage,
+    };
     if (filterYardId) params.yard_id = filterYardId;
     if (filterStatus !== "all") params.status = filterStatus;
     if (filterPermitType !== "all") params.permit_type = filterPermitType;
@@ -167,6 +204,9 @@ const EntryPermitsManager: React.FC = () => {
       .then((response) => {
         if (response.data.status) {
           setPermits(response.data.data);
+          if (response.data.pagination) {
+            setPagination(response.data.pagination);
+          }
         }
       })
       .catch((error) => {
@@ -174,7 +214,7 @@ const EntryPermitsManager: React.FC = () => {
         toast.error("Ошибка загрузки разрешений");
       })
       .finally(() => setLoading(false));
-  }, [filterYardId, filterStatus, filterPermitType, searchPlate]);
+  }, [filterYardId, filterStatus, filterPermitType, searchPlate, currentPage, perPage]);
 
   const fetchYards = () => {
     axios
@@ -189,12 +229,27 @@ const EntryPermitsManager: React.FC = () => {
 
   useEffect(() => {
     fetchYards();
-    fetchPermits();
+    fetchPermits(1);
   }, []);
 
+  // При изменении фильтров сбрасываем на первую страницу
   useEffect(() => {
-    fetchPermits();
-  }, [filterYardId, filterStatus, filterPermitType, fetchPermits]);
+    setCurrentPage(1);
+    fetchPermits(1);
+  }, [filterYardId, filterStatus, filterPermitType]);
+
+  // При изменении страницы загружаем данные
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    fetchPermits(page);
+  };
+
+  // При изменении количества на странице
+  const handlePerPageChange = (newPerPage: number) => {
+    setPerPage(newPerPage);
+    setCurrentPage(1);
+    fetchPermits(1);
+  };
 
   // Поиск ТС
   const searchTrucks = async (query: string) => {
@@ -416,7 +471,7 @@ const EntryPermitsManager: React.FC = () => {
         toast.success("Разрешение создано");
       }
       setDialogOpen(false);
-      fetchPermits();
+      fetchPermits(currentPage);
     } catch (error: any) {
       const message = error.response?.data?.message || "Ошибка сохранения";
       setFormError(message);
@@ -434,7 +489,7 @@ const EntryPermitsManager: React.FC = () => {
       await axios.post("/security/deactivatepermit", { id: selectedPermit.id }, { headers });
       toast.success("Разрешение деактивировано");
       setDeactivateDialogOpen(false);
-      fetchPermits();
+      fetchPermits(currentPage);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Ошибка деактивации");
     } finally {
@@ -450,7 +505,7 @@ const EntryPermitsManager: React.FC = () => {
       await axios.post("/security/deletepermit", { id: selectedPermit.id }, { headers });
       toast.success("Разрешение удалено");
       setDeleteDialogOpen(false);
-      fetchPermits();
+      fetchPermits(currentPage);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Ошибка удаления");
     } finally {
@@ -467,168 +522,219 @@ const EntryPermitsManager: React.FC = () => {
     }
   };
 
-  const columns: GridColDef[] = [
-    {
-      field: "plate_number",
-      headerName: "Номер ТС",
-      flex: 1,
-      minWidth: 130,
-      renderCell: (params) => (
-        <div className="flex flex-col">
-          <span className="font-mono font-bold">{params.value}</span>
-          {params.row.truck_brand_name && (
-            <span className="text-xs text-gray-500">
-              {params.row.truck_brand_name} {params.row.truck_model_name}
+  // Компонент карточки разрешения
+  const PermitCard: React.FC<{ permit: EntryPermit }> = ({ permit }) => {
+    const [expanded, setExpanded] = useState(false);
+    const isActive = permit.status_key === "active";
+
+    return (
+      <Card className={cn(
+        "p-4 transition-all duration-200 hover:shadow-md",
+        !isActive && "opacity-70 bg-gray-50 dark:bg-gray-900/50"
+      )}>
+        {/* Верхняя часть - основная информация */}
+        <div className="flex items-start justify-between gap-3">
+          {/* Левая часть - номер и основные данные */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Номер ТС */}
+              <span className="font-mono font-bold text-lg">{permit.plate_number}</span>
+              
+              {/* Статус */}
+              <Badge variant={isActive ? "default" : "secondary"} className={cn(
+                isActive ? "bg-green-500 hover:bg-green-600" : "bg-gray-400"
+              )}>
+                {isActive ? "Активно" : "Неактивно"}
+              </Badge>
+              
+              {/* Тип разрешения */}
+              <Badge variant="outline" className={cn(
+                permit.one_permission 
+                  ? "border-orange-300 text-orange-600 dark:text-orange-400" 
+                  : "border-green-300 text-green-600 dark:text-green-400"
+              )}>
+                {permit.one_permission ? (
+                  <><Clock className="w-3 h-3 mr-1" /> Разовое</>
+                ) : (
+                  <><CalendarClock className="w-3 h-3 mr-1" /> Постоянное</>
+                )}
+              </Badge>
+              
+              {/* Взвешивание */}
+              {permit.weighing_required === true && (
+                <Badge variant="outline" className="border-blue-300 text-blue-600 dark:text-blue-400">
+                  <Scale className="w-3 h-3 mr-1" /> Взвешивание
+                </Badge>
+              )}
+            </div>
+
+            {/* Модель ТС */}
+            {permit.truck_brand_name && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {permit.truck_brand_name} {permit.truck_model_name}
+              </p>
+            )}
+
+            {/* Двор */}
+            <div className="flex items-center gap-2 mt-2">
+              <MapPin className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm">
+                {permit.yard_name}
+                {permit.yard_strict_mode && (
+                  <span title="Строгий режим">
+                    <Shield className="w-3 h-3 inline ml-1 text-red-500" />
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Правая часть - гость или водитель */}
+          <div className="flex flex-col items-end gap-2">
+            {permit.is_guest ? (
+              <div className="text-right">
+                <Badge className="bg-purple-500 hover:bg-purple-600 mb-1">
+                  <UserRound className="w-3 h-3 mr-1" /> Гость
+                </Badge>
+                {permit.guest_name && (
+                  <p className="text-sm font-medium">{permit.guest_name}</p>
+                )}
+                {permit.guest_company && (
+                  <p className="text-xs text-muted-foreground flex items-center justify-end gap-1">
+                    <Building2 className="w-3 h-3" /> {permit.guest_company}
+                  </p>
+                )}
+              </div>
+            ) : permit.driver_name ? (
+              <div className="text-right">
+                <p className="text-sm font-medium flex items-center justify-end gap-1">
+                  <User className="w-3 h-3" /> {permit.driver_name}
+                </p>
+                {permit.driver_phone && (
+                  <p className="text-xs text-muted-foreground">{permit.driver_phone}</p>
+                )}
+              </div>
+            ) : null}
+
+            {/* Меню действий */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openEditDialog(permit)}>
+                  <Pencil className="w-4 h-4 mr-2" /> Редактировать
+                </DropdownMenuItem>
+                {isActive ? (
+                  <DropdownMenuItem 
+                    onClick={() => openDeactivateDialog(permit)}
+                    className="text-orange-600"
+                  >
+                    <Ban className="w-4 h-4 mr-2" /> Деактивировать
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem 
+                    onClick={() => openDeleteDialog(permit)}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> Удалить
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Даты и дополнительная информация */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-muted-foreground">
+          {/* Даты */}
+          {(permit.begin_date || permit.end_date) && (
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {formatDate(permit.begin_date)} — {formatDate(permit.end_date)}
+            </span>
+          )}
+
+          {/* Гостевая информация */}
+          {permit.is_guest && permit.guest_destination && (
+            <span className="flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> → {permit.guest_destination}
+            </span>
+          )}
+          {permit.is_guest && permit.guest_phone && (
+            <span className="flex items-center gap-1">
+              <Phone className="w-3 h-3" /> {permit.guest_phone}
+            </span>
+          )}
+
+          {/* Выдал */}
+          {permit.granted_by_name && (
+            <span className="flex items-center gap-1 text-xs">
+              Выдал: {permit.granted_by_name}
             </span>
           )}
         </div>
-      ),
-    },
-    {
-      field: "yard_name",
-      headerName: "Двор",
-      flex: 1,
-      minWidth: 120,
-      renderCell: (params) => (
-        <div className="flex items-center gap-1">
-          {params.row.yard_strict_mode && (
-            <Shield className="w-4 h-4 text-red-500" />
-          )}
-          <span>{params.value}</span>
-        </div>
-      ),
-    },
-    {
-      field: "one_permission",
-      headerName: "Тип",
-      width: 120,
-      renderCell: (params) =>
-        params.value ? (
-          <Chip icon={<Clock className="w-3 h-3" />} label="Разовое" size="small" color="warning" />
-        ) : (
-          <Chip icon={<CalendarClock className="w-3 h-3" />} label="Постоянное" size="small" color="success" />
-        ),
-    },
-    {
-      field: "weighing_required",
-      headerName: "Взвешивание",
-      width: 120,
-      renderCell: (params) =>
-        params.value === true ? (
-          <Chip icon={<Scale className="w-3 h-3" />} label="Требуется" size="small" color="info" />
-        ) : params.value === false ? (
-          <Chip label="Не требуется" size="small" color="default" />
-        ) : (
-          <span className="text-gray-400">—</span>
-        ),
-    },
-    {
-      field: "status_key",
-      headerName: "Статус",
-      width: 110,
-      renderCell: (params) =>
-        params.value === "active" ? (
-          <Chip label="Активно" size="small" color="success" />
-        ) : (
-          <Chip label="Неактивно" size="small" color="default" />
-        ),
-    },
-    {
-      field: "is_guest",
-      headerName: "Гость",
-      width: 180,
-      renderCell: (params) =>
-        params.value ? (
-          <div className="flex flex-col">
-            <Chip 
-              label="Гость" 
-              size="small" 
-              color="secondary" 
-              className="mb-1"
-            />
-            {params.row.guest_name && (
-              <span className="text-xs font-medium">{params.row.guest_name}</span>
+
+        {/* Раскрывающаяся секция с дополнительными данными */}
+        {(permit.comment || permit.guest_purpose || permit.task_name) && (
+          <>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
+            >
+              {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {expanded ? "Скрыть детали" : "Показать детали"}
+            </button>
+            
+            {expanded && (
+              <div className="mt-2 pt-2 border-t text-sm space-y-1 animate-in slide-in-from-top-2">
+                {permit.guest_purpose && (
+                  <p className="text-muted-foreground">
+                    <span className="font-medium">Цель визита:</span> {permit.guest_purpose}
+                  </p>
+                )}
+                {permit.task_name && (
+                  <p className="text-muted-foreground">
+                    <span className="font-medium">Задание:</span> {permit.task_name}
+                  </p>
+                )}
+                {permit.comment && (
+                  <p className="text-muted-foreground flex items-start gap-1">
+                    <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    {permit.comment}
+                  </p>
+                )}
+              </div>
             )}
-            {params.row.guest_destination && (
-              <span className="text-xs text-gray-500">→ {params.row.guest_destination}</span>
-            )}
+          </>
+        )}
+      </Card>
+    );
+  };
+
+  // Скелетон загрузки
+  const PermitCardSkeleton: React.FC = () => (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 space-y-2">
+          <div className="flex gap-2">
+            <Skeleton className="h-7 w-28" />
+            <Skeleton className="h-5 w-20" />
+            <Skeleton className="h-5 w-24" />
           </div>
-        ) : null,
-    },
-    {
-      field: "driver_name",
-      headerName: "Водитель",
-      flex: 1,
-      minWidth: 130,
-      renderCell: (params) => params.value || "—",
-    },
-    {
-      field: "begin_date",
-      headerName: "Начало",
-      width: 100,
-      renderCell: (params) => formatDate(params.value),
-    },
-    {
-      field: "end_date",
-      headerName: "Окончание",
-      width: 100,
-      renderCell: (params) => formatDate(params.value),
-    },
-    {
-      field: "granted_by_name",
-      headerName: "Выдал",
-      flex: 1,
-      minWidth: 120,
-      renderCell: (params) => params.value || <span className="text-gray-400 italic">1С/Система</span>,
-    },
-    {
-      field: "task_name",
-      headerName: "Задание",
-      flex: 1,
-      minWidth: 100,
-      renderCell: (params) => params.value || "—",
-    },
-    {
-      field: "comment",
-      headerName: "Комментарий",
-      flex: 1,
-      minWidth: 120,
-      renderCell: (params) => params.value || "—",
-    },
-    {
-      field: "actions",
-      type: "actions",
-      headerName: "Действия",
-      width: 120,
-      getActions: (params) => {
-        const actions = [
-          <GridActionsCellItem
-            icon={<Pencil className="w-4 h-4" />}
-            label="Редактировать"
-            onClick={() => openEditDialog(params.row)}
-          />,
-        ];
-        if (params.row.status_key === "active") {
-          actions.push(
-            <GridActionsCellItem
-              icon={<Ban className="w-4 h-4 text-orange-500" />}
-              label="Деактивировать"
-              onClick={() => openDeactivateDialog(params.row)}
-            />
-          );
-        } else {
-          actions.push(
-            <GridActionsCellItem
-              icon={<Trash2 className="w-4 h-4 text-red-500" />}
-              label="Удалить"
-              onClick={() => openDeleteDialog(params.row)}
-            />
-          );
-        }
-        return actions;
-      },
-    },
-  ];
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <Skeleton className="h-8 w-8 rounded" />
+      </div>
+      <div className="flex gap-4 mt-3">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-4 w-24" />
+      </div>
+    </Card>
+  );
 
   return (
     <div className="p-4 h-full flex flex-col">
@@ -643,7 +749,7 @@ const EntryPermitsManager: React.FC = () => {
                 placeholder="Введите номер..."
                 value={searchPlate}
                 onChange={(e) => setSearchPlate(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && fetchPermits()}
+                onKeyDown={(e) => e.key === "Enter" && fetchPermits(1)}
               />
               <Button variant="outline" size="icon" onClick={fetchPermits}>
                 <Search className="w-4 h-4" />
@@ -703,7 +809,7 @@ const EntryPermitsManager: React.FC = () => {
           </div>
 
           {/* Кнопки */}
-          <Button variant="outline" onClick={fetchPermits}>
+          <Button variant="outline" onClick={() => fetchPermits(currentPage)}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Обновить
           </Button>
@@ -714,31 +820,145 @@ const EntryPermitsManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Таблица */}
-      <div className="flex-1 bg-white dark:bg-gray-800 rounded-lg shadow">
+      {/* Список разрешений */}
+      <div className="flex-1 overflow-hidden bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col">
         {loading ? (
-          <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-            <CircularProgress />
-          </Box>
+          <div className="p-4 space-y-3 overflow-y-auto flex-1">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <PermitCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : permits.length === 0 ? (
+          <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
+            <TruckIcon className="w-16 h-16 mb-4 opacity-20" />
+            <p className="text-lg font-medium">Нет разрешений</p>
+            <p className="text-sm">Добавьте первое разрешение на въезд</p>
+            <Button onClick={openAddDialog} className="mt-4">
+              <Plus className="w-4 h-4 mr-2" />
+              Добавить разрешение
+            </Button>
+          </div>
         ) : (
-          <DataGrid
-            rows={permits}
-            columns={columns}
-            pageSizeOptions={[10, 25, 50, 100]}
-            initialState={{
-              pagination: { paginationModel: { pageSize: 25 } },
-            }}
-            disableRowSelectionOnClick
-            sx={{
-              border: "none",
-              "& .MuiDataGrid-cell": {
-                borderBottom: "1px solid rgba(224, 224, 224, 0.5)",
-              },
-            }}
-            localeText={{
-              noRowsLabel: "Нет разрешений",
-            }}
-          />
+          <>
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+              {/* Счётчик результатов */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground mb-2">
+                <span>
+                  Показано <strong className="text-foreground">{pagination.from || 0}</strong>–<strong className="text-foreground">{pagination.to || 0}</strong> из <strong className="text-foreground">{pagination.total}</strong> разрешений
+                </span>
+                <div className="flex gap-2">
+                  <Badge variant="outline" className="text-green-600">
+                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                    Активных: {permits.filter(p => p.status_key === 'active').length}
+                  </Badge>
+                  <Badge variant="outline" className="text-gray-500">
+                    <XCircle className="w-3 h-3 mr-1" />
+                    Неактивных: {permits.filter(p => p.status_key !== 'active').length}
+                  </Badge>
+                </div>
+              </div>
+              
+              {/* Карточки разрешений */}
+              <div className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
+                {permits.map((permit) => (
+                  <PermitCard key={permit.id} permit={permit} />
+                ))}
+              </div>
+            </div>
+
+            {/* Пагинация */}
+            {pagination.last_page > 1 && (
+              <div className="border-t bg-gray-50 dark:bg-gray-900 p-3 flex flex-wrap items-center justify-between gap-3">
+                {/* Выбор количества на странице */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Показать:</span>
+                  <Select value={perPage.toString()} onValueChange={(v) => handlePerPageChange(Number(v))}>
+                    <SelectTrigger className="w-20 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Навигация по страницам */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => handlePageChange(1)}
+                    disabled={pagination.current_page === 1}
+                  >
+                    «
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => handlePageChange(pagination.current_page - 1)}
+                    disabled={pagination.current_page === 1}
+                  >
+                    ‹
+                  </Button>
+                  
+                  {/* Номера страниц */}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, pagination.last_page) }, (_, i) => {
+                      let pageNum: number;
+                      if (pagination.last_page <= 5) {
+                        pageNum = i + 1;
+                      } else if (pagination.current_page <= 3) {
+                        pageNum = i + 1;
+                      } else if (pagination.current_page >= pagination.last_page - 2) {
+                        pageNum = pagination.last_page - 4 + i;
+                      } else {
+                        pageNum = pagination.current_page - 2 + i;
+                      }
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={pageNum === pagination.current_page ? "default" : "outline"}
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handlePageChange(pageNum)}
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => handlePageChange(pagination.current_page + 1)}
+                    disabled={pagination.current_page === pagination.last_page}
+                  >
+                    ›
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => handlePageChange(pagination.last_page)}
+                    disabled={pagination.current_page === pagination.last_page}
+                  >
+                    »
+                  </Button>
+                </div>
+
+                {/* Информация о странице */}
+                <span className="text-sm text-muted-foreground">
+                  Страница {pagination.current_page} из {pagination.last_page}
+                </span>
+              </div>
+            )}
+          </>
         )}
       </div>
 

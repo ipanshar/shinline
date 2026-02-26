@@ -202,6 +202,7 @@ Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::clas
 // Weighing routes (Весовой контроль)
 Route::post('/weighing/pending', [WeighingController::class, 'getPending'])->middleware('auth:sanctum'); // Ожидающие взвешивания
 Route::post('/weighing/today', [WeighingController::class, 'getToday'])->middleware('auth:sanctum'); // Взвешивания за сегодня
+Route::post('/weighing/history', [WeighingController::class, 'getHistory'])->middleware('auth:sanctum'); // История взвешиваний за период
 Route::post('/weighing/record', [WeighingController::class, 'record'])->middleware('auth:sanctum'); // Записать взвешивание
 Route::post('/weighing/create-requirement', [WeighingController::class, 'createRequirement'])->middleware('auth:sanctum'); // Создать требование вручную
 Route::post('/weighing/skip', [WeighingController::class, 'skip'])->middleware('auth:sanctum'); // Пропустить взвешивание
