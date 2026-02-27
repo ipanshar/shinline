@@ -128,51 +128,51 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
   };
     if (!isOpen) return null;
     return (    
-    <div className="fixed inset-0 bg-gray-400/20 bg-opacity-10 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-auto" onClick={onClose}>
-  <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-   <div className='absolute top-2 right-2'>
-   <Button variant="contained" color="error" onClick={onClose}>Закрыть</Button>
+    <div className="fixed inset-0 bg-gray-400/20 bg-opacity-10 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 overflow-auto" onClick={onClose}>
+  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg w-full max-w-4xl p-4 sm:p-6 relative max-h-[95vh] sm:max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+   <div className='absolute top-2 right-2 z-10'>
+   <Button variant="contained" color="error" size="small" onClick={onClose}>Закрыть</Button>
    </div>
-    <h2 className="text-2xl font-semibold mb-4">Добавить грузовик</h2>
-    {error && <div className="mb-4 text-red-600">{error}</div>}
-    <form onSubmit={handleSubmit} className="space-y-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
+    <h2 className="text-xl sm:text-2xl font-semibold mb-4 pr-20">Добавить грузовик</h2>
+    {error && <div className="mb-4 text-red-600 text-sm">{error}</div>}
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
       <div>
-        <label className="block mb-1 font-medium">Название</label>
+        <label className="block mb-1 text-sm font-medium">Название</label>
         <input
           type="text"
           name="name"
           value={formData.name}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         />
       </div>
       <div>
-        <label className="block mb-1 font-medium">Номер</label>
+        <label className="block mb-1 text-sm font-medium">Номер</label>
         <input
           type="text"
           name="plate_number"
           value={formData.plate_number}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         />
       </div>
       <div>
-        <label className="block mb-1 font-medium">VIN</label>
+        <label className="block mb-1 text-sm font-medium">VIN</label>
         <input
           type="text"
           name="vin"
           value={formData.vin}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         />
       </div>
       <div>
-        <label className="block mb-1 font-medium">Марка</label>
+        <label className="block mb-1 text-sm font-medium">Марка</label>
         <select
           name="truck_brand_id"
           value={formData.truck_brand_id}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value="">Выберите марку</option>
           {truckBrands.map(brand => (
@@ -183,12 +183,12 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
         </select>
       </div>
       <div>
-        <label className="block mb-1 font-medium">Модель</label>
+        <label className="block mb-1 text-sm font-medium">Модель</label>
         <select
           name="truck_model_id"
           value={formData.truck_model_id}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value="">Выберите модель</option>
           {truckModels.map(model => (
@@ -199,12 +199,12 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
         </select>
       </div>
       <div>
-        <label className="block mb-1 font-medium">Категория</label>
+        <label className="block mb-1 text-sm font-medium">Категория</label>
         <select
           name="truck_category_id"
           value={formData.truck_category_id}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value="">Выберите категорию</option>
           {truckCategories.map(category => (
@@ -215,12 +215,12 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
         </select>
       </div>
       <div>
-        <label className="block mb-1 font-medium">Прицеп - Модель</label>
+        <label className="block mb-1 text-sm font-medium">Прицеп - Модель</label>
         <select
           name="trailer_model_id"
           value={formData.trailer_model_id}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value="">Выберите модель прицепа</option>
           {trailerModels.map(model => (
@@ -231,12 +231,12 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
         </select>
       </div>
       <div>
-        <label className="block mb-1 font-medium">Прицеп - Тип</label>
+        <label className="block mb-1 text-sm font-medium">Прицеп - Тип</label>
         <select
           name="trailer_type_id"
           value={formData.trailer_type_id}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value="">Выберите тип прицепа</option>
           {trailerTypes.map(type => (
@@ -247,62 +247,69 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
         </select>
       </div>
       <div>
-        <label className="block mb-1 font-medium">Прицеп - Номер</label>
+        <label className="block mb-1 text-sm font-medium">Прицеп - Номер</label>
         <input
           type="text"
           name="trailer_number"
           value={formData.trailer_number}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         />
       </div>
-      <div>
-        <label className="block mb-1 font-medium">Прицеп - Высота (м)</label>
-        <input
-          type="number"
-          name="trailer_height"
-          value={formData.trailer_height}
-          onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
-        />
+      
+      {/* Размеры прицепа - 2 колонки на мобильном */}
+      <div className="grid grid-cols-2 gap-3 sm:contents">
+        <div>
+          <label className="block mb-1 text-sm font-medium">Высота (м)</label>
+          <input
+            type="number"
+            name="trailer_height"
+            value={formData.trailer_height}
+            onChange={handleChange}
+            className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-sm font-medium">Ширина (м)</label>
+          <input
+            type="number"
+            name="trailer_width"
+            value={formData.trailer_width}
+            onChange={handleChange}
+            className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
+          />
+        </div>
       </div>
-      <div>
-        <label className="block mb-1 font-medium">Прицеп - Ширина (м)</label>
-        <input
-          type="number"
-          name="trailer_width"
-          value={formData.trailer_width}
-          onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
-        />
+      <div className="grid grid-cols-2 gap-3 sm:contents">
+        <div>
+          <label className="block mb-1 text-sm font-medium">Длина (м)</label>
+          <input
+            type="number"
+            name="trailer_length"
+            value={formData.trailer_length}
+            onChange={handleChange}
+            className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-sm font-medium">Грузоподъёмность (т)</label>
+          <input
+            type="number"
+            name="trailer_load_capacity"
+            value={formData.trailer_load_capacity}
+            onChange={handleChange}
+            className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
+          />
+        </div>
       </div>
+      
       <div>
-        <label className="block mb-1 font-medium">Прицеп - Длина (м)</label>
-        <input
-          type="number"
-          name="trailer_length"
-          value={formData.trailer_length}
-          onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
-        />
-      </div>
-      <div>
-        <label className="block mb-1 font-medium">Прицеп - Грузоподъемность (т)</label>
-        <input
-          type="number"
-          name="trailer_load_capacity"
-          value={formData.trailer_load_capacity}
-          onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
-        />
-      </div>
-      <div>
-        <label className="block mb-1 font-medium">Собственность</label>
+        <label className="block mb-1 text-sm font-medium">Собственность</label>
         <select
           name="own"
           value={formData.own}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value="не указано">Не указано</option>
           <option value="собственный">Собственный</option>
@@ -312,12 +319,12 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
         </select>
       </div>
       <div>
-        <label className="block mb-1 font-medium">VIP статус</label>
+        <label className="block mb-1 text-sm font-medium">VIP статус</label>
         <select
           name="vip_level"
           value={formData.vip_level}
           onChange={handleChange}
-          className="w-full border border-gray-300 rounded px-3 py-2"
+          className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded px-3 py-2 text-sm"
         >
           <option value={0}>Обычный</option>
           <option value={1}>⭐ VIP (золотой)</option>
@@ -325,12 +332,15 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
           <option value={3}>🚒 Зд обход (зеленый)</option>
         </select>
       </div>
-      <div className="flex justify-end col-span-2">
+      
+      {/* Кнопка на всю ширину на мобильном */}
+      <div className="col-span-1 sm:col-span-2 pt-4">
         <button
           type="submit"
-          className="bg-blue-500 text-white rounded px-4 py-2"
+          disabled={loading}
+          className="w-full sm:w-auto sm:float-right bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white rounded px-6 py-2.5 text-sm font-medium transition-colors"
         >
-          Добавить
+          {loading ? 'Добавление...' : 'Добавить'}
         </button>
       </div>
     </form>

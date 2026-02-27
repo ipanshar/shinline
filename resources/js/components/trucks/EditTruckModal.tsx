@@ -139,6 +139,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
       trailer_width: truck.trailer_width,
       trailer_length: truck.trailer_length,
       own: truck.truck_own || 'не указано',
+      vip_level: truck.vip_level || 0,
       trailer_load_capacity: truck.trailer_load_capacity,
     });
   }, [truck]);
@@ -182,15 +183,15 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-auto" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-lg w-full max-w-4xl p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="absolute top-4 right-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 overflow-auto" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-lg w-full max-w-4xl p-4 sm:p-6 relative max-h-[95vh] sm:max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="absolute top-3 right-3 z-10">
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
         
-        <h2 className="text-2xl font-semibold mb-6">Редактировать грузовик</h2>
+        <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 pr-10">Редактировать грузовик</h2>
         
         {error && (
           <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-sm">
@@ -198,9 +199,9 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
         )}
         
-        <form onSubmit={handleSubmit} className="space-y-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
           <div>
-            <label className="block mb-2 text-sm font-medium">Название</label>
+            <label className="block mb-1.5 text-sm font-medium">Название</label>
             <input
               type="text"
               name="name"
@@ -211,7 +212,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Номер *</label>
+            <label className="block mb-1.5 text-sm font-medium">Номер *</label>
             <input
               type="text"
               name="plate_number"
@@ -223,7 +224,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">VIN</label>
+            <label className="block mb-1.5 text-sm font-medium">VIN</label>
             <input
               type="text"
               name="vin"
@@ -234,7 +235,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Марка</label>
+            <label className="block mb-1.5 text-sm font-medium">Марка</label>
             <select
               name="truck_brand_id"
               value={formData.truck_brand_id || ''}
@@ -251,7 +252,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Модель</label>
+            <label className="block mb-1.5 text-sm font-medium">Модель</label>
             <select
               name="truck_model_id"
               value={formData.truck_model_id || ''}
@@ -268,7 +269,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Категория</label>
+            <label className="block mb-1.5 text-sm font-medium">Категория</label>
             <select
               name="truck_category_id"
               value={formData.truck_category_id || ''}
@@ -285,7 +286,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Цвет</label>
+            <label className="block mb-1.5 text-sm font-medium">Цвет</label>
             <input
               type="text"
               name="color"
@@ -296,7 +297,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Модель</label>
+            <label className="block mb-1.5 text-sm font-medium">Прицеп - Модель</label>
             <select
               name="trailer_model_id"
               value={formData.trailer_model_id || ''}
@@ -313,7 +314,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Тип</label>
+            <label className="block mb-1.5 text-sm font-medium">Прицеп - Тип</label>
             <select
               name="trailer_type_id"
               value={formData.trailer_type_id || ''}
@@ -330,7 +331,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Номер</label>
+            <label className="block mb-1.5 text-sm font-medium">Прицеп - Номер</label>
             <input
               type="text"
               name="trailer_number"
@@ -340,56 +341,59 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
             />
           </div>
           
-          <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Высота (м)</label>
-            <input
-              type="number"
-              name="trailer_height"
-              value={formData.trailer_height || ''}
-              onChange={handleChange}
-              step="0.01"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
+          {/* Размеры прицепа - 2 колонки даже на мобильном */}
+          <div className="grid grid-cols-2 gap-3 sm:contents">
+            <div>
+              <label className="block mb-1.5 text-sm font-medium">Высота (м)</label>
+              <input
+                type="number"
+                name="trailer_height"
+                value={formData.trailer_height || ''}
+                onChange={handleChange}
+                step="0.01"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium">Ширина (м)</label>
+              <input
+                type="number"
+                name="trailer_width"
+                value={formData.trailer_width || ''}
+                onChange={handleChange}
+                step="0.01"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 sm:contents">
+            <div>
+              <label className="block mb-1.5 text-sm font-medium">Длина (м)</label>
+              <input
+                type="number"
+                name="trailer_length"
+                value={formData.trailer_length || ''}
+                onChange={handleChange}
+                step="0.01"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium">Грузоподъёмность (т)</label>
+              <input
+                type="number"
+                name="trailer_load_capacity"
+                value={formData.trailer_load_capacity || ''}
+                onChange={handleChange}
+                step="0.01"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
           </div>
           
           <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Ширина (м)</label>
-            <input
-              type="number"
-              name="trailer_width"
-              value={formData.trailer_width || ''}
-              onChange={handleChange}
-              step="0.01"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          
-          <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Длина (м)</label>
-            <input
-              type="number"
-              name="trailer_length"
-              value={formData.trailer_length || ''}
-              onChange={handleChange}
-              step="0.01"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          
-          <div>
-            <label className="block mb-2 text-sm font-medium">Прицеп - Грузоподъемность (т)</label>
-            <input
-              type="number"
-              name="trailer_load_capacity"
-              value={formData.trailer_load_capacity || ''}
-              onChange={handleChange}
-              step="0.01"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-2">Собственность</label>
+            <label className="block text-sm font-medium mb-1.5">Собственность</label>
             <select
               name="own"
               value={formData.own}
@@ -405,7 +409,7 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
           </div>
           
           <div>
-            <label className="block text-sm font-medium mb-2">VIP статус</label>
+            <label className="block text-sm font-medium mb-1.5">VIP статус</label>
             <select
               name="vip_level"
               value={formData.vip_level}
@@ -419,11 +423,12 @@ const EditTruckModal: React.FC<EditTruckModalProps> = ({ isOpen, onClose, onTruc
             </select>
           </div>
           
-          <div className="flex justify-end gap-3 col-span-2">
-            <Button type="button" variant="outline" onClick={onClose}>
+          {/* Кнопки на всю ширину на мобильном */}
+          <div className="col-span-1 sm:col-span-2 flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4">
+            <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">
               Отмена
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} className="w-full sm:w-auto">
               {loading ? 'Сохранение...' : 'Сохранить'}
             </Button>
           </div>
