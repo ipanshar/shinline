@@ -45,9 +45,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::get('/integration_whatsapp_business', [RouteController::class, 'whatsappBusinessSettings']);
 Route::get('/roles_permissions', [RouteController::class, 'rolespermissions']);//Админка
 Route::get('/trucks', [RouteController::class, 'trucks']);
-Route::get('/tasks', [RouteController::class, 'tasks']);
-Route::get('/tasks/scheduling', [RouteController::class, 'taskHourlySchedule']);
-Route::get('/tasks/operator-workplace', [RouteController::class, 'operatorWorkplace']);
+Route::get('/tasks', [RouteController::class, 'tasks'])->middleware('permission:tasks.view');
+Route::get('/tasks/scheduling', [RouteController::class, 'taskHourlySchedule'])->middleware('permission:tasks.schedule');
+Route::get('/tasks/operator-workplace', [RouteController::class, 'operatorWorkplace'])->middleware('permission:tasks.operator');
 Route::get('/weighing', [RouteController::class, 'weighing']);
 Route::get('/check', [RouteController::class, 'check']);
 Route::get('/permits', [RouteController::class, 'permits']);

@@ -19,17 +19,26 @@ class CheckPermission
         $user = $request->user();
 
         if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unauthorized',
-            ], 401);
+            // Для API запросов - JSON, для Inertia - редирект
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized',
+                ], 401);
+            }
+            return redirect()->route('login');
         }
 
         if (!$user->hasPermission($permission)) {
-            return response()->json([
-                'status' => false,
-                'message' => 'У вас нет разрешения: ' . $permission,
-            ], 403);
+            // Для API запросов - JSON, для Inertia - редирект с сообщением
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'У вас нет разрешения: ' . $permission,
+                ], 403);
+            }
+            // Для Inertia-страниц редирект на dashboard с сообщением об ошибке
+            return redirect()->route('dashboard')->with('error', 'У вас нет доступа к этой странице');
         }
 
         return $next($request);
