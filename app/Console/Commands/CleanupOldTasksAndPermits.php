@@ -26,7 +26,7 @@ class CleanupOldTasksAndPermits extends Command
      *
      * @var string
      */
-    protected $description = 'Завершает старые задачи со статусом "новый" и аннулирует одноразовые разрешения';
+    protected $description = 'Завершает старые задачи со статусом "новый" и деактивирует одноразовые разрешения';
 
     /**
      * Execute the console command.
@@ -51,6 +51,8 @@ class CleanupOldTasksAndPermits extends Command
         $canceledStatus = Status::where('key', 'canceled')->first();
         $completedStatus = Status::where('key', 'completed')->first();
         $leftTerritoryStatus = Status::where('key', 'left_territory')->first();
+        $activeStatus = Status::where('key', 'active')->first();
+        $inactiveStatus = Status::where('key', 'not_active')->first();
         
         if (!$newStatus) {
             $this->error("Статус 'new' не найден в базе данных!");
@@ -102,16 +104,16 @@ class CleanupOldTasksAndPermits extends Command
         
         $this->newLine();
         
-        // === 2. Находим одноразовые разрешения с истёкшим сроком ===
-        $expiredPermits = EntryPermit::where('one_permission', true)
-            ->where(function ($query) use ($cutoffDate) {
-                $query->where('end_date', '<', $cutoffDate)
-                      ->orWhere(function ($q) use ($cutoffDate) {
-                          $q->whereNull('end_date')
-                            ->where('created_at', '<', $cutoffDate);
-                      });
-            })
-            ->get();
+        // === 2. Находим активные одноразовые разрешения с истёкшим сроком ===
+        $expiredPermitsQuery = EntryPermit::where('one_permission', true)
+            ->where('end_date', '<', now()->startOfDay());
+        
+        // Фильтруем только активные, если статус найден
+        if ($activeStatus) {
+            $expiredPermitsQuery->where('status_id', $activeStatus->id);
+        }
+        
+        $expiredPermits = $expiredPermitsQuery->get();
         
         $this->info("Найдено одноразовых разрешений старше {$days} дней: " . $expiredPermits->count());
         
@@ -129,7 +131,7 @@ class CleanupOldTasksAndPermits extends Command
         
         // === Подтверждение ===
         if (!$dryRun && !$force) {
-            if (!$this->confirm("Продолжить? Будет обновлено {$oldTasks->count()} задач и удалено {$expiredPermits->count()} разрешений")) {
+            if (!$this->confirm("Продолжить? Будет обновлено {$oldTasks->count()} задач и деактивировано {$expiredPermits->count()} разрешений")) {
                 $this->info("Операция отменена.");
                 return 0;
             }
@@ -154,23 +156,27 @@ class CleanupOldTasksAndPermits extends Command
                 $tasksUpdated++;
             }
             
-            // Удаляем разрешения
-            $permitsDeleted = EntryPermit::where('one_permission', true)
-                ->where(function ($query) use ($cutoffDate) {
-                    $query->where('end_date', '<', $cutoffDate)
-                          ->orWhere(function ($q) use ($cutoffDate) {
-                              $q->whereNull('end_date')
-                                ->where('created_at', '<', $cutoffDate);
-                          });
-                })
-                ->delete();
+            // Деактивируем разрешения
+            $permitsDeactivated = 0;
+            if ($inactiveStatus) {
+                $permitsQuery = EntryPermit::where('one_permission', true)
+                    ->where('end_date', '<', now()->startOfDay());
+                
+                if ($activeStatus) {
+                    $permitsQuery->where('status_id', $activeStatus->id);
+                }
+                
+                $permitsDeactivated = $permitsQuery->update(['status_id' => $inactiveStatus->id]);
+            } else {
+                $this->warn("Статус 'not_active' не найден, разрешения не деактивированы");
+            }
             
             DB::commit();
             
             $this->newLine();
             $this->info("=== Результаты ===");
             $this->info("✓ Задач обновлено (статус -> {$targetStatus->name}): {$tasksUpdated}");
-            $this->info("✓ Разрешений удалено: {$permitsDeleted}");
+            $this->info("✓ Разрешений деактивировано: {$permitsDeactivated}");
             
         } catch (\Exception $e) {
             DB::rollBack();

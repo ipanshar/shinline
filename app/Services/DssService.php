@@ -360,7 +360,14 @@ class DssService
                             // Если нет - не создаём грузовик
                             $hasPermitForPlate = EntryPermit::whereHas('truck', function ($q) use ($normalizedPlate) {
                                 $q->whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate]);
-                            })->exists();
+                            })
+                            // Только активные и не просроченные разрешения
+                            ->where('status_id', Status::where('key', 'active')->first()->id ?? 0)
+                            ->where(function ($q) {
+                                $q->whereNull('end_date')
+                                  ->orWhere('end_date', '>=', now()->startOfDay());
+                            })
+                            ->exists();
 
                             if (!$hasPermitForPlate) {
                                 // Грузовик НЕ создаём - пусть оператор решит
@@ -431,9 +438,15 @@ class DssService
         }
         // Получаем зону и разрешение на въезд для грузовика в эту зону
         $zone = Zone::find($device->zone_id);
+        $activeStatus = Status::where('key', 'active')->first();
         $permit = $truck ? EntryPermit::where('truck_id', $truck->id)
             ->where('yard_id', $zone->yard_id)
-            ->where('status_id', '=', Status::where('key', 'active')->first()->id)
+            ->where('status_id', '=', $activeStatus->id)
+            // Проверяем что разрешение не просрочено
+            ->where(function ($q) {
+                $q->whereNull('end_date')
+                  ->orWhere('end_date', '>=', now()->startOfDay());
+            })
             ->first() : null;
 
         // Получаем задание, связанное с разрешением    

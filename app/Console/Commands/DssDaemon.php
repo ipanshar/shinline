@@ -4,6 +4,10 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Services\DssService;
+use App\Models\EntryPermit;
+use App\Models\Task;
+use App\Models\Status;
+use Carbon\Carbon;
 use Exception;
 
 class DssDaemon extends Command
@@ -30,6 +34,7 @@ class DssDaemon extends Command
         $lastTokenUpdate = time();
         $lastOldCapturesDelete = time();
         $lastVehicleCapture = time();
+        $lastCleanupCheck = Carbon::now();  // Для ежедневной очистки
         $consecutiveErrors = 0;
         $maxConsecutiveErrors = 10;
 
@@ -93,6 +98,13 @@ class DssDaemon extends Command
                     $service->deleteOldVehicleCaptures();
                     $this->info(now()->toDateTimeLocalString() . " Удалены старые захваты транспортных средств.");
                     $lastOldCapturesDelete = time();
+                }
+
+                // Ежедневная очистка просроченных разрешений и задач (в 00:05)
+                $now = Carbon::now();
+                if ($now->format('Y-m-d') !== $lastCleanupCheck->format('Y-m-d') && $now->hour === 0 && $now->minute >= 5) {
+                    $this->cleanupExpiredPermitsAndTasks();
+                    $lastCleanupCheck = $now;
                 }
 
                 // Спим 1 секунду, чтобы не перегружать CPU
@@ -175,6 +187,55 @@ class DssDaemon extends Command
             $this->info(now()->toDateTimeLocalString() . " $operation успешно выполнен.");
         } else {
             $this->error(now()->toDateTimeLocalString() . " $operation завершился с ошибкой: " .  json_encode($result));
+        }
+    }
+
+    /**
+     * Очистка просроченных разовых разрешений и старых задач со статусом "новый"
+     */
+    private function cleanupExpiredPermitsAndTasks()
+    {
+        $this->info(now()->toDateTimeLocalString() . " Запуск ежедневной очистки просроченных разрешений и задач...");
+        
+        try {
+            $activeStatus = Status::where('key', 'active')->first();
+            $inactiveStatus = Status::where('key', 'not_active')->first();
+            $newStatus = Status::where('key', 'new')->first();
+            $canceledStatus = Status::where('key', 'canceled')->first();
+            
+            // 1. Деактивируем просроченные разовые разрешения
+            $expiredPermitsCount = 0;
+            if ($activeStatus && $inactiveStatus) {
+                $expiredPermitsCount = EntryPermit::where('status_id', $activeStatus->id)
+                    ->where('one_permission', true)
+                    ->where('end_date', '<', now()->startOfDay())
+                    ->update(['status_id' => $inactiveStatus->id]);
+            }
+            
+            // 2. Отменяем старые задачи со статусом "новый" (старше 7 дней)
+            $oldTasksCount = 0;
+            $cutoffDate = Carbon::now()->subDays(7);
+            $targetStatus = $canceledStatus ?? $inactiveStatus;
+            
+            if ($newStatus && $targetStatus) {
+                $oldTasksCount = Task::where('status_id', $newStatus->id)
+                    ->where(function ($query) use ($cutoffDate) {
+                        $query->where('plan_date', '<', $cutoffDate)
+                              ->orWhere(function ($q) use ($cutoffDate) {
+                                  $q->whereNull('plan_date')
+                                    ->where('created_at', '<', $cutoffDate);
+                              });
+                    })
+                    ->update([
+                        'status_id' => $targetStatus->id,
+                        'end_date' => now(),
+                    ]);
+            }
+            
+            $this->info(now()->toDateTimeLocalString() . " Очистка завершена: деактивировано {$expiredPermitsCount} разрешений, отменено {$oldTasksCount} задач.");
+            
+        } catch (Exception $e) {
+            $this->error(now()->toDateTimeLocalString() . " Ошибка при очистке: " . $e->getMessage());
         }
     }
 }

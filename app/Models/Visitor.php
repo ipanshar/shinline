@@ -138,6 +138,11 @@ class Visitor extends Model
             ->whereHas('status', function($query) {
                 $query->where('key', 'active');
             })
+            // Только действующие (не просроченные) разрешения
+            ->where(function ($q) {
+                $q->whereNull('end_date')
+                  ->orWhere('end_date', '>=', now()->startOfDay());
+            })
             ->orderBy('created_at', 'desc')
             ->first();
     }

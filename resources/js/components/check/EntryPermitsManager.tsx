@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { 
   Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, 
   Truck as TruckIcon, UserRound, MoreVertical, MapPin, Phone, Building2, MessageSquare,
-  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp
+  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle
 } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -181,6 +181,9 @@ const EntryPermitsManager: React.FC = () => {
   const [addTruckDialogOpen, setAddTruckDialogOpen] = useState(false);
   const [newTruckPlate, setNewTruckPlate] = useState("");
   const [savingTruck, setSavingTruck] = useState(false);
+
+  // Массовая деактивация
+  const [deactivatingExpired, setDeactivatingExpired] = useState(false);
 
   // Ошибка формы
   const [formError, setFormError] = useState<string | null>(null);
@@ -513,6 +516,25 @@ const EntryPermitsManager: React.FC = () => {
     }
   };
 
+  // Массовая деактивация просроченных разовых разрешений
+  const handleDeactivateExpired = async () => {
+    setDeactivatingExpired(true);
+    try {
+      const params: any = {};
+      if (filterYardId) params.yard_id = filterYardId;
+      
+      const response = await axios.post("/security/deactivateexpired", params, { headers });
+      if (response.data.status) {
+        toast.success(response.data.message);
+        fetchPermits(currentPage);
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Ошибка деактивации");
+    } finally {
+      setDeactivatingExpired(false);
+    }
+  };
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "—";
     try {
@@ -809,6 +831,19 @@ const EntryPermitsManager: React.FC = () => {
           </div>
 
           {/* Кнопки */}
+          <Button 
+            variant="outline" 
+            onClick={handleDeactivateExpired}
+            disabled={deactivatingExpired}
+            className="text-orange-600 border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+          >
+            {deactivatingExpired ? (
+              <MuiCircularProgress size={16} className="mr-2" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 mr-2" />
+            )}
+            Деактивировать просроченные
+          </Button>
           <Button variant="outline" onClick={() => fetchPermits(currentPage)}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Обновить

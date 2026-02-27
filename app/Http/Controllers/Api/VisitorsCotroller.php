@@ -51,6 +51,11 @@ class VisitorsCotroller extends Controller
             $permit = $truck ? EntryPermit::where('truck_id', $truck ? $truck->id : null)
                 ->where('yard_id', $request->yard_id)
                 ->where('status_id', '=', Status::where('key', 'active')->first()->id)
+                // Только действующие (не просроченные) разрешения
+                ->where(function ($q) {
+                    $q->whereNull('end_date')
+                      ->orWhere('end_date', '>=', now()->startOfDay());
+                })
                 ->orderBy('created_at', 'desc')
                 ->first() : null;
 
@@ -539,6 +544,11 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $request->yard_id)
                     ->where('status_id', $activeStatusId)
+                    // Только действующие (не просроченные) разрешения
+                    ->where(function ($q) {
+                        $q->whereNull('end_date')
+                          ->orWhere('end_date', '>=', now()->startOfDay());
+                    })
                     ->orderBy('created_at', 'desc')
                     ->first();
                 
@@ -637,6 +647,11 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $validate['yard_id'])
                     ->where('status_id', $activeStatus->id)
+                    // Только действующие (не просроченные) разрешения
+                    ->where(function ($q) {
+                        $q->whereNull('end_date')
+                          ->orWhere('end_date', '>=', now()->startOfDay());
+                    })
                     ->orderBy('created_at', 'desc')
                     ->first();
                     
@@ -913,6 +928,11 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $visitor->yard_id)
                     ->where('status_id', Status::where('key', 'active')->first()->id)
+                    // Только действующие (не просроченные) разрешения
+                    ->where(function ($q) {
+                        $q->whereNull('end_date')
+                          ->orWhere('end_date', '>=', now()->startOfDay());
+                    })
                     ->orderBy('created_at', 'desc')
                     ->first();
                     
@@ -928,6 +948,11 @@ class VisitorsCotroller extends Controller
                 $hasPermit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $visitor->yard_id)
                     ->where('status_id', Status::where('key', 'active')->first()->id)
+                    // Только действующие (не просроченные) разрешения
+                    ->where(function ($q) {
+                        $q->whereNull('end_date')
+                          ->orWhere('end_date', '>=', now()->startOfDay());
+                    })
                     ->exists();
             }
             
@@ -1135,6 +1160,11 @@ class VisitorsCotroller extends Controller
                 $permit = EntryPermit::where('truck_id', $truck->id)
                     ->where('yard_id', $yardId)
                     ->where('status_id', $activeStatus->id)
+                    // Только действующие (не просроченные) разрешения
+                    ->where(function ($q) {
+                        $q->whereNull('end_date')
+                          ->orWhere('end_date', '>=', now()->startOfDay());
+                    })
                     ->orderBy('created_at', 'desc')
                     ->first();
                     
@@ -1235,6 +1265,11 @@ class VisitorsCotroller extends Controller
         $permit = EntryPermit::where('truck_id', $visitor->truck_id)
             ->where('yard_id', $yardId)
             ->where('status_id', Status::where('key', 'active')->first()->id)
+            // Только действующие (не просроченные) разрешения
+            ->where(function ($q) {
+                $q->whereNull('end_date')
+                  ->orWhere('end_date', '>=', now()->startOfDay());
+            })
             ->orderBy('created_at', 'desc')
             ->first();
 
@@ -1306,6 +1341,11 @@ class VisitorsCotroller extends Controller
             if ($request->has('status') && $request->status) {
                 if ($request->status === 'active') {
                     $query->where('statuses.key', 'active');
+                    // Также фильтруем по дате - показываем только действующие разрешения
+                    $query->where(function ($q) {
+                        $q->whereNull('entry_permits.end_date')
+                          ->orWhere('entry_permits.end_date', '>=', now()->startOfDay());
+                    });
                 } elseif ($request->status === 'inactive') {
                     $query->where('statuses.key', 'not_active');
                 }
@@ -1545,6 +1585,54 @@ class VisitorsCotroller extends Controller
                 'status' => true,
                 'message' => 'Разрешение деактивировано',
                 'data' => $permit->fresh(),
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Массовая деактивация просроченных разовых разрешений
+     */
+    public function deactivateExpiredPermits(Request $request)
+    {
+        try {
+            $yardId = $request->input('yard_id'); // Опционально: только для конкретного двора
+            
+            $activeStatus = Status::where('key', 'active')->first();
+            $inactiveStatus = Status::where('key', 'not_active')->first();
+            
+            if (!$activeStatus || !$inactiveStatus) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Статусы не найдены',
+                ], 500);
+            }
+
+            // Находим просроченные разовые разрешения
+            $query = EntryPermit::where('status_id', $activeStatus->id)
+                ->where('one_permission', true)  // Только разовые
+                ->where('end_date', '<', now()->startOfDay());  // Просроченные
+
+            if ($yardId) {
+                $query->where('yard_id', $yardId);
+            }
+
+            $expiredCount = $query->count();
+
+            // Деактивируем
+            $query->update([
+                'status_id' => $inactiveStatus->id,
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => "Деактивировано {$expiredCount} просроченных разрешений",
+                'deactivated_count' => $expiredCount,
             ], 200);
 
         } catch (\Exception $e) {
