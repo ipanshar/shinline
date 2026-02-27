@@ -31,7 +31,8 @@ import { toast } from "sonner";
 import { 
   Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, 
   Truck as TruckIcon, UserRound, MoreVertical, MapPin, Phone, Building2, MessageSquare,
-  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle
+  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle,
+  Filter, ArrowUpDown, ArrowUp, ArrowDown, X, SlidersHorizontal
 } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -146,7 +147,18 @@ const EntryPermitsManager: React.FC = () => {
   const [filterYardId, setFilterYardId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPermitType, setFilterPermitType] = useState<string>("all");
+  const [filterGuestType, setFilterGuestType] = useState<string>("all"); // all, guest, not_guest
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("");
+  const [filterDateTo, setFilterDateTo] = useState<string>("");
   const [searchPlate, setSearchPlate] = useState("");
+  const [searchGuest, setSearchGuest] = useState(""); // Поиск по имени гостя
+  
+  // Сортировка
+  const [sortField, setSortField] = useState<string>("created_at");
+  const [sortDirection, setSortDirection] = useState<string>("desc");
+  
+  // Показать расширенные фильтры
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // Форма добавления/редактирования
   const [formData, setFormData] = useState<FormData>({
@@ -196,11 +208,17 @@ const EntryPermitsManager: React.FC = () => {
     const params: any = {
       page,
       per_page: perPage,
+      sort_field: sortField,
+      sort_direction: sortDirection,
     };
     if (filterYardId) params.yard_id = filterYardId;
     if (filterStatus !== "all") params.status = filterStatus;
     if (filterPermitType !== "all") params.permit_type = filterPermitType;
+    if (filterGuestType !== "all") params.guest_type = filterGuestType;
     if (searchPlate.trim()) params.plate_number = searchPlate.trim();
+    if (searchGuest.trim()) params.guest_search = searchGuest.trim();
+    if (filterDateFrom) params.date_from = filterDateFrom;
+    if (filterDateTo) params.date_to = filterDateTo;
 
     axios
       .post("/security/getpermits", params, { headers })
@@ -217,7 +235,7 @@ const EntryPermitsManager: React.FC = () => {
         toast.error("Ошибка загрузки разрешений");
       })
       .finally(() => setLoading(false));
-  }, [filterYardId, filterStatus, filterPermitType, searchPlate, currentPage, perPage]);
+  }, [filterYardId, filterStatus, filterPermitType, filterGuestType, searchPlate, searchGuest, filterDateFrom, filterDateTo, currentPage, perPage, sortField, sortDirection]);
 
   const fetchYards = () => {
     axios
@@ -239,7 +257,7 @@ const EntryPermitsManager: React.FC = () => {
   useEffect(() => {
     setCurrentPage(1);
     fetchPermits(1);
-  }, [filterYardId, filterStatus, filterPermitType]);
+  }, [filterYardId, filterStatus, filterPermitType, filterGuestType, sortField, sortDirection]);
 
   // При изменении страницы загружаем данные
   const handlePageChange = (page: number) => {
@@ -761,7 +779,8 @@ const EntryPermitsManager: React.FC = () => {
   return (
     <div className="p-4 h-full flex flex-col">
       {/* Фильтры */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4 space-y-4">
+        {/* Основные фильтры */}
         <div className="flex flex-wrap gap-4 items-end">
           {/* Поиск по номеру */}
           <div className="flex-1 min-w-[200px]">
@@ -773,7 +792,7 @@ const EntryPermitsManager: React.FC = () => {
                 onChange={(e) => setSearchPlate(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchPermits(1)}
               />
-              <Button variant="outline" size="icon" onClick={fetchPermits}>
+              <Button variant="outline" size="icon" onClick={() => fetchPermits(1)}>
                 <Search className="w-4 h-4" />
               </Button>
             </div>
@@ -801,7 +820,7 @@ const EntryPermitsManager: React.FC = () => {
           </div>
 
           {/* Фильтр по статусу */}
-          <div className="min-w-[150px]">
+          <div className="min-w-[140px]">
             <Label className="text-sm mb-1 block">Статус</Label>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger>
@@ -816,8 +835,8 @@ const EntryPermitsManager: React.FC = () => {
           </div>
 
           {/* Фильтр по типу */}
-          <div className="min-w-[150px]">
-            <Label className="text-sm mb-1 block">Тип разрешения</Label>
+          <div className="min-w-[140px]">
+            <Label className="text-sm mb-1 block">Тип</Label>
             <Select value={filterPermitType} onValueChange={setFilterPermitType}>
               <SelectTrigger>
                 <SelectValue />
@@ -830,7 +849,131 @@ const EntryPermitsManager: React.FC = () => {
             </Select>
           </div>
 
-          {/* Кнопки */}
+          {/* Фильтр гость/не гость */}
+          <div className="min-w-[140px]">
+            <Label className="text-sm mb-1 block">Категория</Label>
+            <Select value={filterGuestType} onValueChange={setFilterGuestType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все</SelectItem>
+                <SelectItem value="guest">Гости</SelectItem>
+                <SelectItem value="not_guest">Не гости</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Сортировка */}
+          <div className="min-w-[180px]">
+            <Label className="text-sm mb-1 block">Сортировка</Label>
+            <div className="flex gap-1">
+              <Select value={sortField} onValueChange={setSortField}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="created_at">Дата создания</SelectItem>
+                  <SelectItem value="begin_date">Дата начала</SelectItem>
+                  <SelectItem value="end_date">Дата окончания</SelectItem>
+                  <SelectItem value="plate_number">Номер ТС</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button 
+                variant="outline" 
+                size="icon"
+                onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+                title={sortDirection === "asc" ? "По возрастанию" : "По убыванию"}
+              >
+                {sortDirection === "asc" ? (
+                  <ArrowUp className="w-4 h-4" />
+                ) : (
+                  <ArrowDown className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Кнопка расширенных фильтров */}
+          <Button 
+            variant="outline" 
+            size="icon"
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            className={cn(showAdvancedFilters && "bg-primary/10")}
+            title="Расширенные фильтры"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Расширенные фильтры */}
+        {showAdvancedFilters && (
+          <div className="flex flex-wrap gap-4 items-end pt-3 border-t animate-in slide-in-from-top-2">
+            {/* Поиск по имени гостя */}
+            <div className="min-w-[200px]">
+              <Label className="text-sm mb-1 block">Поиск по гостю</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Имя или компания..."
+                  value={searchGuest}
+                  onChange={(e) => setSearchGuest(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchPermits(1)}
+                />
+              </div>
+            </div>
+
+            {/* Дата с */}
+            <div className="min-w-[150px]">
+              <Label className="text-sm mb-1 block">Дата с</Label>
+              <Input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+              />
+            </div>
+
+            {/* Дата по */}
+            <div className="min-w-[150px]">
+              <Label className="text-sm mb-1 block">Дата по</Label>
+              <Input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+              />
+            </div>
+
+            {/* Применить даты */}
+            <Button variant="outline" onClick={() => fetchPermits(1)}>
+              <Filter className="w-4 h-4 mr-2" />
+              Применить
+            </Button>
+
+            {/* Сбросить все фильтры */}
+            <Button 
+              variant="ghost" 
+              onClick={() => {
+                setFilterYardId(null);
+                setFilterStatus("all");
+                setFilterPermitType("all");
+                setFilterGuestType("all");
+                setSearchPlate("");
+                setSearchGuest("");
+                setFilterDateFrom("");
+                setFilterDateTo("");
+                setSortField("created_at");
+                setSortDirection("desc");
+                fetchPermits(1);
+              }}
+              className="text-muted-foreground"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Сбросить всё
+            </Button>
+          </div>
+        )}
+
+        {/* Кнопки действий */}
+        <div className="flex flex-wrap gap-2 pt-3 border-t">
           <Button 
             variant="outline" 
             onClick={handleDeactivateExpired}
@@ -848,6 +991,7 @@ const EntryPermitsManager: React.FC = () => {
             <RefreshCw className="w-4 h-4 mr-2" />
             Обновить
           </Button>
+          <div className="flex-1" />
           <Button onClick={openAddDialog}>
             <Plus className="w-4 h-4 mr-2" />
             Добавить

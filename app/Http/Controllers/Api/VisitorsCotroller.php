@@ -1366,14 +1366,55 @@ class VisitorsCotroller extends Controller
                 $query->whereRaw("LOWER(REPLACE(trucks.plate_number, ' ', '')) LIKE ?", ['%' . $plate . '%']);
             }
 
-            // Фильтр по гостевым пропускам
-            if ($request->has('is_guest')) {
-                $isGuest = filter_var($request->is_guest, FILTER_VALIDATE_BOOLEAN);
-                $query->where('entry_permits.is_guest', $isGuest);
+            // Фильтр по гостевым пропускам (guest_type)
+            if ($request->has('guest_type') && $request->guest_type !== 'all') {
+                if ($request->guest_type === 'guest') {
+                    $query->where('entry_permits.is_guest', true);
+                } elseif ($request->guest_type === 'not_guest') {
+                    $query->where('entry_permits.is_guest', false);
+                }
+            }
+
+            // Поиск по имени гостя или компании
+            if ($request->has('guest_search') && $request->guest_search) {
+                $guestSearch = '%' . $request->guest_search . '%';
+                $query->where(function ($q) use ($guestSearch) {
+                    $q->where('entry_permits.guest_name', 'like', $guestSearch)
+                      ->orWhere('entry_permits.guest_company', 'like', $guestSearch);
+                });
+            }
+
+            // Фильтр по дате создания (от)
+            if ($request->has('date_from') && $request->date_from) {
+                $query->whereDate('entry_permits.created_at', '>=', $request->date_from);
+            }
+
+            // Фильтр по дате создания (до)
+            if ($request->has('date_to') && $request->date_to) {
+                $query->whereDate('entry_permits.created_at', '<=', $request->date_to);
             }
 
             // Сортировка
-            $query->orderBy('entry_permits.created_at', 'desc');
+            $sortField = $request->input('sort_field', 'created_at');
+            $sortDirection = $request->input('sort_direction', 'desc');
+            
+            // Разрешённые поля для сортировки
+            $allowedSortFields = [
+                'created_at' => 'entry_permits.created_at',
+                'begin_date' => 'entry_permits.begin_date',
+                'end_date' => 'entry_permits.end_date',
+                'plate_number' => 'trucks.plate_number',
+            ];
+            
+            // Валидация направления сортировки
+            $sortDirection = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
+            
+            // Применяем сортировку
+            if (isset($allowedSortFields[$sortField])) {
+                $query->orderBy($allowedSortFields[$sortField], $sortDirection);
+            } else {
+                $query->orderBy('entry_permits.created_at', 'desc');
+            }
 
             // Пагинация
             $perPage = $request->input('per_page', 25); // По умолчанию 25 записей
