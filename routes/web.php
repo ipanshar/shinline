@@ -243,6 +243,7 @@ Route::post('/regions/createupdate', [RegionController::class, 'createUpdateRegi
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone']); // Создать или обновить зону
+Route::post('/zones/getzonesformap', [\App\Http\Controllers\ZoneController::class, 'getZonesForMap']); // Зоны для карты
 
 // Counterparty routes
 Route::post('/counterparty/getcounterparties', [\App\Http\Controllers\Api\CounterpartyController::class, 'getCounterparties']); // Получить всех контрагентов

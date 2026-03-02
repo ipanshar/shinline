@@ -25,16 +25,24 @@ const UserTasks = () => {
 
     axios.post('/task/gettasks')
       .then(response => {
-        const allTasks = response.data.data;
+        const responseData = response.data.data;
+        // API возвращает { tasks: [...], totalPages, total, ... }
+        const allTasks = responseData?.tasks || responseData;
         if (Array.isArray(allTasks)) {
           const userTasks = allTasks.filter((task: Task) => task.user_id === user.id);
           setTasks(userTasks);
+        } else if (Array.isArray(responseData)) {
+          // Если data - это сам массив
+          const userTasks = responseData.filter((task: Task) => task.user_id === user.id);
+          setTasks(userTasks);
         } else {
-          console.error('Неверный формат данных:', allTasks);
+          console.error('Неверный формат данных:', responseData);
+          setTasks([]);
         }
       })
       .catch(err => {
         console.error('Ошибка при получении задач:', err);
+        setTasks([]);
       })
       .finally(() => setLoading(false));
   }, [user]);

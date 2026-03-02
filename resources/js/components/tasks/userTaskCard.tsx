@@ -13,6 +13,8 @@ type TaskLoading = {
 };
 
 export type Task = {
+  coordinates: boolean;
+  user_id: number;
   id: number;
   name: string;
   status_name: string;

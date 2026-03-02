@@ -26,6 +26,10 @@ class ZoneController extends Controller
             'id' => 'nullable|integer',
             'name' => 'required|string|max:255',
             'yard_id' => 'required|integer',
+            'center_lat' => 'nullable|numeric',
+            'center_lng' => 'nullable|numeric',
+            'polygon' => 'nullable|array',
+            'color' => 'nullable|string|max:7',
         ]);
 
         if (!empty($data['id'])) {
@@ -46,5 +50,31 @@ class ZoneController extends Controller
             'message' => 'Зона успешно ' . (isset($data['id']) ? 'обновлена' : 'создана'),
             'data' => $zone
         ], 200);
+    }
+
+    /**
+     * Получить все зоны с координатами для отображения на карте
+     */
+    public function getZonesForMap(Request $request)
+    {
+        $query = Zone::leftJoin('yards', 'zones.yard_id', '=', 'yards.id')
+            ->select('zones.*', 'yards.name as yard_name');
+        
+        if ($request->has('yard_id')) {
+            $query->where('zones.yard_id', $request->yard_id);
+        }
+
+        // Только зоны с координатами
+        if ($request->has('with_coordinates')) {
+            $query->whereNotNull('zones.polygon');
+        }
+
+        $zones = $query->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Зоны для карты загружены',
+            'data' => $zones
+        ]);
     }
 }
