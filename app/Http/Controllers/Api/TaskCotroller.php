@@ -433,6 +433,9 @@ class TaskCotroller extends Controller
     public function addApiTask(Request $request)
     {
         try {
+            // Логируем входящие данные для диагностики
+            \Log::info('addApiTask - Входящие данные:', $request->all());
+            
             // Очистка task_id от пробелов и преобразование в число
             if ($request->has('task_id') && $request->task_id) {
                 $cleanTaskId = str_replace(' ', '', $request->task_id);
@@ -475,11 +478,21 @@ class TaskCotroller extends Controller
                 'warehouse.*.departure_at' => 'nullable|date_format:Y-m-d H:i:s',
             ]);
 
+            \Log::info('addApiTask - Валидация прошла успешно:', $validate);
+
             //Добавление или обновление грузовика и его модели
             //Проверяем или создаем грузовик
-            $plate_number = strtolower(str_replace(' ', '', $validate['plate_number']));
-            $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$plate_number])->first();
-            if (!$truck && $validate['plate_number']) {
+            $plate_number = !empty($validate['plate_number']) ? strtolower(str_replace(' ', '', $validate['plate_number'])) : '';
+            $truck = null;
+            
+            \Log::info('addApiTask - Ищем грузовик с номером:', ['plate_number' => $plate_number]);
+            
+            if ($plate_number) {
+                $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$plate_number])->first();
+                \Log::info('addApiTask - Результат поиска грузовика:', ['found' => $truck ? true : false, 'truck_id' => $truck?->id]);
+            }
+            
+            if (!$truck && !empty($validate['plate_number'])) {
                 $truckCategory = null;
                 if ($validate['truck_category']) {
                     $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truck_category'] . '%')->first();
@@ -540,6 +553,8 @@ class TaskCotroller extends Controller
 
             // Добавление или обновление пользователя
             $user = $this->getUserByLogin($validate['login'], $validate['user_name'], $validate['user_phone'], $validate['company']);
+            \Log::info('addApiTask - Пользователь:', ['found' => $user ? true : false, 'user_id' => $user?->id]);
+            
             if ($user && $truck) {
                 $user->trucks()->syncWithoutDetaching([$truck->id]);
             }
@@ -549,6 +564,7 @@ class TaskCotroller extends Controller
             // Добавление или обновление двора
             $yardController = new YardCotroller();
             $yard = $yardController->getYardById($validate['Yard']);
+            \Log::info('addApiTask - Двор:', ['yard_name' => $validate['Yard'], 'found' => $yard ? true : false, 'yard_id' => $yard?->id]);
 
             // Создание задачи
             $status = null;
@@ -566,6 +582,16 @@ class TaskCotroller extends Controller
             } else {
                 $status = $statusNew;
             }
+
+            \Log::info('addApiTask - Создаём задачу с параметрами:', [
+                'task_id' => $validate['task_id'],
+                'name' => $validate['name'],
+                'user_id' => $user?->id,
+                'truck_id' => $truck?->id,
+                'avtor' => $validate['avtor'],
+                'yard_id' => $yard?->id,
+                'status_id' => $status?->id,
+            ]);
 
             $task = $this->getTaskById(
                 $validate['task_id'],
@@ -586,7 +612,7 @@ class TaskCotroller extends Controller
 
             );
 
-            
+            \Log::info('addApiTask - Задача создана:', ['task_id' => $task?->id, 'task_name' => $task?->name]);
 
             if ($yard && $truck && $task) {
                 // Проверяем или создаем разрешение на въезд
@@ -790,7 +816,22 @@ class TaskCotroller extends Controller
                 'message' => 'Task created successfully',
                 'data' => $task,
             ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('addApiTask - Ошибка валидации:', [
+                'errors' => $e->errors(),
+                'request' => $request->all()
+            ]);
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation Error',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
+            \Log::error('addApiTask - Ошибка:', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
             return response()->json([
                 'status' => false,
                 'message' => 'Error Creating Task: ' . $e->getMessage(),
