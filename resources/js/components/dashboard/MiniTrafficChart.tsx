@@ -106,9 +106,9 @@ const MiniTrafficChart: React.FC = () => {
                                 <Line
                                     type="monotone"
                                     dataKey="count"
-                                    stroke="hsl(var(--primary))"
+                                    stroke="#ef4444"
                                     strokeWidth={2}
-                                    dot={{ r: 3, fill: 'hsl(var(--primary))' }}
+                                    dot={{ r: 3, fill: '#ef4444' }}
                                     name="Въездов"
                                 />
                             </LineChart>
@@ -134,7 +134,7 @@ const MiniTrafficChart: React.FC = () => {
                                 />
                                 <Bar 
                                     dataKey="count" 
-                                    fill="hsl(var(--primary))" 
+                                    fill="#ef4444" 
                                     radius={[4, 4, 0, 0]} 
                                     name="Въездов"
                                 />

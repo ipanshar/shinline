@@ -71,7 +71,7 @@ const quickLinks: QuickLink[] = [
         href: '/check',
         icon: ShieldCheck,
         description: 'Контрольно-пропускной пункт',
-        permission: 'checkpoint.view',
+        permission: 'visitors.view',
         color: 'text-red-600',
         bgColor: 'bg-red-100 dark:bg-red-900/30'
     },
