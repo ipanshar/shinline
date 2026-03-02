@@ -1131,17 +1131,85 @@ class TaskCotroller extends Controller
 
     private function getUserByLogin($login, $user_name = null, $user_phone = null, $company = null)
     {
-        $user = User::where('login', '=',  $login)->first();
-        if (!$user && $user_name) {
+        // Сначала ищем по логину, если он передан
+        if (!empty($login)) {
+            $user = User::where('login', '=', $login)->first();
+            if ($user) {
+                return $user;
+            }
+        }
+        
+        // Если по логину не нашли - ищем по точному совпадению имени
+        if (!empty($user_name)) {
+            $user = User::where('name', '=', trim($user_name))->first();
+            if ($user) {
+                // Нашли по имени - обновляем логин если он пустой у существующего
+                if (empty($user->login) && !empty($login)) {
+                    $user->login = $login;
+                    $user->save();
+                }
+                return $user;
+            }
+        }
+        
+        // Пользователь не найден - создаём нового
+        if (!empty($user_name)) {
+            // Генерируем логин если не передан
+            $finalLogin = !empty($login) ? $login : $this->generateLoginFromName($user_name);
+            
             $user = User::create([
-                'name' => $user_name,
-                'login' => $login,
+                'name' => trim($user_name),
+                'login' => $finalLogin,
                 'password' => bcrypt('Aa1234'),
                 'company' => $company,
-                'phone' => $user_phone,
-            ]); // Добавить аккаунт водителю если его нет
+                'phone' => $user_phone ?: null,
+            ]);
+            \Log::info("addApiTask - Создан новый пользователь: login={$finalLogin}, name={$user_name}");
+            return $user;
         }
-        return $user;
+        
+        \Log::warning('addApiTask - Не удалось создать/найти пользователя: login и user_name пустые');
+        return null;
+    }
+    
+    /**
+     * Генерация логина из имени (транслитерация)
+     */
+    private function generateLoginFromName($name)
+    {
+        // Простая транслитерация кириллицы
+        $translitMap = [
+            'а' => 'a', 'б' => 'b', 'в' => 'v', 'г' => 'g', 'д' => 'd',
+            'е' => 'e', 'ё' => 'e', 'ж' => 'zh', 'з' => 'z', 'и' => 'i',
+            'й' => 'y', 'к' => 'k', 'л' => 'l', 'м' => 'm', 'н' => 'n',
+            'о' => 'o', 'п' => 'p', 'р' => 'r', 'с' => 's', 'т' => 't',
+            'у' => 'u', 'ф' => 'f', 'х' => 'h', 'ц' => 'c', 'ч' => 'ch',
+            'ш' => 'sh', 'щ' => 'sch', 'ъ' => '', 'ы' => 'y', 'ь' => '',
+            'э' => 'e', 'ю' => 'yu', 'я' => 'ya',
+            'А' => 'a', 'Б' => 'b', 'В' => 'v', 'Г' => 'g', 'Д' => 'd',
+            'Е' => 'e', 'Ё' => 'e', 'Ж' => 'zh', 'З' => 'z', 'И' => 'i',
+            'Й' => 'y', 'К' => 'k', 'Л' => 'l', 'М' => 'm', 'Н' => 'n',
+            'О' => 'o', 'П' => 'p', 'Р' => 'r', 'С' => 's', 'Т' => 't',
+            'У' => 'u', 'Ф' => 'f', 'Х' => 'h', 'Ц' => 'c', 'Ч' => 'ch',
+            'Ш' => 'sh', 'Щ' => 'sch', 'Ъ' => '', 'Ы' => 'y', 'Ь' => '',
+            'Э' => 'e', 'Ю' => 'yu', 'Я' => 'ya'
+        ];
+        
+        // Транслитерируем всё имя
+        $login = strtr(trim($name), $translitMap);
+        $login = preg_replace('/\s+/', '_', $login); // Пробелы в подчёркивания
+        $login = preg_replace('/[^a-z0-9_]/i', '', $login); // Только буквы, цифры и _
+        $login = strtolower($login);
+        
+        // Проверяем уникальность, добавляем число только если нужно
+        $baseLogin = $login;
+        $counter = 1;
+        while (User::where('login', $login)->exists()) {
+            $login = $baseLogin . '_' . $counter;
+            $counter++;
+        }
+        
+        return $login;
     }
 
     private function createUpdateTaskWeighing($task_id, $weighing = null, $yard_id = 1, $warehouseCount = 1, $truck_id = null, $plate_number = null)
