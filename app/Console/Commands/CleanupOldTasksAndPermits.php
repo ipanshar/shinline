@@ -8,6 +8,7 @@ use App\Models\Task;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CleanupOldTasksAndPermits extends Command
 {
@@ -178,9 +179,22 @@ class CleanupOldTasksAndPermits extends Command
             $this->info("✓ Задач обновлено (статус -> {$targetStatus->name}): {$tasksUpdated}");
             $this->info("✓ Разрешений деактивировано: {$permitsDeactivated}");
             
+            // Логируем только если были изменения
+            if ($tasksUpdated > 0 || $permitsDeactivated > 0) {
+                Log::info('CleanupOldTasksAndPermits выполнено', [
+                    'tasks_updated' => $tasksUpdated,
+                    'permits_deactivated' => $permitsDeactivated,
+                    'cutoff_date' => $cutoffDate->format('Y-m-d'),
+                ]);
+            }
+            
         } catch (\Exception $e) {
             DB::rollBack();
             $this->error("Ошибка: " . $e->getMessage());
+            Log::error('CleanupOldTasksAndPermits ошибка', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return 1;
         }
         
