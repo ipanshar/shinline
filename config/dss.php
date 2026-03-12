@@ -10,6 +10,7 @@ return [
         'max_age_seconds' => (int) env('DSS_HEARTBEAT_MAX_AGE', 120),
         'max_keepalive_age_seconds' => (int) env('DSS_KEEPALIVE_MAX_AGE', 180),
         'max_capture_age_seconds' => (int) env('DSS_CAPTURE_MAX_AGE', 180),
+        'restart_service' => env('DSS_RESTART_SERVICE'),
         'nssm_path' => env('DSS_NSSM_PATH'),
     ],
 

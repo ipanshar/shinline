@@ -2,6 +2,13 @@
 
 ## Что запускать
 
+## Обязательные env для автоперезапуска
+
+- `DSS_RESTART_SERVICE=ShinlineDssDaemon`
+- `DSS_NSSM_PATH=C:\nssm\win64\nssm.exe`
+
+Если эти значения заданы в `.env`, то scheduled-команда `dss:health-check` сможет делать автоперезапуск даже без передачи `--restart-service` и `--nssm` в аргументах.
+
 ### 1. NSSM service для daemon
 
 Запускает polling bridge:

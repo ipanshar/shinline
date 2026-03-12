@@ -86,7 +86,9 @@ class DssHealthCheck extends Command
 
     private function restartServiceIfNeeded(): bool
     {
-        $serviceName = $this->option('restart-service');
+        $serviceName = $this->option('restart-service')
+            ?: config('dss.health.restart_service');
+
         if (!$serviceName) {
             return false;
         }
