@@ -11,6 +11,7 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         \App\Console\Commands\DssDaemon::class,
         \App\Console\Commands\DssArchiveData::class,
+        \App\Console\Commands\DssHealthCheck::class,
         \App\Console\Commands\CleanupOldTasksAndPermits::class,
     ];
 
@@ -32,6 +33,11 @@ class Kernel extends ConsoleKernel
             ->dailyAt('01:10')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/dss-archive.log'));
+
+        $schedule->command('dss:health-check')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/dss-health-check.log'));
 
         $schedule->command('some:command')->daily();
     }

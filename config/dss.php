@@ -5,6 +5,14 @@ return [
         'mode' => env('DSS_POLLING_MODE', 'polling-bridge'),
     ],
 
+    'health' => [
+        'heartbeat_file' => env('DSS_HEARTBEAT_FILE', 'app/dss/daemon-heartbeat.json'),
+        'max_age_seconds' => (int) env('DSS_HEARTBEAT_MAX_AGE', 120),
+        'max_keepalive_age_seconds' => (int) env('DSS_KEEPALIVE_MAX_AGE', 180),
+        'max_capture_age_seconds' => (int) env('DSS_CAPTURE_MAX_AGE', 180),
+        'nssm_path' => env('DSS_NSSM_PATH'),
+    ],
+
     'cache' => [
         'lookup_ttl_seconds' => (int) env('DSS_LOOKUP_CACHE_TTL', 60),
         'status_ttl_seconds' => (int) env('DSS_STATUS_CACHE_TTL', 300),

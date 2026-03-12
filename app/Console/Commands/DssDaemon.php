@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Services\DssService;
+use App\Services\DssDaemonHeartbeatService;
 use App\Models\EntryPermit;
 use App\Models\Task;
 use App\Models\Status;
@@ -25,9 +26,15 @@ class DssDaemon extends Command
         $this->warn('Для production рекомендуется supervisor-managed queue workers для очередей dss-enrichment, dss-media, dss-notifications.');
 
         $service = app(DssService::class);
+        $heartbeat = app(DssDaemonHeartbeatService::class);
+        $heartbeat->boot([
+            'service' => 'dss:daemon',
+            'notes' => 'Polling bridge daemon is starting',
+        ]);
         
         // Инициализация с бесконечными попытками переподключения
         $Newsession = $this->initializeWithInfiniteRetry($service);
+        $heartbeat->recordSuccess('authorize', ['authorization' => $Newsession]);
         
         $this->logResult('KeepAlive new session', $Newsession);
 
@@ -40,18 +47,25 @@ class DssDaemon extends Command
 
         while (true) {
             try {
+                $heartbeat->touch('running');
+
                 // Вызов VehicleCapture каждые 3 секунды
                 if ((time() - $lastVehicleCapture) >= 3) {
                     try {
+                        $heartbeat->touch('vehicle_capture');
                         $VehicleCaptureResult = $this->executeWithRetry(function() use ($service) {
                             return $service->dssVehicleCapture();
                         });
                         
                         if ($VehicleCaptureResult) {
+                            $heartbeat->recordSuccess('vehicle_capture', [
+                                'vehicle_capture' => $VehicleCaptureResult,
+                            ]);
                             $this->logResult('VehicleCapture', $VehicleCaptureResult);
                             $consecutiveErrors = 0;
                         }
                     } catch (Exception $e) {
+                        $heartbeat->recordFailure('vehicle_capture', $e->getMessage());
                         $consecutiveErrors++;
                         $this->error(now()->toDateTimeLocalString() . " Ошибка при вызове VehicleCapture:  " . $e->getMessage());
                         
@@ -69,11 +83,15 @@ class DssDaemon extends Command
 
                 // Вызов KeepAlive если прошло 22 секунды
                 if ((time() - $lastKeepAlive) >= 22) {
+                    $heartbeat->touch('keepalive');
                     $keepAliveResult = $this->executeWithRetry(function() use ($service) {
                         return $service->dssKeepAlive();
                     });
                     
                     if ($keepAliveResult) {
+                        $heartbeat->recordSuccess('keepalive', [
+                            'keepalive' => $keepAliveResult,
+                        ]);
                         $this->logResult('KeepAlive update session', $keepAliveResult);
                         $consecutiveErrors = 0;
                     }
@@ -82,11 +100,15 @@ class DssDaemon extends Command
 
                 // Вызов NewToken если прошло 30 минут
                 if ((time() - $lastTokenUpdate) >= (30 * 60)) {
+                    $heartbeat->touch('token_refresh');
                     $tokenUpdateResult = $this->executeWithRetry(function() use ($service) {
                         return $service->dssAutorize();
                     });
                     
                     if ($tokenUpdateResult) {
+                        $heartbeat->recordSuccess('token_refresh', [
+                            'token_refresh' => $tokenUpdateResult,
+                        ]);
                         $this->logResult('NewToken', $tokenUpdateResult);
                         $consecutiveErrors = 0;
                     }
@@ -96,7 +118,9 @@ class DssDaemon extends Command
                 // Ежедневная очистка просроченных разрешений и задач (в 00:05)
                 $now = Carbon::now();
                 if ($now->format('Y-m-d') !== $lastCleanupCheck->format('Y-m-d') && $now->hour === 0 && $now->minute >= 5) {
+                    $heartbeat->touch('cleanup');
                     $this->cleanupExpiredPermitsAndTasks();
+                    $heartbeat->recordSuccess('cleanup');
                     $lastCleanupCheck = $now;
                 }
 
@@ -104,11 +128,13 @@ class DssDaemon extends Command
                 sleep(1);
                 
             } catch (Exception $e) {
+                $heartbeat->recordFailure('main_loop', $e->getMessage());
                 $this->error(now()->toDateTimeLocalString() . " Критическая ошибка в главном цикле: " . $e->getMessage());
                 $this->warn("Попытка восстановления соединения...");
                 
                 // Пытаемся переподключиться бесконечно
                 $Newsession = $this->initializeWithInfiniteRetry($service);
+                $heartbeat->recordSuccess('authorize', ['authorization' => $Newsession]);
                 $consecutiveErrors = 0;
                 $lastTokenUpdate = time();
                 $lastKeepAlive = time();
@@ -124,22 +150,30 @@ class DssDaemon extends Command
     private function initializeWithInfiniteRetry(DssService $service)
     {
         $attempt = 0;
+        $heartbeat = app(DssDaemonHeartbeatService::class);
         
         while (true) {
             $attempt++;
             
             try {
+                $heartbeat->touch('authorize_retry', ['authorize_attempt' => $attempt]);
                 $result = $this->executeWithRetry(function() use ($service) {
                     return $service->dssAutorize();
                 });
                 
                 if ($result) {
+                    $heartbeat->recordSuccess('authorize', [
+                        'authorize_attempt' => $attempt,
+                    ]);
                     if ($attempt > 1) {
                         $this->info(now()->toDateTimeLocalString() . " Соединение восстановлено после {$attempt} попыток");
                     }
                     return $result;
                 }
             } catch (Exception $e) {
+                $heartbeat->recordFailure('authorize', $e->getMessage(), [
+                    'authorize_attempt' => $attempt,
+                ]);
                 $this->error(now()->toDateTimeLocalString() . " Ошибка при подключении: " . $e->getMessage());
             }
             
