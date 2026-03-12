@@ -23,7 +23,7 @@ class DssDaemon extends Command
     {
         $this->info("Запущен DSS Daemon (VehicleCapture каждые 3 секунды, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
 
-        $service = new DssService();
+        $service = app(DssService::class);
         
         // Инициализация с бесконечными попытками переподключения
         $Newsession = $this->initializeWithInfiniteRetry($service);

@@ -10,18 +10,18 @@ namespace App\Http\Controllers;
 
 use App\Models\Devaice;
 use App\Models\DssSetings;
-use App\Services\DssService;
+use App\Services\DssAuthService;
+use App\Services\DssPersonService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class DssController extends Controller
 {
-    protected $dssService;
-
-    public function __construct(DssService $dssService)
-    {
-        $this->dssService = $dssService;
+    public function __construct(
+        protected DssAuthService $authService,
+        protected DssPersonService $personService,
+    ) {
     }
 
     private function settingsRules(bool $isUpdate = false): array
@@ -43,22 +43,38 @@ class DssController extends Controller
         return $baseRules;
     }
 
-    public function dssAutorization()
+    private function successResponse(string $message, array $data = [], int $status = 200)
     {
-        $authorizationResult = $this->dssService->dssAutorize();
-
-        if (isset($authorizationResult['error'])) {
-            return response()->json([
-                'status' => false,
-                'error' => $authorizationResult['error'],
-            ], 400);
-        }
-
         return response()->json([
             'status' => true,
-            'message' => 'Авторизация DSS выполнена успешно',
-            'data' => $authorizationResult,
-        ]);
+            'message' => $message,
+            'data' => $data,
+        ], $status);
+    }
+
+    private function errorResponse(string $message, $details = null, int $status = 400)
+    {
+        $payload = [
+            'status' => false,
+            'error' => $message,
+        ];
+
+        if ($details !== null) {
+            $payload['details'] = $details;
+        }
+
+        return response()->json($payload, $status);
+    }
+
+    public function dssAutorization()
+    {
+        $authorizationResult = $this->authService->dssAutorize();
+
+        if (isset($authorizationResult['error'])) {
+            return $this->errorResponse($authorizationResult['error'], $authorizationResult, 400);
+        }
+
+        return $this->successResponse('Авторизация DSS выполнена успешно', $authorizationResult);
     }
 
     //Получение настроек DSS
@@ -147,34 +163,34 @@ class DssController extends Controller
     //Поддержание сессии DSS
     public function dssKeepAlive()
     {
-        $keepAliveResponse = $this->dssService->dssKeepAlive();
+        $keepAliveResponse = $this->authService->dssKeepAlive();
         if (isset($keepAliveResponse['error'])) {
-            return response()->json(['status' => false, 'error' => $keepAliveResponse['error']], 500);
+            return $this->errorResponse($keepAliveResponse['error'], $keepAliveResponse, 500);
         }
 
-        return response()->json(['status' => true, 'message' => 'DSS session kept alive successfully', 'data' => $keepAliveResponse]);
+        return $this->successResponse('DSS session kept alive successfully', $keepAliveResponse);
     }
 
     //Обновление токена DSS
     public function dssUpdateToken()
     {
-        $updateTokenResponse = $this->dssService->dssUpdateToken();
+        $updateTokenResponse = $this->authService->dssUpdateToken();
         if (isset($updateTokenResponse['error'])) {
-            return response()->json(['status' => false, 'error' => $updateTokenResponse['error']], 500);
+            return $this->errorResponse($updateTokenResponse['error'], $updateTokenResponse, 500);
         }
 
-        return response()->json(['status' => true, 'message' => 'DSS token updated successfully', 'data' => $updateTokenResponse]);
+        return $this->successResponse('DSS token updated successfully', $updateTokenResponse);
     }
 
     //Выход из DSS
     public function dssUnauthorize()
     {
-        $logoutResponse = $this->dssService->dssUnauthorize();
+        $logoutResponse = $this->authService->dssUnauthorize();
         if (isset($logoutResponse['error'])) {
-            return response()->json(['status' => false, 'error' => $logoutResponse['error']], 500);
+            return $this->errorResponse($logoutResponse['error'], $logoutResponse, 500);
         }
 
-        return response()->json(['status' => true, 'message' => 'Logged out from DSS successfully']);
+        return $this->successResponse('Logged out from DSS successfully');
     }
 
     public function dssAlarmAdd(Request $request)
@@ -328,7 +344,7 @@ class DssController extends Controller
             ]);
 
             // Вызываем метод сервиса для добавления пользователя
-            $result = $this->dssService->dssAddPerson($validated);
+            $result = $this->personService->dssAddPerson($validated);
 
             // Проверяем результат
             if (isset($result['error'])) {
@@ -336,7 +352,7 @@ class DssController extends Controller
                     'status' => false,
                     'message' => 'Ошибка при добавлении пользователя в DSS',
                     'error' => $result['error'],
-                    'details' => $result['data'] ?? null
+                    'details' => $result['data'] ?? ($result['response'] ?? null)
                 ], 400);
             }
 
