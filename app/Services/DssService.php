@@ -46,20 +46,56 @@ class DssService
     protected $dssApi;
     protected $credential;
     protected $subhour;
+
     public function __construct()
     {
         $this->dssSettings = DssSetings::first();
-        $this->baseUrl = $this->dssSettings->base_url;
-        $this->token = $this->dssSettings->token;
-        $this->credential = $this->dssSettings->credential; // Добавляем учетные данные
-        $this->subhour = $this->dssSettings->subhour; // Добавляем значение subhour
+        $this->baseUrl = $this->dssSettings?->base_url;
+        $this->token = $this->dssSettings?->token;
+        $this->credential = $this->dssSettings?->credential;
+        $this->subhour = $this->dssSettings?->subhour;
         $this->client = new Client();
     }
+
+    private function ensureSettings(array $requiredFields = []): ?array
+    {
+        if (!$this->dssSettings) {
+            return ['error' => 'DSS settings not found'];
+        }
+
+        foreach ($requiredFields as $field) {
+            if (blank($this->dssSettings->{$field})) {
+                return ['error' => "DSS setting '{$field}' is not configured"];
+            }
+        }
+
+        return null;
+    }
+
+    private function getApiDefinition(string $apiName): ?DssApi
+    {
+        if (!$this->dssSettings) {
+            return null;
+        }
+
+        return DssApi::where('api_name', $apiName)
+            ->where('dss_setings_id', $this->dssSettings->id)
+            ->first();
+    }
+
     // Первый этап авторизации
     // Получаем realm и randomKey
     public function firstLogin($username)
     {
-        $this->dssApi = DssApi::where('api_name', 'Authorize')->where('dss_setings_id', $this->dssSettings->id)->first();
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
+
+        $this->dssApi = $this->getApiDefinition('Authorize');
+        if (!$this->dssApi) {
+            return ['error' => 'DSS API method Authorize not found'];
+        }
+
         try {
             $response = $this->client->post($this->baseUrl . $this->dssApi->request_url, [
                 'json' => [
@@ -74,7 +110,7 @@ class DssService
             if ($e->hasResponse()) {
                 return  json_decode($e->getResponse()->getBody(), true);
             } else {
-                return  ['error' => $e['error']];
+                return  ['error' => $e->getMessage()];
             }
         }
     }
@@ -103,7 +139,7 @@ class DssService
             if ($m->hasResponse()) {
                 return  json_decode($m->getResponse()->getBody(), true);
             } else {
-                return  ['error' => $m['error'], 'data' => $m];
+                return  ['error' => $m->getMessage(), 'data' => $m];
             }
         }
     }
@@ -111,6 +147,10 @@ class DssService
     // Авторизация в DSS
     public function dssAutorize()
     {
+        if ($error = $this->ensureSettings(['base_url', 'user_name', 'password'])) {
+            return $error;
+        }
+
         $firstLogin = $this->firstLogin($this->dssSettings->user_name);
         if (isset($firstLogin['error'])) {
             return ['error' => $firstLogin['error']];
@@ -142,11 +182,21 @@ class DssService
     // Поддержание сессии активной
     public function dssKeepAlive()
     {
-        if (!$this->dssSettings->token) {
-            $this->dssAutorize(); // Если токен не установлен, выполняем авторизацию
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
         }
-        // Получаем API-метод из базы данных
-        $dssApi = DssApi::where('api_name', 'KeepAlive')->where('dss_setings_id', $this->dssSettings->id)->first();
+
+        if (!$this->dssSettings->token) {
+            $authResult = $this->dssAutorize();
+            if (isset($authResult['error'])) {
+                return $authResult;
+            }
+        }
+
+        $dssApi = $this->getApiDefinition('KeepAlive');
+        if (!$dssApi) {
+            return ['error' => 'DSS API method KeepAlive not found'];
+        }
 
         // Отправка запроса
         $response = null;
@@ -162,7 +212,10 @@ class DssService
                 ]
             ]);
         } catch (RequestException $e) {
-            $this->dssAutorize();
+            $authResult = $this->dssAutorize();
+            if (isset($authResult['error'])) {
+                return $authResult;
+            }
 
             $response = $this->client->put($this->baseUrl . $dssApi->request_url, [
                 'headers' => [
@@ -206,11 +259,17 @@ class DssService
     // Обновление токена
     public function dssUpdateToken()
     {
-        if (!$this->dssSettings->token || !$this->dssSettings->update_token_count > 4) {
-            $this->dssAutorize(); // Если токен не установлен или превышено количество обновлений, выполняем авторизацию
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
+
+        if (!$this->dssSettings->token || $this->dssSettings->update_token_count > 4) {
+            return $this->dssAutorize();
         } else {
-            // Получаем API-метод из базы данных
-            $dssApi = DssApi::where('api_name', 'UpdateToken')->where('dss_setings_id', $this->dssSettings->id)->first();
+            $dssApi = $this->getApiDefinition('UpdateToken');
+            if (!$dssApi) {
+                return ['error' => 'DSS API method UpdateToken not found'];
+            }
 
             // Отправка запроса
             $response = $this->client->post($this->baseUrl . $dssApi->request_url, [
@@ -259,12 +318,22 @@ class DssService
 
     public function dssVehicleCapture()
     {
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
 
         if (!$this->dssSettings->token) {
-            return ['error' => 'Токен не установлен!'];
+            $authResult = $this->dssAutorize();
+            if (isset($authResult['error'])) {
+                return $authResult;
+            }
         }
-        // Получаем API-метод из базы данных
-        $dssApi = DssApi::where('api_name', 'VehicleCapture')->where('dss_setings_id', $this->dssSettings->id)->first();
+
+        $dssApi = $this->getApiDefinition('VehicleCapture');
+        if (!$dssApi) {
+            return ['error' => 'DSS API method VehicleCapture not found'];
+        }
+
         $currentTimestamp = time();
         // Отправка запроса
         $response = $this->client->post($this->baseUrl . $dssApi->request_url, [
@@ -721,6 +790,10 @@ class DssService
     public function dssAddPerson(array $personData)
     {
         try {
+            if ($error = $this->ensureSettings(['base_url'])) {
+                return $error;
+            }
+
             // Проверка токена
             if (!$this->token) {
                 $authResult = $this->dssAutorize();
@@ -738,9 +811,7 @@ class DssService
             }
 
             // Получаем API-метод из базы данных
-            $dssApi = DssApi::where('api_name', 'AddPerson')
-                ->where('dss_setings_id', $this->dssSettings->id)
-                ->first();
+            $dssApi = $this->getApiDefinition('AddPerson');
 
             if (!$dssApi) {
                 return ['error' => 'API метод AddPerson не найден в базе данных. Необходимо добавить запись в таблицу dss_apis.'];
@@ -863,11 +934,18 @@ class DssService
     // Выход из системы DSS
     public function dssUnauthorize()
     {
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
+
         if (!$this->dssSettings->token) {
             return ['error' => 'Токен не установлен!'];
         }
-        // Получаем API-метод из базы данных
-        $dssApi = DssApi::where('api_name', 'Unauthorize')->where('dss_setings_id', $this->dssSettings->id)->first();
+
+        $dssApi = $this->getApiDefinition('Unauthorize');
+        if (!$dssApi) {
+            return ['error' => 'DSS API method Unauthorize not found'];
+        }
 
         // Отправка запроса
         $response = $this->client->post($this->baseUrl . $dssApi->request_url, [

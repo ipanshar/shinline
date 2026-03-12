@@ -53,16 +53,31 @@ Route::get('/check', [RouteController::class, 'check']);
 Route::get('/permits', [RouteController::class, 'permits']);
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
-Route::get('/integration_dss', [RouteController::class, 'integration_dss']);
+Route::get('/integration_dss', [RouteController::class, 'integration_dss'])->middleware('permission:integrations.dss');
 Route::get('/chat', [RouteController::class, 'chat']);
 Route::get('/chat/counterparty', [RouteController::class, 'chatCounterparty']);
 Route::get('/statistics', [RouteController::class, 'statistics']);
 route::get('/warehouses/gate', [RouteController::class, 'warehouseGate']);
 route::get('/warehouses/kpp', [RouteController::class, 'warehouseKPP']);
 route::get('/warehouses/yards', [RouteController::class, 'yards']);
-Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings']);
-Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices']);
-Route::get('/integration_dss/zones', [RouteController::class, 'dssZones']);
+Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings'])->middleware('permission:integrations.dss');
+Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices'])->middleware('permission:integrations.dss');
+Route::get('/integration_dss/zones', [RouteController::class, 'dssZones'])->middleware('permission:integrations.dss');
+
+// Dss routes for web UI (session auth)
+Route::post('/dss/autorization', [DssController::class, 'dssAutorization'])->middleware('permission:integrations.dss');
+Route::post('/dss/settings', [DssController::class, 'dssSettings'])->middleware('permission:integrations.dss');
+Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate'])->middleware('permission:integrations.dss');
+Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate'])->middleware('permission:integrations.dss');
+Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])->middleware('permission:integrations.dss');
+Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middleware('permission:integrations.dss');
+Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('permission:integrations.dss');
+Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('permission:integrations.dss');
+Route::post('/dss/dssdevices', [DssController::class, 'dssDevices'])->middleware('permission:integrations.dss');
+Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate'])->middleware('permission:integrations.dss');
+Route::post('/dss/add-person', [DssController::class, 'dssAddPerson'])->middleware('permission:integrations.dss');
+Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory'])->middleware('permission:integrations.dss|history.view');
+Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone'])->middleware('permission:integrations.dss|history.view');
 
 // Справочники
 Route::get('/references', [RouteController::class, 'references']);
@@ -211,22 +226,6 @@ Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime']); //О�
 Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику 
 Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingStats']);
 Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
-
-// Dss routes
-Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); //Авторизация в DSS
-Route::post('/dss/settings', [DssController::class, 'dssSettings']); //Получить настройки DSS
-Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate']); //Обновить настройки DSS
-Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate']); //Создать настройки DSS
-Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete']); //Удалить настройки DSS
-Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
-Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
-Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS  
-Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
-Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
-Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory']); //Получить историю зон грузовика
-Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone']); //Получить текущую зону грузовика
-
-
 
 Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint']);
 Route::post('/entrance-permit/getcheckpoint', [EntryPermitController::class, 'getCheckpoint']);

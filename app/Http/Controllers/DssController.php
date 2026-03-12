@@ -13,38 +13,52 @@ use App\Models\DssSetings;
 use App\Services\DssService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class DssController extends Controller
 {
     protected $dssService;
+
     public function __construct(DssService $dssService)
     {
         $this->dssService = $dssService;
     }
 
-    public function dssAutorization()
+    private function settingsRules(bool $isUpdate = false): array
     {
-        $dssSeting = DssSetings::first();
-        if (!$dssSeting) {
-            return response()->json(['error' => 'DSS settings not found'], 404);
-        }
-        $username = $dssSeting->user_name;
-        $password = $dssSeting->password;
-        $firstLoginResponse = $this->dssService->firstLogin($username);
-        if (!isset($firstLoginResponse['realm'], $firstLoginResponse['randomKey'])) {
-            return response()->json(['error' => 'Ошибка первого этапа авторизации'], 401);
+        $baseRules = [
+            'base_url' => ['required', 'string', 'max:2048', 'url:http,https'],
+            'user_name' => ['required', 'string', 'min:1', 'max:255'],
+            'password' => ['required', 'string', 'min:1', 'max:255'],
+            'subhour' => ['nullable', 'integer', 'min:0', 'max:8760'],
+            'client_type' => ['nullable', 'string', Rule::in(['WINPC_V2'])],
+        ];
+
+        if ($isUpdate) {
+            return array_merge([
+                'id' => ['required', 'integer', 'exists:dss_setings,id'],
+            ], $baseRules);
         }
 
-        $secondLoginResponse = $this->dssService->secondLogin(
-            $username,
-            $password,
-            $firstLoginResponse['realm'],
-            $firstLoginResponse['randomKey']
-        );
-        if (!isset($secondLoginResponse['token'])) {
-            return response()->json(['error' => 'Токен не получен, ошибка второго этапа авторизации'], 401);
+        return $baseRules;
+    }
+
+    public function dssAutorization()
+    {
+        $authorizationResult = $this->dssService->dssAutorize();
+
+        if (isset($authorizationResult['error'])) {
+            return response()->json([
+                'status' => false,
+                'error' => $authorizationResult['error'],
+            ], 400);
         }
-        return response()->json($secondLoginResponse);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Авторизация DSS выполнена успешно',
+            'data' => $authorizationResult,
+        ]);
     }
 
     //Получение настроек DSS
@@ -52,37 +66,81 @@ class DssController extends Controller
     {
         $dssSeting = DssSetings::first();
         if (!$dssSeting) {
-            return response()->json(['error' => 'DSS settings not found'], 404);
+            return response()->json(['status' => false, 'error' => 'DSS settings not found'], 404);
         }
-        return response()->json($dssSeting);
+
+        return response()->json([
+            'status' => true,
+            'data' => $dssSeting,
+        ]);
     }
 
     //Обновление настроек DSS
     public function dssSettingsUpdate(Request $request)
     {
-        $dssSeting = DssSetings::where('id', $request->id)->first();
+        $validated = $request->validate($this->settingsRules(true));
+
+        $dssSeting = DssSetings::find($validated['id']);
         if (!$dssSeting) {
-            return response()->json(['error' => 'DSS settings not found'], 404);
+            return response()->json(['status' => false, 'error' => 'DSS settings not found'], 404);
         }
-        $dssSeting->update($request->all());
-        return response()->json($dssSeting);
+
+        $dssSeting->update([
+            'base_url' => $validated['base_url'],
+            'user_name' => $validated['user_name'],
+            'password' => $validated['password'],
+            'subhour' => $validated['subhour'] ?? 0,
+            'client_type' => $validated['client_type'] ?? $dssSeting->client_type,
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'DSS settings updated successfully',
+            'data' => $dssSeting->fresh(),
+        ]);
     }
 
     //Создание настроек DSS
     public function dssSettingsCreate(Request $request)
     {
-        $dssSeting = DssSetings::create($request->all());
-        return response()->json($dssSeting, 201);
+        if (DssSetings::exists()) {
+            return response()->json([
+                'status' => false,
+                'error' => 'DSS settings already exist. Use update instead.',
+            ], 409);
+        }
+
+        $validated = $request->validate($this->settingsRules());
+
+        $dssSeting = DssSetings::create([
+            'base_url' => $validated['base_url'],
+            'user_name' => $validated['user_name'],
+            'password' => $validated['password'],
+            'subhour' => $validated['subhour'] ?? 0,
+            'client_type' => $validated['client_type'] ?? 'WINPC_V2',
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'DSS settings created successfully',
+            'data' => $dssSeting,
+        ], 201);
     }
     //удаление настроек DSS
     public function dssSettingsDelete(Request $request)
     {
-        $dssSeting = DssSetings::where('id', $request->id)->first();
+        $validated = $request->validate([
+            'id' => ['required', 'integer', 'exists:dss_setings,id'],
+        ]);
+
+        $dssSeting = DssSetings::find($validated['id']);
         if (!$dssSeting) {
-            return response()->json(['error' => 'DSS settings not found'], 404);
+            return response()->json(['status' => false, 'error' => 'DSS settings not found'], 404);
         }
+
         $dssSeting->delete();
-        return response()->json(['message' => 'DSS settings deleted successfully']);
+
+        return response()->json(['status' => true, 'message' => 'DSS settings deleted successfully']);
     }
 
     //
@@ -91,9 +149,10 @@ class DssController extends Controller
     {
         $keepAliveResponse = $this->dssService->dssKeepAlive();
         if (isset($keepAliveResponse['error'])) {
-            return response()->json(['error' => $keepAliveResponse], 500);
+            return response()->json(['status' => false, 'error' => $keepAliveResponse['error']], 500);
         }
-        return response()->json(['message' => 'DSS session kept alive successfully', 'data' => $keepAliveResponse]);
+
+        return response()->json(['status' => true, 'message' => 'DSS session kept alive successfully', 'data' => $keepAliveResponse]);
     }
 
     //Обновление токена DSS
@@ -101,9 +160,10 @@ class DssController extends Controller
     {
         $updateTokenResponse = $this->dssService->dssUpdateToken();
         if (isset($updateTokenResponse['error'])) {
-            return response()->json(['error' => $updateTokenResponse['error']], 500);
+            return response()->json(['status' => false, 'error' => $updateTokenResponse['error']], 500);
         }
-        return response()->json(['message' => 'DSS token updated successfully']);
+
+        return response()->json(['status' => true, 'message' => 'DSS token updated successfully', 'data' => $updateTokenResponse]);
     }
 
     //Выход из DSS
@@ -111,9 +171,10 @@ class DssController extends Controller
     {
         $logoutResponse = $this->dssService->dssUnauthorize();
         if (isset($logoutResponse['error'])) {
-            return response()->json(['error' => $logoutResponse['error']], 500);
+            return response()->json(['status' => false, 'error' => $logoutResponse['error']], 500);
         }
-        return response()->json(['message' => 'Logged out from DSS successfully']);
+
+        return response()->json(['status' => true, 'message' => 'Logged out from DSS successfully']);
     }
 
     public function dssAlarmAdd(Request $request)
@@ -129,13 +190,28 @@ class DssController extends Controller
 
     public function dssDevicesUpdate(Request $request)
     {
-        $devaices = Devaice::where('id', $request->id)->get();
+        $validated = $request->validate([
+            'id' => ['required', 'integer', 'exists:devaices,id'],
+            'channelName' => ['required', 'string', 'max:255'],
+            'checkpoint_id' => ['nullable', 'integer', 'exists:checkpoints,id'],
+            'type' => ['required', 'string', Rule::in(['Entry', 'Exit'])],
+            'zone_id' => ['nullable', 'integer', 'exists:zones,id'],
+        ]);
+
+        $devaices = Devaice::where('id', $validated['id'])->get();
         if ($devaices->isEmpty()) {
             return response()->json(['error' => 'Устройства не найдены'], 404);
         }
+
         foreach ($devaices as $device) {
-            $device->update($request->all());
+            $device->update([
+                'channelName' => $validated['channelName'],
+                'checkpoint_id' => $validated['checkpoint_id'] ?? null,
+                'type' => $validated['type'],
+                'zone_id' => $validated['zone_id'] ?? null,
+            ]);
         }
+
         return response()->json(['status' => true, 'message' => 'Устройства успешно обновлены', 'data' => $devaices], 200);
     }
 

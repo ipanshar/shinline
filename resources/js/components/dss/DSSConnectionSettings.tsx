@@ -33,7 +33,7 @@ const DSSConnectionSettings = () => {
     const fetchSettings = async () => {
       try {
         const response = await axios.post('/dss/settings');
-        const data = response.data;
+        const data = response.data.data;
         setConfig(data);
         setFormData({
           base_url: data.base_url,

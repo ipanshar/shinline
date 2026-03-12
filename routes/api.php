@@ -158,18 +158,25 @@ Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingSt
 Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
 //Dss routes
-Route::post('/dss/autorization', [DssController::class, 'dssAutorization'])->middleware('auth:sanctum'); //Авторизация в DSS
-Route::post('/dss/settings', [DssController::class, 'dssSettings'])->middleware('auth:sanctum'); //Получить настройки DSS
-Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate'])->middleware('auth:sanctum'); //Обновить настройки DSS
-Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate'])->middleware('auth:sanctum'); //Создать настройки DSS
-Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])->middleware('auth:sanctum'); //Удалить настройки DSS
-Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middleware('auth:sanctum'); //Поддержание сессии DSS
-Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('auth:sanctum'); //Обновление токена DSS
-Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('auth:sanctum'); //Выход из DSS  
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Добавление тревоги в DSS
-Route::post('/dss/add-person', [DssController::class, 'dssAddPerson'])->middleware('auth:sanctum'); //Добавление пользователя в DSS
-Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory'])->middleware('auth:sanctum'); //Получить историю зон грузовика
-Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone'])->middleware('auth:sanctum'); //Получить текущую зону грузовика
+Route::middleware(['auth:sanctum', 'permission:integrations.dss'])->group(function () {
+    Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); //Авторизация в DSS
+    Route::post('/dss/settings', [DssController::class, 'dssSettings']); //Получить настройки DSS
+    Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate']); //Обновить настройки DSS
+    Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate']); //Создать настройки DSS
+    Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete']); //Удалить настройки DSS
+    Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
+    Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
+    Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS
+    Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
+    Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
+    Route::post('/dss/add-person', [DssController::class, 'dssAddPerson']); //Добавление пользователя в DSS
+});
+
+Route::middleware(['auth:sanctum', 'permission:integrations.dss|history.view'])->group(function () {
+    Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory']); //Получить историю зон грузовика
+    Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone']); //Получить текущую зону грузовика
+});
 
 Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint'])->middleware('auth:sanctum'); // Добавление контрольного пункта
 Route::post('/entrance-permit/getcheckpoint', [EntryPermitController::class, 'getCheckpoint'])->middleware('auth:sanctum'); // Получение контрольных пунктов
