@@ -38,5 +38,6 @@ return [
         'pending_visitors_alert_threshold' => (int) env('DSS_PENDING_VISITORS_ALERT_THRESHOLD', 10),
         'auth_failures_alert_threshold' => (int) env('DSS_AUTH_FAILURES_ALERT_THRESHOLD', 3),
         'alert_cooldown_minutes' => (int) env('DSS_ALERT_COOLDOWN_MINUTES', 15),
+        'telegram_min_severity' => env('DSS_TELEGRAM_MIN_SEVERITY', 'critical'),
     ],
 ];

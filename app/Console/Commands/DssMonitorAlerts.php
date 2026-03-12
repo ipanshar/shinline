@@ -17,6 +17,7 @@ class DssMonitorAlerts extends Command
     {
         $result = $observabilityService->evaluateAlerts();
         $alerts = $result['alerts'] ?? [];
+        $minSeverity = (string) config('dss.monitoring.telegram_min_severity', 'critical');
 
         if (empty($alerts)) {
             $this->info('No DSS alerts');
@@ -24,6 +25,10 @@ class DssMonitorAlerts extends Command
         }
 
         foreach ($alerts as $alert) {
+            if (!$this->shouldSendAlert($alert, $minSeverity)) {
+                continue;
+            }
+
             $cooldownKey = 'dss:alert:' . $alert['key'];
             $cooldownMinutes = (int) config('dss.monitoring.alert_cooldown_minutes', 15);
 
@@ -37,6 +42,21 @@ class DssMonitorAlerts extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function shouldSendAlert(array $alert, string $minSeverity): bool
+    {
+        $priorityMap = [
+            'info' => 10,
+            'warning' => 20,
+            'error' => 30,
+            'critical' => 40,
+        ];
+
+        $alertPriority = $priorityMap[strtolower((string) ($alert['severity'] ?? 'warning'))] ?? 20;
+        $minimumPriority = $priorityMap[strtolower($minSeverity)] ?? 40;
+
+        return $alertPriority >= $minimumPriority;
     }
 
     private function formatAlertMessage(array $alert, array $overview): string
