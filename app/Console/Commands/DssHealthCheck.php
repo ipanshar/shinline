@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Services\DssDaemonHeartbeatService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
 
 class DssHealthCheck extends Command
@@ -23,6 +24,11 @@ class DssHealthCheck extends Command
     {
         $heartbeat = $heartbeatService->read();
         if (!$heartbeat) {
+            Log::warning('dss_health_check_failed', [
+                'reason' => 'heartbeat_file_not_found',
+                'path' => $heartbeatService->path(),
+            ]);
+
             return $this->failCheck('Heartbeat file not found', ['path' => $heartbeatService->path()]);
         }
 
@@ -41,6 +47,13 @@ class DssHealthCheck extends Command
             $restarted = $this->restartServiceIfNeeded();
 
             if ($restarted) {
+                Log::warning('dss_health_check_restarted', [
+                    'issues' => $issues,
+                    'heartbeat' => $heartbeat,
+                    'restart_attempted' => true,
+                    'restart_succeeded' => true,
+                ]);
+
                 return $this->reportRecoveredCheck('DSS daemon was unhealthy but NSSM restart succeeded', [
                     'issues' => $issues,
                     'heartbeat' => $heartbeat,
@@ -48,6 +61,13 @@ class DssHealthCheck extends Command
                     'restart_succeeded' => true,
                 ]);
             }
+
+            Log::error('dss_health_check_failed', [
+                'reason' => 'issues_detected_restart_failed',
+                'issues' => $issues,
+                'heartbeat' => $heartbeat,
+                'restart_attempted' => $restarted,
+            ]);
 
             return $this->failCheck('DSS daemon health-check failed', [
                 'issues' => $issues,
@@ -70,6 +90,10 @@ class DssHealthCheck extends Command
             $this->line('Last keepalive: ' . ($heartbeat['operations']['keepalive'] ?? 'n/a'));
             $this->line('Last vehicle capture: ' . ($heartbeat['operations']['vehicle_capture'] ?? 'n/a'));
         }
+
+        Log::info('dss_health_check_ok', [
+            'heartbeat' => $heartbeat,
+        ]);
 
         return self::SUCCESS;
     }
@@ -112,13 +136,33 @@ class DssHealthCheck extends Command
             $process->run();
 
             if ($process->isSuccessful()) {
+                Log::warning('dss_health_check_restart_succeeded', [
+                    'service' => $serviceName,
+                    'nssm_path' => $nssmPath,
+                    'output' => $process->getOutput(),
+                ]);
+
                 $this->warn("NSSM service '{$serviceName}' restarted successfully.");
                 return true;
             }
 
+            Log::error('dss_health_check_restart_failed', [
+                'service' => $serviceName,
+                'nssm_path' => $nssmPath,
+                'output' => $process->getOutput(),
+                'error_output' => $process->getErrorOutput(),
+                'exit_code' => $process->getExitCode(),
+            ]);
+
             $this->error("Failed to restart NSSM service '{$serviceName}': " . $process->getErrorOutput());
             return false;
         } catch (\Throwable $exception) {
+            Log::error('dss_health_check_restart_exception', [
+                'service' => $serviceName,
+                'nssm_path' => $nssmPath,
+                'message' => $exception->getMessage(),
+            ]);
+
             $this->error("Failed to execute NSSM restart for '{$serviceName}': " . $exception->getMessage());
             return false;
         }
