@@ -31,4 +31,11 @@ return [
         'truck_zone_history_days' => (int) env('DSS_TRUCK_ZONE_HISTORY_RETENTION_DAYS', 180),
         'chunk_size' => (int) env('DSS_ARCHIVE_CHUNK_SIZE', 500),
     ],
+
+    'monitoring' => [
+        'pending_visitors_window_minutes' => (int) env('DSS_PENDING_VISITORS_WINDOW_MINUTES', 60),
+        'pending_visitors_alert_threshold' => (int) env('DSS_PENDING_VISITORS_ALERT_THRESHOLD', 10),
+        'auth_failures_alert_threshold' => (int) env('DSS_AUTH_FAILURES_ALERT_THRESHOLD', 3),
+        'alert_cooldown_minutes' => (int) env('DSS_ALERT_COOLDOWN_MINUTES', 15),
+    ],
 ];

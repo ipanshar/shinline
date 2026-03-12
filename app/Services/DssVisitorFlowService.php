@@ -21,6 +21,7 @@ class DssVisitorFlowService
         private DssVisitorConfirmationService $confirmationService,
         private DssZoneHistoryService $zoneHistoryService,
         private DssStatusCacheService $statusCache,
+        private DssStructuredLogger $structuredLogger,
     )
     {
     }
@@ -206,6 +207,14 @@ class DssVisitorFlowService
                 'device_name' => $device->channelName ?? 'Unknown',
             ]);
 
+            $this->structuredLogger->warning('missed_exit_detected', [
+                'plate_number' => $plateNo,
+                'truck_id' => $truck->id,
+                'yard_id' => $zone->yard_id,
+                'device_id' => $device->id,
+                'minutes_since_entry' => $minutesSinceEntry,
+            ]);
+
             $this->closeVisitorExit($existingVisitor, null, $captureTime, true);
 
             $checkpoint = Checkpoint::find($device->checkpoint_id);
@@ -238,7 +247,22 @@ class DssVisitorFlowService
             'truck_brand_id' => $truck?->truck_brand_id,
         ]);
 
+        $this->structuredLogger->info('visitor_created', [
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck?->id,
+            'yard_id' => $zone->yard_id,
+            'device_id' => $device->id,
+            'confirmation_status' => $confirmation['status'],
+        ]);
+
         if ($autoConfirm) {
+            $this->structuredLogger->info('visitor_auto_confirmed', [
+                'visitor_id' => $visitor->id,
+                'truck_id' => $truck?->id,
+                'yard_id' => $zone->yard_id,
+                'device_id' => $device->id,
+            ]);
+
             if ($task) {
                 $task->status_id = $statusRow->id;
                 $task->begin_date = now();
@@ -276,6 +300,14 @@ class DssVisitorFlowService
         }
 
         $reason = $confirmation['reason'];
+
+        $this->structuredLogger->warning('visitor_pending', [
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck?->id,
+            'yard_id' => $zone->yard_id,
+            'device_id' => $device->id,
+            'reason' => $reason,
+        ]);
 
         $checkpointName = Checkpoint::where('id', $device->checkpoint_id)->value('name');
         $this->notificationService->send(

@@ -171,6 +171,7 @@ Route::middleware(['auth:sanctum', 'permission:integrations.dss'])->group(functi
     Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
     Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
     Route::post('/dss/add-person', [DssController::class, 'dssAddPerson']); //Добавление пользователя в DSS
+    Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview']); //Технический обзор DSS
 });
 
 Route::middleware(['auth:sanctum', 'permission:integrations.dss|history.view'])->group(function () {

@@ -12,6 +12,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\DssDaemon::class,
         \App\Console\Commands\DssArchiveData::class,
         \App\Console\Commands\DssHealthCheck::class,
+        \App\Console\Commands\DssMonitorAlerts::class,
         \App\Console\Commands\CleanupOldTasksAndPermits::class,
     ];
 
@@ -38,6 +39,11 @@ class Kernel extends ConsoleKernel
             ->everyMinute()
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/dss-health-check.log'));
+
+        $schedule->command('dss:monitor-alerts')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/dss-monitor-alerts.log'));
 
         $schedule->command('some:command')->daily();
     }

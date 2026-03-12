@@ -1,8 +1,10 @@
 <?php
 
 use Monolog\Handler\NullHandler;
+use Monolog\Handler\RotatingFileHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
+use Monolog\Formatter\JsonFormatter;
 use Monolog\Processor\PsrLogMessageProcessor;
 
 return [
@@ -121,6 +123,18 @@ return [
         'null' => [
             'driver' => 'monolog',
             'handler' => NullHandler::class,
+        ],
+
+        'dss' => [
+            'driver' => 'monolog',
+            'level' => env('LOG_LEVEL', 'debug'),
+            'handler' => RotatingFileHandler::class,
+            'formatter' => JsonFormatter::class,
+            'handler_with' => [
+                'filename' => storage_path('logs/dss.log'),
+                'maxFiles' => 14,
+            ],
+            'processors' => [PsrLogMessageProcessor::class],
         ],
 
         'emergency' => [

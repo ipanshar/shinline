@@ -16,6 +16,10 @@ class DssZoneHistoryService
     public const ACTION_EXIT = 'exit';
     public const ACTION_MISSED_EXIT = 'missed_exit';
 
+    public function __construct(private DssStructuredLogger $structuredLogger)
+    {
+    }
+
     public function enterZone(Truck $truck, Devaice $device, ?Task $task, CarbonInterface $capturedAt): array
     {
         if (!$device->zone_id) {
@@ -28,10 +32,19 @@ class DssZoneHistoryService
             ->first();
 
         if (!$activeRecord) {
+            $record = $this->createActiveRecord($truck, $device, $task, $capturedAt);
+            $this->structuredLogger->info('zone_transition', [
+                'action' => self::ACTION_ENTER,
+                'truck_id' => $truck->id,
+                'zone_id' => $device->zone_id,
+                'device_id' => $device->id,
+                'task_id' => $task?->id,
+            ]);
+
             return [
                 'success' => true,
                 'action' => self::ACTION_ENTER,
-                'record' => $this->createActiveRecord($truck, $device, $task, $capturedAt),
+                'record' => $record,
             ];
         }
 
@@ -57,12 +70,21 @@ class DssZoneHistoryService
         }
 
         $this->closeRecord($activeRecord, $capturedAt);
+        $record = $this->createActiveRecord($truck, $device, $task, $capturedAt);
+        $this->structuredLogger->info('zone_transition', [
+            'action' => self::ACTION_TRANSITION,
+            'truck_id' => $truck->id,
+            'from_zone_id' => $activeRecord->zone_id,
+            'to_zone_id' => $device->zone_id,
+            'device_id' => $device->id,
+            'task_id' => $task?->id,
+        ]);
 
         return [
             'success' => true,
             'action' => self::ACTION_TRANSITION,
             'closed_record' => $activeRecord->fresh(),
-            'record' => $this->createActiveRecord($truck, $device, $task, $capturedAt),
+            'record' => $record,
         ];
     }
 
@@ -78,6 +100,16 @@ class DssZoneHistoryService
         }
 
         $this->closeRecord($activeRecord, $capturedAt);
+
+        $this->structuredLogger->warning(
+            $missedExit ? 'missed_exit_detected' : 'zone_transition',
+            [
+                'action' => $missedExit ? self::ACTION_MISSED_EXIT : self::ACTION_EXIT,
+                'truck_id' => $truckId,
+                'zone_id' => $activeRecord->zone_id,
+                'device_id' => $activeRecord->device_id,
+            ]
+        );
 
         return [
             'success' => true,

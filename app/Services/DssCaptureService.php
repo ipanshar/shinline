@@ -12,6 +12,7 @@ class DssCaptureService extends DssBaseService
         private DssAuthService $authService,
         private DssDeviceSyncService $deviceSyncService,
         private DssMediaService $mediaService,
+        private DssStructuredLogger $structuredLogger,
     ) {
         parent::__construct();
     }
@@ -81,6 +82,12 @@ class DssCaptureService extends DssBaseService
 
         $pageData = $responseData['data']['pageData'] ?? [];
         if (empty($pageData)) {
+            $this->structuredLogger->info('capture_received', [
+                'processed' => 0,
+                'duplicates_skipped' => 0,
+                'items_received' => 0,
+            ]);
+
             return ['success' => true, 'processed' => 0];
         }
 
@@ -128,6 +135,19 @@ class DssCaptureService extends DssBaseService
             $this->mediaService->ensureVehicleCaptureImage($vehicleCapture);
 
             $processed++;
+        }
+
+        $this->structuredLogger->info('capture_received', [
+            'processed' => $processed,
+            'duplicates_skipped' => $duplicatesSkipped,
+            'items_received' => count($pageData),
+        ]);
+
+        if ($duplicatesSkipped > 0) {
+            $this->structuredLogger->warning('capture_skipped', [
+                'reason' => 'duplicate_processed_capture',
+                'duplicates_skipped' => $duplicatesSkipped,
+            ]);
         }
 
         return [

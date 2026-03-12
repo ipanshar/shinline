@@ -10,9 +10,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Devaice;
 use App\Models\DssSetings;
-use App\Services\DssZoneHistoryService;
 use App\Services\DssAuthService;
+use App\Services\DssObservabilityService;
 use App\Services\DssPersonService;
+use App\Services\DssZoneHistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -23,6 +24,7 @@ class DssController extends Controller
         protected DssAuthService $authService,
         protected DssPersonService $personService,
         protected DssZoneHistoryService $zoneHistoryService,
+        protected DssObservabilityService $observabilityService,
     ) {
     }
 
@@ -315,6 +317,21 @@ class DssController extends Controller
                 'duration_minutes' => now()->diffInMinutes($currentZone->entry_time),
             ]
         ], 200);
+    }
+
+    public function technicalOverview(Request $request)
+    {
+        $validated = $request->validate([
+            'period_minutes' => 'nullable|integer|min:5|max:1440',
+        ]);
+
+        $overview = $this->observabilityService->getOverview((int) ($validated['period_minutes'] ?? 60));
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Технический обзор DSS успешно получен',
+            'data' => $overview,
+        ]);
     }
 
     /**

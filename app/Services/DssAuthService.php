@@ -2,10 +2,18 @@
 
 namespace App\Services;
 
+use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
 class DssAuthService extends DssBaseService
 {
+    public function __construct(
+        private DssStructuredLogger $structuredLogger,
+        ?Client $client = null,
+    ) {
+        parent::__construct($client);
+    }
+
     public function firstLogin(string $username): array
     {
         if ($error = $this->ensureSettings(['base_url'])) {
@@ -95,6 +103,12 @@ class DssAuthService extends DssBaseService
 
         $firstLogin = $this->firstLogin($this->dssSettings->user_name);
         if (isset($firstLogin['error'])) {
+            $this->structuredLogger->error('auth_fail', [
+                'stage' => 'first_login',
+                'message' => $firstLogin['error'],
+                'username' => $this->dssSettings->user_name,
+            ]);
+
             return ['error' => $firstLogin['error']];
         }
 
@@ -114,8 +128,19 @@ class DssAuthService extends DssBaseService
             $this->dssSettings->save();
             $this->refreshContext();
 
+            $this->structuredLogger->info('auth_success', [
+                'stage' => 'authorize',
+                'username' => $this->dssSettings->user_name,
+            ]);
+
             return ['success' => true, 'token' => $this->token];
         }
+
+        $this->structuredLogger->error('auth_fail', [
+            'stage' => 'second_login',
+            'message' => $secondLogin['error'] ?? 'Токен не установлен',
+            'username' => $this->dssSettings->user_name,
+        ]);
 
         return [
             'error' => 'Ошибка: токен не установлен',
@@ -170,6 +195,11 @@ class DssAuthService extends DssBaseService
             $this->dssSettings->keepalive = now();
             $this->dssSettings->save();
 
+            $this->structuredLogger->info('auth_success', [
+                'stage' => 'keepalive',
+                'username' => $this->dssSettings->user_name,
+            ]);
+
             return [
                 'success' => true,
                 'live_token' => $responseData['data']['token'] ?? $this->dssSettings->token,
@@ -181,6 +211,12 @@ class DssAuthService extends DssBaseService
             $this->dssSettings->begin_session = null;
             $this->dssSettings->save();
         }
+
+        $this->structuredLogger->error('auth_fail', [
+            'stage' => 'keepalive',
+            'message' => 'Неверный код ответа: ' . ($responseData['code'] ?? 'unknown'),
+            'username' => $this->dssSettings->user_name,
+        ]);
 
         return [
             'error' => 'Неверный код ответа: ' . ($responseData['code'] ?? 'unknown'),
@@ -226,6 +262,12 @@ class DssAuthService extends DssBaseService
         if ((int) ($responseData['code'] ?? 0) === 1000) {
             $newToken = $responseData['data']['token'] ?? null;
             if (!$newToken) {
+                $this->structuredLogger->error('auth_fail', [
+                    'stage' => 'update_token',
+                    'message' => 'Токен отсутствует в ответе',
+                    'username' => $this->dssSettings->user_name,
+                ]);
+
                 return ['error' => 'Токен отсутствует в ответе!'];
             }
 
@@ -236,6 +278,11 @@ class DssAuthService extends DssBaseService
             $this->dssSettings->save();
             $this->refreshContext();
 
+            $this->structuredLogger->info('auth_success', [
+                'stage' => 'update_token',
+                'username' => $this->dssSettings->user_name,
+            ]);
+
             return ['success' => true, 'new_token' => $newToken];
         }
 
@@ -244,6 +291,12 @@ class DssAuthService extends DssBaseService
         $this->dssSettings->update_token = null;
         $this->dssSettings->update_token_count = 0;
         $this->dssSettings->save();
+
+        $this->structuredLogger->error('auth_fail', [
+            'stage' => 'update_token',
+            'message' => 'Неверный код ответа: ' . ($responseData['code'] ?? 'unknown'),
+            'username' => $this->dssSettings->user_name,
+        ]);
 
         return ['error' => 'Неверный код ответа: ' . ($responseData['code'] ?? 'unknown')];
     }
@@ -294,6 +347,11 @@ class DssAuthService extends DssBaseService
         $this->dssSettings->keepalive = null;
         $this->dssSettings->save();
         $this->refreshContext();
+
+        $this->structuredLogger->info('auth_success', [
+            'stage' => 'logout',
+            'username' => $this->dssSettings->user_name,
+        ]);
 
         return ['success' => true];
     }

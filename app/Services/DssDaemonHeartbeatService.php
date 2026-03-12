@@ -11,6 +11,7 @@ class DssDaemonHeartbeatService
         $this->write(array_merge([
             'status' => 'starting',
             'started_at' => now()->toIso8601String(),
+            'consecutive_errors' => 0,
             'pid' => getmypid(),
             'host' => gethostname(),
         ], $context));
@@ -38,6 +39,7 @@ class DssDaemonHeartbeatService
             'heartbeat_at' => $timestamp,
             'last_success_operation' => $operation,
             'last_success_at' => $timestamp,
+            'consecutive_errors' => 0,
             'operations' => array_merge($heartbeat['operations'] ?? [], [
                 $operation => $timestamp,
             ]),
@@ -58,6 +60,7 @@ class DssDaemonHeartbeatService
             'last_error_at' => $timestamp,
             'last_error_operation' => $operation,
             'last_error_message' => $message,
+            'consecutive_errors' => ((int) ($heartbeat['consecutive_errors'] ?? 0)) + 1,
         ], $context));
     }
 
