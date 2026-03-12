@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\EnrichVehicleCaptureJob;
 use App\Models\VehicleCapture;
+use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
 class DssCaptureService extends DssBaseService
@@ -13,8 +14,9 @@ class DssCaptureService extends DssBaseService
         private DssDeviceSyncService $deviceSyncService,
         private DssMediaService $mediaService,
         private DssStructuredLogger $structuredLogger,
+        ?Client $client = null,
     ) {
-        parent::__construct();
+        parent::__construct($client);
     }
 
     public function dssVehicleCapture(): array
