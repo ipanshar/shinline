@@ -10,6 +10,7 @@ class Kernel extends ConsoleKernel
     
     protected $commands = [
         \App\Console\Commands\DssDaemon::class,
+        \App\Console\Commands\DssArchiveData::class,
         \App\Console\Commands\CleanupOldTasksAndPermits::class,
     ];
 
@@ -26,6 +27,11 @@ class Kernel extends ConsoleKernel
             ->dailyAt('00:05')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/cleanup-permits.log'));
+
+        $schedule->command('dss:archive-data')
+            ->dailyAt('01:10')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/dss-archive.log'));
 
         $schedule->command('some:command')->daily();
     }

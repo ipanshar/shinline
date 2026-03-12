@@ -9,6 +9,7 @@ class DssService
         private DssCaptureService $captureService,
         private DssPersonService $personService,
         private DssMediaService $mediaService,
+        private DssRetentionService $retentionService,
     ) {
     }
 
@@ -44,6 +45,11 @@ class DssService
 
     public function deleteOldVehicleCaptures(): array
     {
-        return $this->mediaService->deleteOldVehicleCaptures();
+        return $this->retentionService->archiveOldVehicleCaptures();
+    }
+
+    public function archiveDssData(): array
+    {
+        return $this->retentionService->archiveAll();
     }
 }

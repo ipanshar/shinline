@@ -10,6 +10,10 @@ use App\Models\Yard;
 
 class DssVisitorConfirmationService
 {
+    public function __construct(private DssStatusCacheService $statusCache)
+    {
+    }
+
     public function resolve(?Yard $yard, ?Truck $truck, ?EntryPermit $permit = null): array
     {
         $isStrictMode = (bool) ($yard?->strict_mode ?? false);
@@ -32,7 +36,7 @@ class DssVisitorConfirmationService
 
     public function hasActivePermitForTruck(int $truckId, int $yardId): bool
     {
-        $activeStatusId = Status::where('key', 'active')->value('id');
+        $activeStatusId = $this->statusCache->getId('active');
 
         if (!$activeStatusId) {
             return false;

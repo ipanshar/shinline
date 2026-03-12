@@ -11,6 +11,8 @@ class VehicleCapture extends Model
         'devaice_id',
         'truck_id',
         'plateNo',
+        'capture_direction',
+        'capture_key',
         'capturePicture',
         'plateNoPicture',
         'vehicleBrandName',
@@ -19,6 +21,11 @@ class VehicleCapture extends Model
         'vehicleModelName',
         'views',
         'imageDownload',
-        'local_capturePicture'
-    ];        
+        'local_capturePicture',
+        'processed_at',
+    ];
+
+    protected $casts = [
+        'processed_at' => 'datetime',
+    ];
 }

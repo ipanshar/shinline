@@ -2,12 +2,9 @@
 
 namespace App\Services;
 
-use App\Models\EntryPermit;
-use App\Models\Status;
-use App\Models\Truck;
+use App\Jobs\EnrichVehicleCaptureJob;
 use App\Models\VehicleCapture;
 use GuzzleHttp\Exception\RequestException;
-use Illuminate\Support\Facades\Log;
 
 class DssCaptureService extends DssBaseService
 {
@@ -15,8 +12,6 @@ class DssCaptureService extends DssBaseService
         private DssAuthService $authService,
         private DssDeviceSyncService $deviceSyncService,
         private DssMediaService $mediaService,
-        private DssZoneHistoryService $zoneHistoryService,
-        private DssVisitorFlowService $visitorFlowService,
     ) {
         parent::__construct();
     }
@@ -90,6 +85,7 @@ class DssCaptureService extends DssBaseService
         }
 
         $processed = 0;
+        $duplicatesSkipped = 0;
         foreach ($pageData as $item) {
             if (empty($item['channelId']) || empty($item['plateNo']) || mb_strlen($item['plateNo']) < 4) {
                 continue;
@@ -100,93 +96,51 @@ class DssCaptureService extends DssBaseService
                 continue;
             }
 
-            $metadata = $this->deviceSyncService->syncVehicleDirectories($item);
-            [$truck, $truckWasFound, $confidence] = $this->resolveTruckFromCapture($item);
+            $direction = strtolower((string) ($device->type ?: 'unknown'));
+            $captureKey = $this->buildCaptureKey($device->id, (string) $item['captureTime'], (string) $item['plateNo'], $direction);
 
-            if ($truck) {
-                $this->deviceSyncService->updateTruckMetadata($truck, $metadata, $item);
-                $capturedAt = \Carbon\Carbon::createFromTimestamp($item['captureTime'])->setTimezone(config('app.timezone'));
+            $vehicleCapture = VehicleCapture::firstOrNew(['capture_key' => $captureKey]);
+            $isNew = !$vehicleCapture->exists;
 
-                if ($device->type === 'Exit') {
-                    $this->zoneHistoryService->exitTerritory($truck->id, $capturedAt);
-                } elseif ($device->zone_id) {
-                    $this->zoneHistoryService->enterZone($truck, $device, null, $capturedAt);
-                }
+            $vehicleCapture->fill([
+                'devaice_id' => $device->id,
+                'plateNo' => $item['plateNo'],
+                'capture_direction' => $direction,
+                'capture_key' => $captureKey,
+                'capturePicture' => $item['capturePicture'] ?? null,
+                'plateNoPicture' => $item['plateNoPicture'] ?? null,
+                'vehicleBrandName' => $item['vehicleBrandName'] ?? null,
+                'captureTime' => (string) $item['captureTime'],
+                'vehicleColorName' => $item['vehicleColorName'] ?? null,
+                'vehicleModelName' => $item['vehicleModelName'] ?? null,
+            ]);
+
+            if ($isNew || $vehicleCapture->isDirty()) {
+                $vehicleCapture->save();
             }
 
-            $vehicleCapture = VehicleCapture::updateOrCreate(
-                [
-                    'devaice_id' => $device->id,
-                    'captureTime' => $item['captureTime'],
-                    'plateNo' => $item['plateNo'],
-                ],
-                [
-                    'devaice_id' => $device->id,
-                    'truck_id' => $truck?->id,
-                    'plateNo' => $item['plateNo'],
-                    'capturePicture' => $item['capturePicture'] ?? null,
-                    'plateNoPicture' => $item['plateNoPicture'] ?? null,
-                    'vehicleBrandName' => $item['vehicleBrandName'] ?? null,
-                    'captureTime' => $item['captureTime'],
-                    'vehicleColorName' => $item['vehicleColorName'] ?? null,
-                    'vehicleModelName' => $item['vehicleModelName'] ?? null,
-                ]
-            );
+            if (!$isNew && $vehicleCapture->processed_at) {
+                $duplicatesSkipped++;
+                continue;
+            }
 
+            EnrichVehicleCaptureJob::dispatch($vehicleCapture->id, $captureKey);
             $this->mediaService->ensureVehicleCaptureImage($vehicleCapture);
-            $this->visitorFlowService->handleCapture($device, $truck, array_merge($item, [
-                'confidence' => $confidence,
-                'truck_was_found' => $truckWasFound,
-            ]));
 
             $processed++;
         }
 
-        return ['success' => true, 'processed' => $processed];
+        return [
+            'success' => true,
+            'processed' => $processed,
+            'duplicates_skipped' => $duplicatesSkipped,
+        ];
     }
 
-    private function resolveTruckFromCapture(array $capture): array
+    private function buildCaptureKey(int $deviceId, string $captureTime, string $plateNo, string $direction): string
     {
-        $plateNo = $capture['plateNo'];
-        $confidence = $capture['confidence'] ?? $capture['plateScore'] ?? null;
-        $truck = Truck::where('plate_number', $plateNo)->first();
-        $truckWasFound = $truck !== null;
+        $normalizedPlate = strtolower(str_replace([' ', '-'], '', $plateNo));
 
-        if (!$truck) {
-            $normalizedPlate = $this->normalizePlate($plateNo);
-            $truck = Truck::whereRaw(
-                "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
-                [$normalizedPlate]
-            )->first();
-
-            $truckWasFound = $truck !== null;
-
-            if (!$truck && $confidence !== null && $confidence >= 95) {
-                $activeStatus = Status::where('key', 'active')->first();
-                $hasPermitForPlate = EntryPermit::whereHas('truck', function ($query) use ($normalizedPlate) {
-                    $query->whereRaw(
-                        "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
-                        [$normalizedPlate]
-                    );
-                })
-                    ->where('status_id', $activeStatus?->id ?? 0)
-                    ->where(function ($query) {
-                        $query->whereNull('end_date')
-                            ->orWhere('end_date', '>=', now()->startOfDay());
-                    })
-                    ->exists();
-
-                if (!$hasPermitForPlate) {
-                    Log::info("DSS: Номер {$plateNo} не найден в базе, confidence={$confidence}. Не создаём грузовик - ждём подтверждения оператора.");
-                }
-            }
-        }
-
-        return [$truck, $truckWasFound, $confidence];
-    }
-
-    private function normalizePlate(string $plateNumber): string
-    {
-        return strtolower(str_replace([' ', '-'], '', $plateNumber));
+        return sha1(implode('|', [$deviceId, $captureTime, $normalizedPlate, $direction]));
     }
 }

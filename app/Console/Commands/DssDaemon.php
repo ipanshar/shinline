@@ -13,7 +13,7 @@ use Exception;
 class DssDaemon extends Command
 {
     protected $signature = 'dss:daemon';
-    protected $description = 'Поддерживает DSS соединение активным и обновляет токен по расписанию';
+    protected $description = 'Временный polling bridge для DSS: получает события и складывает тяжёлую обработку в очереди';
     
     private $maxRetries = 3;
     private $retryDelay = 5; // секунды
@@ -21,7 +21,8 @@ class DssDaemon extends Command
 
     public function handle()
     {
-        $this->info("Запущен DSS Daemon (VehicleCapture каждые 3 секунды, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
+        $this->info("Запущен DSS Daemon (polling bridge: VehicleCapture каждые 3 секунды, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
+        $this->warn('Для production рекомендуется supervisor-managed queue workers для очередей dss-enrichment, dss-media, dss-notifications.');
 
         $service = app(DssService::class);
         
@@ -32,7 +33,6 @@ class DssDaemon extends Command
 
         $lastKeepAlive = time();
         $lastTokenUpdate = time();
-        $lastOldCapturesDelete = time();
         $lastVehicleCapture = time();
         $lastCleanupCheck = Carbon::now();  // Для ежедневной очистки
         $consecutiveErrors = 0;
@@ -91,13 +91,6 @@ class DssDaemon extends Command
                         $consecutiveErrors = 0;
                     }
                     $lastTokenUpdate = time();
-                }
-
-                // Удаление старых захватов каждые 30 минут
-                if ((time() - $lastOldCapturesDelete) >= (30 * 60)) {
-                    $service->deleteOldVehicleCaptures();
-                    $this->info(now()->toDateTimeLocalString() . " Удалены старые захваты транспортных средств.");
-                    $lastOldCapturesDelete = time();
                 }
 
                 // Ежедневная очистка просроченных разрешений и задач (в 00:05)

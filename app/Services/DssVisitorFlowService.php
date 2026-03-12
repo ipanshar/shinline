@@ -20,6 +20,7 @@ class DssVisitorFlowService
         private DssNotificationService $notificationService,
         private DssVisitorConfirmationService $confirmationService,
         private DssZoneHistoryService $zoneHistoryService,
+        private DssStatusCacheService $statusCache,
     )
     {
     }
@@ -35,10 +36,10 @@ class DssVisitorFlowService
             return;
         }
 
-        $activeStatus = Status::where('key', 'active')->first();
+        $activeStatusId = $this->statusCache->getId('active') ?? 0;
         $permit = $truck ? EntryPermit::where('truck_id', $truck->id)
             ->where('yard_id', $zone->yard_id)
-            ->where('status_id', '=', $activeStatus?->id ?? 0)
+            ->where('status_id', '=', $activeStatusId)
             ->where(function ($query) {
                 $query->whereNull('end_date')
                     ->orWhere('end_date', '>=', now()->startOfDay());
@@ -60,9 +61,9 @@ class DssVisitorFlowService
 
     public function closeVisitorExit(Visitor $visitor, ?Devaice $device = null, $exitTime = null, bool $missedExit = false): void
     {
-        $leftTerritoryStatus = Status::where('key', 'left_territory')->first();
-        $inactiveStatus = Status::where('key', 'not_active')->first();
-        $completedStatus = Status::where('key', 'completed')->first() ?: $leftTerritoryStatus;
+        $leftTerritoryStatus = $this->statusCache->get('left_territory');
+        $inactiveStatus = $this->statusCache->get('not_active');
+        $completedStatus = $this->statusCache->get('completed') ?: $leftTerritoryStatus;
 
         if (!$leftTerritoryStatus) {
             return;
@@ -106,11 +107,11 @@ class DssVisitorFlowService
         }
 
         if ($visitor->truck_id && $inactiveStatus) {
-            $activeStatus = Status::where('key', 'active')->first();
+            $activeStatusId = $this->statusCache->getId('active') ?? 0;
             $oneTimePermits = EntryPermit::where('truck_id', $visitor->truck_id)
                 ->where('yard_id', $visitor->yard_id)
                 ->where('one_permission', true)
-                ->where('status_id', $activeStatus?->id ?? 0)
+                ->where('status_id', $activeStatusId)
                 ->get();
 
             foreach ($oneTimePermits as $oneTimePermit) {
@@ -130,7 +131,7 @@ class DssVisitorFlowService
         $captureTime = null,
         array $captureData = []
     ): void {
-        $statusRow = Status::where('key', 'on_territory')->first();
+        $statusRow = $this->statusCache->get('on_territory');
         if (!$statusRow) {
             return;
         }
