@@ -8,16 +8,24 @@ import { type PropsWithChildren } from 'react';
 
 const sidebarNavItems: NavItem[] = [
     {
-        title:  'Транспорты',
+        title:  'DSS Центр',
         href: '/integration_dss',
         icon: null,
-        role:'',
     },
     {
-        title:  'Настройки DSS',
-        href: '/integration_dss/settings',
+        title:  'Устройства',
+        href: '/integration_dss/devices',
         icon: null,
-        role:'',
+    },
+    {
+        title:  'Зоны',
+        href: '/integration_dss/zones',
+        icon: null,
+    },
+    {
+        title:  'Настройки',
+        href: '/integration_dss',
+        icon: null,
     },
 ];
 

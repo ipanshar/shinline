@@ -1,6 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { colors } from '@mui/material';
+import InputError from '@/components/input-error';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Save, Settings2 } from 'lucide-react';
 
 type DSSConfig = {
   id: number;
@@ -14,24 +21,34 @@ type DSSConfig = {
   subhour?: number;
 };
 
+type FormState = {
+  base_url: string;
+  user_name: string;
+  password: string;
+  subhour: string;
+};
+
+type FormErrors = Partial<Record<keyof FormState, string>>;
+
 const DSSConnectionSettings = () => {
   const [config, setConfig] = useState<DSSConfig | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormState>({
     base_url: '',
     user_name: '',
     password: '',
-    subhour: 0,
+    subhour: '0',
   });
 
-  const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Получение настроек с сервера
   useEffect(() => {
     const fetchSettings = async () => {
       try {
+        setLoadError(null);
         const response = await axios.post('/dss/settings');
         const data = response.data.data;
         setConfig(data);
@@ -39,11 +56,11 @@ const DSSConnectionSettings = () => {
           base_url: data.base_url,
           user_name: data.user_name,
           password: data.password,
-          subhour: data.subhour || 0,
+          subhour: String(data.subhour ?? 0),
         });
       } catch (error) {
         console.error('Ошибка загрузки настроек:', error);
-        setMessage('Не удалось загрузить настройки.');
+        setLoadError('Не удалось загрузить настройки DSS.');
       } finally {
         setLoading(false);
       }
@@ -54,30 +71,72 @@ const DSSConnectionSettings = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: undefined }));
+  };
+
+  const validate = (): FormErrors => {
+    const nextErrors: FormErrors = {};
+
+    if (!formData.base_url.trim()) {
+      nextErrors.base_url = 'Укажите базовый URL DSS.';
+    } else {
+      try {
+        const url = new URL(formData.base_url);
+        if (!['http:', 'https:'].includes(url.protocol)) {
+          nextErrors.base_url = 'URL должен начинаться с http:// или https://';
+        }
+      } catch {
+        nextErrors.base_url = 'Введите корректный URL.';
+      }
+    }
+
+    if (!formData.user_name.trim()) {
+      nextErrors.user_name = 'Укажите логин DSS.';
+    }
+
+    if (!formData.password.trim()) {
+      nextErrors.password = 'Укажите пароль DSS.';
+    }
+
+    if (!/^\d+$/.test(formData.subhour.trim())) {
+      nextErrors.subhour = 'Часы хранения должны быть целым неотрицательным числом.';
+    }
+
+    return nextErrors;
   };
 
   const handleSave = async () => {
     if (!config) return;
 
+    const nextErrors = validate();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setMessage('Проверьте поля формы перед сохранением.');
+      return;
+    }
+
     setSaving(true);
-    setMessage('');
+    setMessage(null);
 
     try {
-      await axios.post('/dss/settings/update', {
+      const payload = {
         id: config.id,
-        ...formData
-      });
+        ...formData,
+        subhour: Number(formData.subhour),
+      };
+
+      const response = await axios.post('/dss/settings/update', payload);
+      const freshConfig = response.data.data;
 
       setMessage('Настройки успешно сохранены');
-      setIsEditing(false);
-
-      // Обновим отображаемые данные
-      setConfig(prev => prev ? {
-        ...prev,
-        ...formData,
-        updated_at: new Date().toISOString(),
-      } : prev);
+      setConfig(freshConfig);
+      setFormData({
+        base_url: freshConfig.base_url,
+        user_name: freshConfig.user_name,
+        password: freshConfig.password,
+        subhour: String(freshConfig.subhour ?? 0),
+      });
     } catch (error) {
       console.error('Ошибка при сохранении:', error);
       setMessage('Ошибка при сохранении настроек');
@@ -85,6 +144,7 @@ const DSSConnectionSettings = () => {
       setSaving(false);
     }
   };
+
   const timeAgo = (date: Date): string => {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -100,176 +160,115 @@ const DSSConnectionSettings = () => {
     return `${diffDays} дн. назад`;
   };
 
+  const connectionHealth = useMemo(() => {
+    if (!config?.token) {
+      return { label: 'Нет активного токена', variant: 'secondary' as const };
+    }
+
+    return { label: 'Подключение активно', variant: 'default' as const };
+  }, [config?.token]);
+
   if (loading) {
-    return <div style={styles.container}>Загрузка настроек...</div>;
+    return (
+      <Card>
+        <CardContent className="pt-6 text-sm text-muted-foreground">Загрузка настроек DSS...</CardContent>
+      </Card>
+    );
   }
 
   if (!config) {
-    return <div style={styles.container}>Ошибка загрузки конфигурации.</div>;
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <Alert variant="destructive">
+            <Settings2 className="h-4 w-4" />
+            <AlertTitle>Конфигурация недоступна</AlertTitle>
+            <AlertDescription>{loadError ?? 'Ошибка загрузки конфигурации DSS.'}</AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
-    <div style={styles.container}>
-      <strong>Настройки подключения к серверу DSS</strong>
-
-      <table style={styles.table}>
-        <tbody>
-          <tr>
-            <td style={styles.td}><strong>Базовый URL</strong></td>
-            <td style={styles.td}>
-              {isEditing ? (
-                <input
-                  name="base_url"
-                  value={formData.base_url}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              ) : (
-                config.base_url
-              )}
-            </td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Логин</strong></td>
-            <td style={styles.td}>
-              {isEditing ? (
-                <input
-                  name="user_name"
-                  value={formData.user_name}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              ) : (
-                config.user_name
-              )}
-            </td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Пароль</strong></td>
-            <td style={styles.td}>
-              {isEditing ? (
-                <input
-                  name="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              ) : (
-                '********'
-              )}
-            </td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Часы хранения</strong></td>
-            <td style={styles.td}>
-              {isEditing ? (
-                <input
-                  name="subhour"
-                  value={formData.subhour}
-                  onChange={handleChange}
-                  style={styles.input}
-                />
-              ) : (
-                config.subhour || '—'
-              )}
-            </td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Тип клиента</strong></td>
-            <td style={styles.td}>{config.client_type}</td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Токен</strong></td>
-            <td style={styles.td}>{config.token || '—'}</td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Токен учета</strong></td>
-            <td style={styles.td}>{config.credential || '—'}</td>
-          </tr>
-          <tr>
-            <td style={styles.td}><strong>Активность</strong></td>
-            <td style={styles.td}>{config.keepalive ? timeAgo(new Date(config.keepalive)) : '—'}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div style={styles.buttonRow}>
-        {isEditing ? (
-          <>
-            <button onClick={handleSave} disabled={saving} style={styles.button}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
-            </button>
-            <button onClick={() => setIsEditing(false)} style={styles.cancelButton}>
-              Отмена
-            </button>
-          </>
-        ) : (
-          <button onClick={() => setIsEditing(true)} style={styles.button}>
-            Редактировать
-          </button>
+    <Card>
+      <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <CardTitle>Настройки подключения к DSS</CardTitle>
+          <CardDescription>
+            Единая точка входа для подключения, учётных данных и базовых runtime-параметров.
+          </CardDescription>
+        </div>
+        <Badge variant={connectionHealth.variant}>{connectionHealth.label}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {message && (
+          <Alert variant={Object.keys(errors).length > 0 ? 'destructive' : 'default'}>
+            <Settings2 className="h-4 w-4" />
+            <AlertTitle>{Object.keys(errors).length > 0 ? 'Проверьте форму' : 'Сохранение'}</AlertTitle>
+            <AlertDescription>{message}</AlertDescription>
+          </Alert>
         )}
-      </div>
 
-      {message && <div style={styles.message}>{message}</div>}
-    </div>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="base_url">Базовый URL</Label>
+              <Input id="base_url" name="base_url" value={formData.base_url} onChange={handleChange} placeholder="https://dss.example.local" />
+              <InputError message={errors.base_url} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="user_name">Логин</Label>
+                <Input id="user_name" name="user_name" value={formData.user_name} onChange={handleChange} placeholder="operator" />
+                <InputError message={errors.user_name} />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">Пароль</Label>
+                <Input id="password" name="password" type="password" value={formData.password} onChange={handleChange} placeholder="••••••••" />
+                <InputError message={errors.password} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="subhour">Часы хранения</Label>
+              <Input id="subhour" name="subhour" inputMode="numeric" value={formData.subhour} onChange={handleChange} placeholder="0" />
+              <InputError message={errors.subhour} />
+            </div>
+
+            <Button onClick={handleSave} disabled={saving} className="w-full md:w-auto">
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? 'Сохранение...' : 'Сохранить настройки'}
+            </Button>
+          </div>
+
+          <div className="rounded-xl border bg-muted/30 p-4">
+            <h3 className="mb-4 font-semibold">Текущее состояние</h3>
+            <dl className="space-y-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Тип клиента</dt>
+                <dd className="font-medium">{config.client_type ?? 'WINPC_V2'}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Token</dt>
+                <dd className="max-w-[220px] break-all text-right font-medium">{config.token || '—'}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Credential</dt>
+                <dd className="max-w-[220px] break-all text-right font-medium">{config.credential || '—'}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Keepalive</dt>
+                <dd className="font-medium">{config.keepalive ? timeAgo(new Date(config.keepalive)) : '—'}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
-};
-
-const styles = {
-  container: {
-    padding: '20px',
-    fontFamily: 'Arial, sans-serif',
-    backgroundColor: '#f5f5f5',
-    borderRadius: '8px',
-    maxWidth: '600px',
-    margin: 'auto',
-    marginTop: '40px',
-    boxShadow: '0 0 10px rgba(0,0,0,0.1)'
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    marginBottom: '20px'
-  },
-  td: {
-    padding: '10px',
-    borderBottom: '1px solid #ddd',
-  },
-
-  input: {
-    border: '1px solid #ddd',
-    borderRadius: '4px',
-    backgroundColor: colors.common.white,
-    width: '100%',
-    padding: '6px',
-    fontSize: '14px',
-  },
-  buttonRow: {
-    display: 'flex',
-    gap: '10px'
-  },
-  button: {
-    padding: '8px 16px',
-    backgroundColor: '#1976d2',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer'
-  },
-  cancelButton: {
-    padding: '8px 16px',
-    backgroundColor: '#777',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer'
-  },
-  message: {
-    marginTop: '10px',
-    color: '#007700',
-    fontWeight: 'bold'
-  }
 };
 
 export default DSSConnectionSettings;

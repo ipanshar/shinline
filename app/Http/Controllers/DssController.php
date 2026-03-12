@@ -334,6 +334,25 @@ class DssController extends Controller
         ]);
     }
 
+    public function eventsJournal(Request $request)
+    {
+        $validated = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:500',
+            'level' => 'nullable|string|in:info,warning,error,critical',
+        ]);
+
+        $journal = $this->observabilityService->getJournal(
+            (int) ($validated['limit'] ?? 100),
+            $validated['level'] ?? null,
+        );
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Журнал DSS успешно получен',
+            'data' => $journal,
+        ]);
+    }
+
     /**
      * Добавить нового пользователя в DSS
      * 

@@ -15,6 +15,7 @@ interface ZoneHistoryItem {
     entry_time: string;
     exit_time?: string;
     duration?: number;
+    is_active?: boolean;
     created_at: string;
 }
 
@@ -64,6 +65,19 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
         } catch {
             return dateString;
         }
+    };
+
+    const formatDuration = (item: ZoneHistoryItem) => {
+        if (typeof item.duration === 'number') {
+            return `${item.duration} мин`;
+        }
+
+        if (item.is_active) {
+            const diff = Math.max(0, Math.floor((Date.now() - new Date(item.entry_time).getTime()) / 60000));
+            return `${diff} мин`;
+        }
+
+        return null;
     };
 
     if (!truckId) {
@@ -133,7 +147,7 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
                                         </p>
                                     )}
                                 </div>
-                                {!item.exit_time && (
+                                {item.is_active && (
                                     <span className="px-2 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full">
                                         Сейчас здесь
                                     </span>
@@ -145,7 +159,7 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
                                     <span className="text-muted-foreground block text-xs mb-1">⏰ Время входа</span>
                                     <span className="font-medium">{formatDate(item.entry_time)}</span>
                                 </div>
-                                {item.exit_time ? (
+                                {!item.is_active && item.exit_time ? (
                                     <div className="bg-muted/50 p-3 rounded-lg">
                                         <span className="text-muted-foreground block text-xs mb-1">⏱️ Время выхода</span>
                                         <span className="font-medium">{formatDate(item.exit_time)}</span>
@@ -158,10 +172,10 @@ export default function MovementTimeline({ truckId }: MovementTimelineProps) {
                                 )}
                             </div>
                             
-                            {item.duration && (
+                            {formatDuration(item) && (
                                 <div className="mt-3 pt-3 border-t">
                                     <span className="text-muted-foreground text-sm">⏳ Длительность пребывания:</span>
-                                    <span className="ml-2 font-semibold text-primary">{item.duration} мин</span>
+                                    <span className="ml-2 font-semibold text-primary">{formatDuration(item)}</span>
                                 </div>
                             )}
                         </div>

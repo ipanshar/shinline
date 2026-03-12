@@ -59,11 +59,14 @@ interface TruckInfo {
 }
 
 interface CurrentZone {
+    id: number;
     zone_id: number;
     zone_name: string;
     device_name: string;
+    device_type?: string;
     entry_time: string;
     duration_minutes: number;
+    is_active?: boolean;
 }
 
 interface TruckLocationMapProps {
@@ -182,7 +185,7 @@ export default function TruckLocationMap({ truckId }: TruckLocationMapProps) {
     useEffect(() => {
         if (truckId) {
             fetchTruckInfo();
-            fetchCurrentZone();
+            fetchCurrentZoneFromHistory();
         } else {
             setTruckInfo(null);
             setCurrentZone(null);
@@ -227,16 +230,43 @@ export default function TruckLocationMap({ truckId }: TruckLocationMapProps) {
         }
     };
 
-    const fetchCurrentZone = async () => {
+    const fetchCurrentZoneFromHistory = async () => {
         try {
-            const response = await axios.post('/dss/current-truck-zone', {
+            const response = await axios.post('/dss/truck-zone-history', {
                 truck_id: truckId
             });
-            if (response.data.status && response.data.data) {
-                setCurrentZone(response.data.data);
-            } else {
+
+            const history = response.data.status ? response.data.data ?? [] : [];
+            const activeRecord = history.find((item: {
+                id: number;
+                zone_id: number;
+                zone_name: string;
+                device_name: string;
+                device_type?: string;
+                entry_time: string;
+                is_active?: boolean;
+            }) => item.is_active);
+
+            if (!activeRecord) {
                 setCurrentZone(null);
+                return;
             }
+
+            const durationMinutes = Math.max(
+                0,
+                Math.floor((Date.now() - new Date(activeRecord.entry_time).getTime()) / 60000),
+            );
+
+            setCurrentZone({
+                id: activeRecord.id,
+                zone_id: activeRecord.zone_id,
+                zone_name: activeRecord.zone_name,
+                device_name: activeRecord.device_name,
+                device_type: activeRecord.device_type,
+                entry_time: activeRecord.entry_time,
+                duration_minutes: durationMinutes,
+                is_active: true,
+            });
         } catch (error) {
             console.error('Ошибка загрузки текущей зоны:', error);
             setCurrentZone(null);

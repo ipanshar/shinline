@@ -79,6 +79,7 @@ Route::post('/dss/add-person', [DssController::class, 'dssAddPerson'])->middlewa
 Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory'])->middleware('permission:integrations.dss|history.view');
 Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone'])->middleware('permission:integrations.dss|history.view');
 Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview'])->middleware('permission:integrations.dss');
+Route::post('/dss/events-journal', [DssController::class, 'eventsJournal'])->middleware('permission:integrations.dss');
 
 // Справочники
 Route::get('/references', [RouteController::class, 'references']);

@@ -51,7 +51,7 @@ class RouteController extends Controller
         return Inertia::render('yards');
     }
     public function dssSettings(){
-        return Inertia::render('integration_dss_settings');
+        return Inertia::render('integration_dss');
     }
     public function dssDevices(){
         return Inertia::render('integration_dss_devices');

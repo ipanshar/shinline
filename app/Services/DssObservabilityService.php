@@ -108,67 +108,40 @@ class DssObservabilityService
         ];
     }
 
+    public function getJournal(int $limit = 100, ?string $level = null): array
+    {
+        $entries = $this->readLogEntries();
+
+        if ($level) {
+            $entries = array_values(array_filter($entries, static function (array $entry) use ($level) {
+                return strtolower((string) ($entry['level'] ?? '')) === strtolower($level);
+            }));
+        }
+
+        return array_slice($entries, 0, max(1, min($limit, 500)));
+    }
+
     private function recentErrorEvents(int $limit = 10): array
     {
-        $path = storage_path('logs/dss.log');
-        if (!File::exists($path)) {
-            return [];
-        }
+        $entries = $this->readLogEntries();
 
-        $lines = preg_split('/\r\n|\r|\n/', trim(File::get($path))) ?: [];
-        $errors = [];
+        $errors = array_values(array_filter($entries, static function (array $entry) {
+            return in_array(strtolower((string) ($entry['level'] ?? '')), ['error', 'warning', 'critical'], true);
+        }));
 
-        for ($index = count($lines) - 1; $index >= 0 && count($errors) < $limit; $index--) {
-            $line = trim($lines[$index]);
-            if ($line === '') {
-                continue;
-            }
-
-            $decoded = json_decode($line, true);
-            if (!is_array($decoded)) {
-                continue;
-            }
-
-            $level = strtolower((string) ($decoded['level_name'] ?? ''));
-            if (!in_array($level, ['error', 'warning', 'critical'], true)) {
-                continue;
-            }
-
-            $context = $decoded['context'] ?? [];
-            $errors[] = [
-                'timestamp' => $decoded['datetime'] ?? ($context['timestamp'] ?? null),
-                'level' => $level,
-                'event' => $context['event'] ?? ($decoded['message'] ?? 'unknown'),
-                'message' => $context['message'] ?? ($decoded['message'] ?? null),
-                'context' => $context,
-            ];
-        }
-
-        return $errors;
+        return array_slice($errors, 0, $limit);
     }
 
     private function countLogEvents(string $event, Carbon $since): int
     {
-        $path = storage_path('logs/dss.log');
-        if (!File::exists($path)) {
-            return 0;
-        }
-
         $count = 0;
-        $lines = preg_split('/\r\n|\r|\n/', trim(File::get($path))) ?: [];
-
-        foreach ($lines as $line) {
-            $decoded = json_decode(trim($line), true);
-            if (!is_array($decoded)) {
-                continue;
-            }
-
-            $context = $decoded['context'] ?? [];
+        foreach ($this->readLogEntries() as $entry) {
+            $context = $entry['context'] ?? [];
             if (($context['event'] ?? null) !== $event) {
                 continue;
             }
 
-            $timestamp = $context['timestamp'] ?? ($decoded['datetime'] ?? null);
+            $timestamp = $entry['timestamp'] ?? ($context['timestamp'] ?? null);
             if (!$timestamp) {
                 continue;
             }
@@ -182,6 +155,41 @@ class DssObservabilityService
         }
 
         return $count;
+    }
+
+    private function readLogEntries(): array
+    {
+        $path = storage_path('logs/dss.log');
+        if (!File::exists($path)) {
+            return [];
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', trim(File::get($path))) ?: [];
+        $entries = [];
+
+        for ($index = count($lines) - 1; $index >= 0; $index--) {
+            $line = trim($lines[$index]);
+            if ($line === '') {
+                continue;
+            }
+
+            $decoded = json_decode($line, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+
+            $context = $decoded['context'] ?? [];
+
+            $entries[] = [
+                'timestamp' => $decoded['datetime'] ?? ($context['timestamp'] ?? null),
+                'level' => strtolower((string) ($decoded['level_name'] ?? 'info')),
+                'event' => $context['event'] ?? ($decoded['message'] ?? 'unknown'),
+                'message' => $context['message'] ?? ($decoded['message'] ?? null),
+                'context' => $context,
+            ];
+        }
+
+        return $entries;
     }
 
     private function isStale(?string $timestamp, int $thresholdSeconds): bool
