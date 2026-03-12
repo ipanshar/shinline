@@ -19,18 +19,6 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
         role:'',
     },
-     {
-        title:  'Устройства',
-        href: '/integration_dss/devices',
-        icon: null,
-        role:'',
-    },
-    {
-        title:  'Зоны',
-        href: '/integration_dss/zones',
-        icon: null,
-        role:'',
-    },
 ];
 
 export default function SettingsLayout({ children }: PropsWithChildren) {

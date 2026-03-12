@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import AppLayout from '@/layouts/app-layout';
-import DSSLayout from '@/layouts/dss-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
@@ -257,7 +256,7 @@ export default function Integration_dss_zones() {
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Зоны DSS" />
-            <DSSLayout>
+            <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
                 <div className="space-y-6">
                     <Card>
                         <CardHeader>
@@ -467,7 +466,7 @@ export default function Integration_dss_zones() {
                         </CardContent>
                     </Card>
                 </div>
-            </DSSLayout>
+            </div>
         </AppLayout>
     );
 }

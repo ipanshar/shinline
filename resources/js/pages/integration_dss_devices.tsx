@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import AppLayout from '@/layouts/app-layout';
-import DSSLayout from '@/layouts/dss-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import Edit from "@mui/icons-material/Edit";
@@ -15,7 +14,7 @@ import axios from "axios";
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
-        title: 'Устройства DSS',
+        title: 'Камеры наблюдения',
         href: '/integration_dss/devices',
     },
 ];
@@ -218,32 +217,27 @@ export default function Integration_dss() {
     ];
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Устройства DSS" />
+            <Head title="Камеры наблюдения" />
             <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
                 <div className="border-sidebar-border/70 dark:border-sidebar-border relative min-h-[100vh] flex-1 overflow-hidden rounded-xl border md:min-h-min p-4">
-                    <DSSLayout>
-                        {/* <DSSConnectionSettings /> */}
-                        <h2 className="text-xl font-semibold mb-4">Управление устройствами DSS</h2>
-                        <Box sx={{ width: "100%", maxWidth: "1200px", margin: "auto", padding: "10px" }}>
-                             <h2 style={{ textAlign: "center" }}>Управление устройствами DSS</h2>
-                            {loading ? (
-                                 <Box sx={{ display: "flex", justifyContent: "center", padding: 5 }}>
-                                    <CircularProgress />
-                                </Box>
-                            ) : (
-                                <DataGrid
-                                    rows={devices}
-                                    columns={columns}
-                                    rowModesModel={rowModesModel}
-                                    onRowModesModelChange={(newModel) => setRowModesModel(newModel)}
-                                    processRowUpdate={processRowUpdate}
-                                    onProcessRowUpdateError={handleProcessRowUpdateError}
-                                    editMode="row"
-                                    getRowId={(row) => row.id}
-                                />
-                            )}
-                        </Box>
-                    </DSSLayout>
+                    <Box sx={{ width: "100%", maxWidth: "1200px", margin: "auto", padding: "10px" }}>
+                        {loading ? (
+                             <Box sx={{ display: "flex", justifyContent: "center", padding: 5 }}>
+                                <CircularProgress />
+                            </Box>
+                        ) : (
+                            <DataGrid
+                                rows={devices}
+                                columns={columns}
+                                rowModesModel={rowModesModel}
+                                onRowModesModelChange={(newModel) => setRowModesModel(newModel)}
+                                processRowUpdate={processRowUpdate}
+                                onProcessRowUpdateError={handleProcessRowUpdateError}
+                                editMode="row"
+                                getRowId={(row) => row.id}
+                            />
+                        )}
+                    </Box>
                 </div>
             </div>
         </AppLayout>

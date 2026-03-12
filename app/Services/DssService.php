@@ -941,12 +941,12 @@ class DssService
                 $task->end_date = $exitTime ?? now();
                 $task->save();
 
-                Log::info('DSS: Задание завершено при выезде ТС', [
-                    'task_id' => $task->id,
-                    'task_name' => $task->name,
-                    'visitor_id' => $visitor->id,
-                    'missed_exit' => $missedExit,
-                ]);
+                // Log::info('DSS: Задание завершено при выезде ТС', [
+                //     'task_id' => $task->id,
+                //     'task_name' => $task->name,
+                //     'visitor_id' => $visitor->id,
+                //     'missed_exit' => $missedExit,
+                // ]);
             }
         }
 
@@ -958,12 +958,12 @@ class DssService
                 $permit->end_date = $exitTime ?? now();
                 $permit->save();
 
-                Log::info('DSS: Разовое разрешение аннулировано при выезде ТС', [
-                    'permit_id' => $permit->id,
-                    'truck_id' => $permit->truck_id,
-                    'visitor_id' => $visitor->id,
-                    'missed_exit' => $missedExit,
-                ]);
+                // Log::info('DSS: Разовое разрешение аннулировано при выезде ТС', [
+                //     'permit_id' => $permit->id,
+                //     'truck_id' => $permit->truck_id,
+                //     'visitor_id' => $visitor->id,
+                //     'missed_exit' => $missedExit,
+                // ]);
             }
         }
 
@@ -981,11 +981,11 @@ class DssService
                 $oneTimePermit->end_date = $exitTime ?? now();
                 $oneTimePermit->save();
 
-                Log::info('DSS: Дополнительное разовое разрешение аннулировано', [
-                    'permit_id' => $oneTimePermit->id,
-                    'truck_id' => $oneTimePermit->truck_id,
-                    'visitor_id' => $visitor->id,
-                ]);
+                // Log::info('DSS: Дополнительное разовое разрешение аннулировано', [
+                //     'permit_id' => $oneTimePermit->id,
+                //     'truck_id' => $oneTimePermit->truck_id,
+                //     'visitor_id' => $visitor->id,
+                // ]);
             }
         }
     }

@@ -8,12 +8,6 @@ import { type PropsWithChildren } from 'react';
 
 const sidebarNavItems: NavItem[] = [
     {
-        title:  'Дворы',
-        href: '/warehouses/yards',
-        icon: null,
-        role:'',
-    },
-    {
         title:  'Склады',
         href: '/warehouses',
         icon: null,
@@ -22,12 +16,6 @@ const sidebarNavItems: NavItem[] = [
     {
         title:  'Ворота',
         href: '/warehouses/gate',
-        icon: null,
-        role:'',
-    },
-    {
-        title:  'КПП',
-        href: '/warehouses/kpp',
         icon: null,
         role:'',
     },

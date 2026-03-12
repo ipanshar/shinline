@@ -143,20 +143,27 @@ class TruckCotroller extends Controller
                 ->leftJoin('trailer_models', 'trucks.trailer_model_id', '=', 'trailer_models.id')
                 ->select('trucks.*', 'users.name as user_name', 'truck_brands.name as truck_brand_name', 'truck_models.name as truck_model_name', 'truck_categories.ru_name as truck_categories_name', 'trailer_types.name as trailer_type_name', 'trailer_models.name as trailer_model_name', 'trucks.own as truck_own')
                 ->orderBy('trucks.created_at', 'desc');
+
+            $perPage = (int) $request->input('per_page', 100);
+            $perPage = max(1, min($perPage, 100));
+
             if ($request->has('limit')) {
                 $query->limit($request->input('limit'));
             }
             $cur_page = 0;
             $last_page = 0;
+            $total = 0;
             $trucks=[];
             if ($request->has('page')) {
-                $trucks =  $query->paginate(100);
+                $trucks =  $query->paginate($perPage);
                 $cur_page = $trucks->currentPage();
                 $last_page = $trucks->lastPage();
+                $total = $trucks->total();
                 $trucks = $trucks->items();
             } else {
   
                 $trucks =  $query->get();
+                $total = count($trucks);
             }
             if (empty($trucks)) {
                 return response()->json([
@@ -170,6 +177,8 @@ class TruckCotroller extends Controller
                 "data" => $trucks,
                 "current_page" => $cur_page,
                 "last_page" => $last_page,
+                "per_page" => $perPage,
+                "total" => $total,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
