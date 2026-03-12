@@ -40,6 +40,15 @@ class DssHealthCheck extends Command
         if (!empty($issues)) {
             $restarted = $this->restartServiceIfNeeded();
 
+            if ($restarted) {
+                return $this->reportRecoveredCheck('DSS daemon was unhealthy but NSSM restart succeeded', [
+                    'issues' => $issues,
+                    'heartbeat' => $heartbeat,
+                    'restart_attempted' => true,
+                    'restart_succeeded' => true,
+                ]);
+            }
+
             return $this->failCheck('DSS daemon health-check failed', [
                 'issues' => $issues,
                 'heartbeat' => $heartbeat,
@@ -129,5 +138,21 @@ class DssHealthCheck extends Command
         }
 
         return self::FAILURE;
+    }
+
+    private function reportRecoveredCheck(string $message, array $payload): int
+    {
+        $response = array_merge(['status' => 'restarted', 'message' => $message], $payload);
+
+        if ($this->option('json')) {
+            $this->line(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        } else {
+            $this->warn($message);
+            foreach (($payload['issues'] ?? []) as $issue) {
+                $this->line('- ' . $issue);
+            }
+        }
+
+        return self::SUCCESS;
     }
 }
