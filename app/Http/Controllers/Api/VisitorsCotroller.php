@@ -12,6 +12,7 @@ use App\Models\Truck;
 use App\Models\TruckModel;
 use App\Models\Visitor;
 use App\Models\Yard;
+use App\Services\DssVisitorConfirmationService;
 use App\Services\WeighingService;
 use Dotenv\Parser\Entry;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,11 @@ use Illuminate\Http\Request;
 
 class VisitorsCotroller extends Controller
 {
+    public function __construct(
+        private DssVisitorConfirmationService $confirmationService,
+    ) {
+    }
+
     public function addVisitor(Request $request)
     {
         try {
@@ -668,20 +674,15 @@ class VisitorsCotroller extends Controller
             // - Если двор НЕ строгий: достаточно truck
             $confidence = $request->recognition_confidence ?? 0;
             
-            if ($isStrictMode) {
-                // Строгий режим: ТС должно быть в базе И иметь разрешение
-                $autoConfirm = $truck && $permit;
-            } else {
-                // Нестрогий режим: достаточно найти ТС в базе
-                $autoConfirm = $truck !== null;
-            }
+            $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
+            $autoConfirm = $confirmation['auto_confirm'];
             
             $visitor = Visitor::create([
                 'plate_number' => $originalPlate,
                 'original_plate_number' => $originalPlate,
                 'entry_date' => now(),
                 'status_id' => $statusRow->id,
-                'confirmation_status' => $autoConfirm ? Visitor::CONFIRMATION_CONFIRMED : Visitor::CONFIRMATION_PENDING,
+                'confirmation_status' => $confirmation['status'],
                 'confirmed_at' => $autoConfirm ? now() : null,
                 'recognition_confidence' => $confidence,
                 'yard_id' => $validate['yard_id'],
@@ -704,8 +705,9 @@ class VisitorsCotroller extends Controller
                 'data' => [
                     'visitor' => $visitor,
                     'auto_confirmed' => $autoConfirm,
-                    'truck_found' => $truck !== null,
-                    'permit_found' => $permit !== null,
+                    'truck_found' => $confirmation['truck_found'],
+                    'permit_found' => $confirmation['permit_found'],
+                    'decision_reason' => $confirmation['reason'],
                     'task_found' => $task !== null,
                 ]
             ], 200);
@@ -943,18 +945,9 @@ class VisitorsCotroller extends Controller
 
             // Проверка строгого режима
             $yard = Yard::find($visitor->yard_id);
-            $hasPermit = false;
-            if ($truck) {
-                $hasPermit = EntryPermit::where('truck_id', $truck->id)
-                    ->where('yard_id', $visitor->yard_id)
-                    ->where('status_id', Status::where('key', 'active')->first()->id)
-                    // Только действующие (не просроченные) разрешения
-                    ->where(function ($q) {
-                        $q->whereNull('end_date')
-                          ->orWhere('end_date', '>=', now()->startOfDay());
-                    })
-                    ->exists();
-            }
+            $hasPermit = $truck
+                ? $this->confirmationService->hasActivePermitForTruck($truck->id, $visitor->yard_id)
+                : false;
             
             if ($yard && $yard->strict_mode && !$hasPermit) {
                 return response()->json([

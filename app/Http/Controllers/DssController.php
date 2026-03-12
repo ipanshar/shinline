@@ -10,6 +10,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Devaice;
 use App\Models\DssSetings;
+use App\Services\DssZoneHistoryService;
 use App\Services\DssAuthService;
 use App\Services\DssPersonService;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class DssController extends Controller
     public function __construct(
         protected DssAuthService $authService,
         protected DssPersonService $personService,
+        protected DssZoneHistoryService $zoneHistoryService,
     ) {
     }
 
@@ -270,6 +272,7 @@ class DssController extends Controller
                     'task_name' => $item->task->name ?? null,
                     'entry_time' => $item->entry_time,
                     'exit_time' => $item->exit_time,
+                    'is_active' => $item->isActive(),
                     'duration' => $item->exit_time ? $item->entry_time->diffInMinutes($item->exit_time) : null,
                     'created_at' => $item->created_at,
                 ];
@@ -291,10 +294,7 @@ class DssController extends Controller
             'truck_id' => 'required|integer|exists:trucks,id',
         ]);
 
-        $currentZone = \App\Models\TruckZoneHistory::where('truck_id', $validated['truck_id'])
-            ->with(['zone', 'device'])// загружаем связанные модели зоны и устройства
-            ->orderBy('entry_time', 'desc')
-            ->first();
+        $currentZone = $this->zoneHistoryService->getCurrentZoneForTruck($validated['truck_id']);
 
         if (!$currentZone) {
             return response()->json([

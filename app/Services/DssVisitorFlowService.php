@@ -8,7 +8,6 @@ use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\Truck;
-use App\Models\TruckZoneHistory;
 use App\Models\Visitor;
 use App\Models\Yard;
 use App\Models\Zone;
@@ -17,11 +16,15 @@ use Illuminate\Support\Facades\Log;
 
 class DssVisitorFlowService
 {
-    public function __construct(private DssNotificationService $notificationService)
+    public function __construct(
+        private DssNotificationService $notificationService,
+        private DssVisitorConfirmationService $confirmationService,
+        private DssZoneHistoryService $zoneHistoryService,
+    )
     {
     }
 
-    public function recordZoneEntry(Devaice $device, ?Truck $truck, array $captureData): void
+    public function handleCapture(Devaice $device, ?Truck $truck, array $captureData): void
     {
         if (!$device->zone_id) {
             return;
@@ -50,23 +53,6 @@ class DssVisitorFlowService
                 ->setTimezone(config('app.timezone'));
         }
 
-        if ($truck) {
-            TruckZoneHistory::updateOrCreate(
-                [
-                    'truck_id' => $truck->id,
-                    'zone_id' => $device->zone_id,
-                    'entry_time' => $captureTime,
-                ],
-                [
-                    'truck_id' => $truck->id,
-                    'device_id' => $device->id,
-                    'zone_id' => $device->zone_id,
-                    'task_id' => $task?->id,
-                    'entry_time' => $captureTime,
-                ]
-            );
-        }
-
         if ($device->checkpoint_id > 0) {
             $this->createOrUpdateVisitor($device, $truck, $zone, $permit, $task, $captureTime, $captureData);
         }
@@ -92,6 +78,14 @@ class DssVisitorFlowService
         }
 
         $visitor->save();
+
+        if ($visitor->truck_id) {
+            $this->zoneHistoryService->exitTerritory(
+                $visitor->truck_id,
+                $exitTime ?? now(),
+                $missedExit,
+            );
+        }
 
         if ($visitor->task_id && $completedStatus) {
             $task = Task::find($visitor->task_id);
@@ -147,7 +141,8 @@ class DssVisitorFlowService
         $truckWasFound = $captureData['truck_was_found'] ?? ($truck !== null);
 
         $yard = Yard::find($zone->yard_id);
-        $isStrictMode = $yard && $yard->strict_mode;
+        $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
+        $isStrictMode = $confirmation['strict_mode'];
 
         if ($device->type === 'Exit') {
             $visitorQuery = Visitor::query()
@@ -174,7 +169,7 @@ class DssVisitorFlowService
             return;
         }
 
-        $autoConfirm = $isStrictMode ? ($truckWasFound && $permit) : $truckWasFound;
+        $autoConfirm = $confirmation['auto_confirm'];
 
         $existingVisitor = $truck ? Visitor::where('yard_id', $zone->yard_id)
             ->where('truck_id', $truck->id)
@@ -235,9 +230,7 @@ class DssVisitorFlowService
             'entry_permit_id' => $permit?->id,
             'entry_date' => $captureTime ?? now(),
             'status_id' => $statusRow->id,
-            'confirmation_status' => $autoConfirm
-                ? Visitor::CONFIRMATION_CONFIRMED
-                : Visitor::CONFIRMATION_PENDING,
+            'confirmation_status' => $confirmation['status'],
             'confirmed_at' => $autoConfirm ? now() : null,
             'recognition_confidence' => $confidence,
             'truck_category_id' => $truck?->truck_category_id,
@@ -281,12 +274,7 @@ class DssVisitorFlowService
             return;
         }
 
-        $reason = 'Требуется проверка';
-        if (!$truckWasFound) {
-            $reason = '🚫 ТС не найдено в базе';
-        } elseif ($isStrictMode && !$permit) {
-            $reason = '🔒 Нет разрешения (строгий режим)';
-        }
+        $reason = $confirmation['reason'];
 
         $checkpointName = Checkpoint::where('id', $device->checkpoint_id)->value('name');
         $this->notificationService->send(

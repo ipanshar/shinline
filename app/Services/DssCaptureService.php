@@ -15,6 +15,7 @@ class DssCaptureService extends DssBaseService
         private DssAuthService $authService,
         private DssDeviceSyncService $deviceSyncService,
         private DssMediaService $mediaService,
+        private DssZoneHistoryService $zoneHistoryService,
         private DssVisitorFlowService $visitorFlowService,
     ) {
         parent::__construct();
@@ -104,6 +105,13 @@ class DssCaptureService extends DssBaseService
 
             if ($truck) {
                 $this->deviceSyncService->updateTruckMetadata($truck, $metadata, $item);
+                $capturedAt = \Carbon\Carbon::createFromTimestamp($item['captureTime'])->setTimezone(config('app.timezone'));
+
+                if ($device->type === 'Exit') {
+                    $this->zoneHistoryService->exitTerritory($truck->id, $capturedAt);
+                } elseif ($device->zone_id) {
+                    $this->zoneHistoryService->enterZone($truck, $device, null, $capturedAt);
+                }
             }
 
             $vehicleCapture = VehicleCapture::updateOrCreate(
@@ -126,7 +134,7 @@ class DssCaptureService extends DssBaseService
             );
 
             $this->mediaService->ensureVehicleCaptureImage($vehicleCapture);
-            $this->visitorFlowService->recordZoneEntry($device, $truck, array_merge($item, [
+            $this->visitorFlowService->handleCapture($device, $truck, array_merge($item, [
                 'confidence' => $confidence,
                 'truck_was_found' => $truckWasFound,
             ]));

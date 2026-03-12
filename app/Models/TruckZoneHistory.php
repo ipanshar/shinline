@@ -42,4 +42,19 @@ class TruckZoneHistory extends Model
     {
         return $this->belongsTo(Task::class);
     }
+
+    public function scopeActive($query)
+    {
+        return $query->whereNull('exit_time');
+    }
+
+    public function scopeForTruck($query, int $truckId)
+    {
+        return $query->where('truck_id', $truckId);
+    }
+
+    public function isActive(): bool
+    {
+        return $this->exit_time === null;
+    }
 }
