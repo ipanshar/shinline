@@ -68,6 +68,7 @@ Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermits
 // Visitor Confirmation routes (полуавтоматическое подтверждение от камер DSS)
 Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
 Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors'])->middleware('auth:sanctum'); // Получить посетителей на подтверждение
+Route::post('/security/checkpoint-review-queue', [VisitorsCotroller::class,'getCheckpointReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки на КПП
 Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor'])->middleware('auth:sanctum'); // Подтвердить посетителя
 Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor'])->middleware('auth:sanctum'); // Отклонить посетителя
 Route::post('/security/getexpectedvehicles', [VisitorsCotroller::class,'getExpectedVehicles'])->middleware('auth:sanctum'); // Ожидаемые ТС на дворе

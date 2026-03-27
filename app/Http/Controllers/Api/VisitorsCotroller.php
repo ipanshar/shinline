@@ -5,16 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\TelegramController;
+use App\Models\Devaice;
 use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\Truck;
 use App\Models\TruckModel;
+use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\WeighingService;
-use Dotenv\Parser\Entry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -22,6 +23,7 @@ class VisitorsCotroller extends Controller
 {
     public function __construct(
         private DssVisitorConfirmationService $confirmationService,
+        private WeighingService $weighingService,
     ) {
     }
 
@@ -120,8 +122,7 @@ class VisitorsCotroller extends Controller
             $Visitor->load(['yard', 'truck', 'task']);
 
             // Создаём требование на взвешивание, если необходимо
-            $weighingService = new WeighingService();
-            $weighingRequirement = $weighingService->createRequirement($Visitor);
+            $weighingRequirement = $this->weighingService->createRequirement($Visitor);
             
             if ($weighingRequirement) {
                 logger()->info('Создано требование на взвешивание', [
@@ -812,6 +813,108 @@ class VisitorsCotroller extends Controller
     }
 
     /**
+     * Очередь проверки на КПП для оператора охраны
+     */
+    public function getCheckpointReviewQueue(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'checkpoint_id' => 'required|integer|exists:checkpoints,id',
+                'limit' => 'nullable|integer|min:1|max:50',
+            ]);
+
+            $limit = $validate['limit'] ?? 20;
+
+            $visitors = Visitor::query()
+                ->where('visitors.confirmation_status', Visitor::CONFIRMATION_PENDING)
+                ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
+                ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
+                ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+                ->leftJoin('devaices', 'visitors.entrance_device_id', '=', 'devaices.id')
+                ->where('devaices.checkpoint_id', $validate['checkpoint_id'])
+                ->select(
+                    'visitors.*',
+                    'yards.name as yard_name',
+                    'yards.strict_mode as yard_strict_mode',
+                    'trucks.plate_number as matched_plate_number',
+                    'tasks.name as task_name',
+                    'devaices.channelName as device_name',
+                    'devaices.checkpoint_id as device_checkpoint_id'
+                )
+                ->orderBy('visitors.entry_date', 'desc')
+                ->limit($limit)
+                ->get();
+
+            $data = $visitors->map(function ($visitor) {
+                $yard = $visitor->yard_id ? Yard::find($visitor->yard_id) : null;
+                $truck = $visitor->truck_id ? Truck::find($visitor->truck_id) : null;
+                $task = $visitor->task_id ? Task::find($visitor->task_id) : null;
+                $permit = $truck ? $this->getActivePermitForTruck($truck->id, (int) $visitor->yard_id) : null;
+                $capture = $this->findLatestCaptureForVisitor(
+                    $visitor->entrance_device_id,
+                    $visitor->original_plate_number ?: $visitor->plate_number,
+                    $visitor->entry_date,
+                );
+
+                $loadingCount = $task
+                    ? DB::table('task_loadings')->where('task_id', $task->id)->count()
+                    : 0;
+
+                $weighingRequirement = $this->weighingService->determineRequirementFromContext(
+                    $yard,
+                    $truck,
+                    $permit,
+                    $task,
+                );
+
+                $visitor->permit_id = $permit?->id;
+                $pendingReason = $this->determinePendingReason($visitor);
+
+                return [
+                    'visitor_id' => $visitor->id,
+                    'plate_number' => $visitor->plate_number,
+                    'original_plate_number' => $visitor->original_plate_number,
+                    'entry_date' => $visitor->entry_date,
+                    'recognition_confidence' => $visitor->recognition_confidence,
+                    'yard_id' => $visitor->yard_id,
+                    'yard_name' => $visitor->yard_name,
+                    'yard_strict_mode' => (bool) $visitor->yard_strict_mode,
+                    'checkpoint_id' => $visitor->device_checkpoint_id,
+                    'device_name' => $visitor->device_name,
+                    'matched_truck_id' => $visitor->truck_id,
+                    'matched_plate_number' => $visitor->matched_plate_number,
+                    'task_id' => $visitor->task_id,
+                    'task_name' => $visitor->task_name,
+                    'has_permit' => $permit !== null,
+                    'permit_type' => $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null,
+                    'has_loading_task' => $loadingCount > 0,
+                    'loading_points_count' => $loadingCount,
+                    'has_weighing_task' => $weighingRequirement !== null,
+                    'weighing_reason' => $weighingRequirement['reason'] ?? null,
+                    'pending_reason' => $pendingReason['code'],
+                    'pending_reason_text' => $pendingReason['text'],
+                    'capture_id' => $capture?->id,
+                    'capture_time' => $capture?->captureTime ? date('Y-m-d H:i:s', (int) $capture->captureTime) : null,
+                    'capture_picture_url' => $this->buildCapturePictureUrl($capture),
+                    'capture_plate_picture_url' => $this->buildPlatePictureUrl($capture),
+                ];
+            })->values();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Checkpoint review queue retrieved',
+                'count' => $data->count(),
+                'data' => $data,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Определить причину, почему посетитель ожидает подтверждения
      */
     private function determinePendingReason($visitor): array
@@ -1086,6 +1189,73 @@ class VisitorsCotroller extends Controller
         return strtolower(str_replace([' ', '-'], '', $plate));
     }
 
+    private function getActivePermitForTruck(int $truckId, int $yardId): ?EntryPermit
+    {
+        $activeStatus = Status::where('key', 'active')->first();
+
+        if (!$activeStatus) {
+            return null;
+        }
+
+        return EntryPermit::where('truck_id', $truckId)
+            ->where('yard_id', $yardId)
+            ->where('status_id', $activeStatus->id)
+            ->where(function ($q) {
+                $q->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now()->startOfDay());
+            })
+            ->orderBy('created_at', 'desc')
+            ->first();
+    }
+
+    private function findLatestCaptureForVisitor(?int $deviceId, ?string $plateNumber, $entryDate): ?VehicleCapture
+    {
+        if (!$deviceId || !$plateNumber) {
+            return null;
+        }
+
+        $normalizedPlate = $this->normalizePlateNumber($plateNumber);
+        $targetTimestamp = strtotime((string) $entryDate);
+
+        $query = VehicleCapture::query()
+            ->where('devaice_id', $deviceId)
+            ->whereRaw(
+                "REPLACE(REPLACE(LOWER(plateNo), ' ', ''), '-', '') = ?",
+                [$normalizedPlate]
+            );
+
+        if ($targetTimestamp) {
+            $query->whereBetween('captureTime', [
+                (string) ($targetTimestamp - 600),
+                (string) ($targetTimestamp + 600),
+            ])->orderByRaw('ABS(CAST(captureTime AS SIGNED) - ?) asc', [$targetTimestamp]);
+        }
+
+        return $query->orderByDesc('id')->first();
+    }
+
+    private function buildCapturePictureUrl(?VehicleCapture $capture): ?string
+    {
+        if (!$capture) {
+            return null;
+        }
+
+        if ($capture->local_capturePicture) {
+            return '/storage/' . ltrim($capture->local_capturePicture, '/');
+        }
+
+        return null;
+    }
+
+    private function buildPlatePictureUrl(?VehicleCapture $capture): ?string
+    {
+        if (!$capture || !$capture->plateNoPicture) {
+            return null;
+        }
+
+        return $capture->plateNoPicture;
+    }
+
     /**
      * Поиск похожих номеров с учётом типичных ошибок OCR
      */
@@ -1290,8 +1460,7 @@ class VisitorsCotroller extends Controller
         $visitor->load(['yard', 'truck', 'task']);
 
         // Создаём требование на взвешивание (если нужно)
-        $weighingService = new WeighingService();
-        $weighingService->createRequirement($visitor);
+        $this->weighingService->createRequirement($visitor);
     }
 
     /**

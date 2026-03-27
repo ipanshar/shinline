@@ -12,6 +12,57 @@ use App\Models\Task;
 
 class WeighingService
 {
+    public function determineRequirementFromContext(
+        ?Yard $yard,
+        ?Truck $truck,
+        ?EntryPermit $permit = null,
+        ?Task $task = null
+    ): ?array {
+        if ($permit && $permit->weighing_required === true) {
+            return [
+                'required_type' => 'both',
+                'reason' => WeighingRequirement::REASON_PERMIT,
+            ];
+        }
+
+        if ($permit && $permit->weighing_required === false) {
+            return null;
+        }
+
+        if ($task && isset($task->weighing) && $task->weighing) {
+            return [
+                'required_type' => 'both',
+                'reason' => WeighingRequirement::REASON_TASK,
+            ];
+        }
+
+        if ($yard && $yard->weighing_required === true) {
+            return [
+                'required_type' => 'both',
+                'reason' => WeighingRequirement::REASON_YARD_POLICY,
+            ];
+        }
+
+        if ($truck && $truck->weighing_required === true) {
+            return [
+                'required_type' => 'both',
+                'reason' => WeighingRequirement::REASON_TRUCK_FLAG,
+            ];
+        }
+
+        if ($truck && $truck->weighing_required === null) {
+            $category = $truck->truckCategory;
+            if ($category && $category->weighing_required) {
+                return [
+                    'required_type' => 'both',
+                    'reason' => WeighingRequirement::REASON_TRUCK_CATEGORY,
+                ];
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Определить требуется ли взвешивание при въезде
      * 
@@ -27,61 +78,12 @@ class WeighingService
      */
     public function determineWeighingRequirement(Visitor $visitor): ?array
     {
-        $yard = $visitor->yard;
-        $truck = $visitor->truck;
-        $permit = $visitor->getActivePermit();
-        $task = $visitor->task;
-
-        // 1. Разрешение имеет высший приоритет (явное указание администратора)
-        if ($permit && $permit->weighing_required === true) {
-            return [
-                'required_type' => 'both',
-                'reason' => WeighingRequirement::REASON_PERMIT,
-            ];
-        }
-        
-        // 1.1 Если в разрешении явно указано "не требуется" - освобождаем от взвешивания
-        if ($permit && $permit->weighing_required === false) {
-            return null;
-        }
-
-        // 2. Проверяем задание (если есть флаг weighing)
-        if ($task && isset($task->weighing) && $task->weighing) {
-            return [
-                'required_type' => 'both',
-                'reason' => WeighingRequirement::REASON_TASK,
-            ];
-        }
-
-        // 3. Проверяем политику двора
-        if ($yard && $yard->weighing_required === true) {
-            return [
-                'required_type' => 'both',
-                'reason' => WeighingRequirement::REASON_YARD_POLICY,
-            ];
-        }
-
-        // 4. Проверяем флаг на конкретном ТС
-        if ($truck && $truck->weighing_required === true) {
-            return [
-                'required_type' => 'both',
-                'reason' => WeighingRequirement::REASON_TRUCK_FLAG,
-            ];
-        }
-
-        // 5. Проверяем категорию ТС (если флаг на ТС не установлен явно)
-        if ($truck && $truck->weighing_required === null) {
-            $category = $truck->truckCategory;
-            if ($category && $category->weighing_required) {
-                return [
-                    'required_type' => 'both',
-                    'reason' => WeighingRequirement::REASON_TRUCK_CATEGORY,
-                ];
-            }
-        }
-
-        // Взвешивание не требуется
-        return null;
+        return $this->determineRequirementFromContext(
+            $visitor->yard,
+            $visitor->truck,
+            $visitor->getActivePermit(),
+            $visitor->task,
+        );
     }
 
     /**

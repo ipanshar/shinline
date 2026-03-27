@@ -173,6 +173,16 @@ class DssVisitorFlowService
 
         $autoConfirm = $confirmation['auto_confirm'];
 
+        $recentPendingVisitor = $this->findRecentPendingVisitor($device, $zone->yard_id, $truck, $plateNo, $captureTime);
+        if ($recentPendingVisitor) {
+            if ($confidence !== null && ($recentPendingVisitor->recognition_confidence === null || $confidence > $recentPendingVisitor->recognition_confidence)) {
+                $recentPendingVisitor->recognition_confidence = $confidence;
+                $recentPendingVisitor->save();
+            }
+
+            return;
+        }
+
         $existingVisitor = $truck ? Visitor::where('yard_id', $zone->yard_id)
             ->where('truck_id', $truck->id)
             ->whereNull('exit_date')
@@ -320,5 +330,39 @@ class DssVisitorFlowService
             . '<b>❓ Причина:</b> ' . $reason . "\n\n"
             . '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>'
         );
+    }
+
+    private function findRecentPendingVisitor(
+        Devaice $device,
+        int $yardId,
+        ?Truck $truck,
+        string $plateNo,
+        $captureTime = null
+    ): ?Visitor {
+        $captureMoment = $captureTime ?? now();
+        $normalizedPlate = $this->normalizePlate($plateNo);
+
+        $query = Visitor::query()
+            ->where('yard_id', $yardId)
+            ->where('entrance_device_id', $device->id)
+            ->where('confirmation_status', Visitor::CONFIRMATION_PENDING)
+            ->whereNull('exit_date')
+            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(2));
+
+        if ($truck) {
+            $query->where('truck_id', $truck->id);
+        } else {
+            $query->whereRaw(
+                "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
+                [$normalizedPlate]
+            );
+        }
+
+        return $query->orderByDesc('id')->first();
+    }
+
+    private function normalizePlate(string $plateNumber): string
+    {
+        return strtolower(str_replace([' ', '-'], '', $plateNumber));
     }
 }

@@ -11,13 +11,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { 
-  Truck, Calendar, Clock, User, Phone, MapPin, Package, 
-  MoreVertical, Pencil, ChevronDown, ChevronUp, Building2,
+  Truck, User, Phone, MapPin,
+  MoreVertical, Pencil,
   Timer, ArrowRight, Warehouse, Scale
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TaskWeighing = {
+  id?: number;
+  sort_order?: number | null;
+  statuse_weighing_id?: number | null;
   statuse_weighing_name: string;
   weight: number;
   updated_at: string;
@@ -101,6 +104,103 @@ const calculateDuration = (arrivalAt: string | null, departureAt: string | null)
   return `${minutes}м`;
 };
 
+const calculateStayDuration = (arrivalAt: string | null, departureAt: string | null): string => {
+  if (!arrivalAt) return "—";
+
+  const arrival = new Date(arrivalAt);
+  const end = departureAt ? new Date(departureAt) : new Date();
+  const diffMs = end.getTime() - arrival.getTime();
+
+  if (diffMs < 0) return "—";
+
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const days = Math.floor(diffMinutes / 1440);
+  const hours = Math.floor((diffMinutes % 1440) / 60);
+  const minutes = diffMinutes % 60;
+
+  if (days > 0) {
+    return `${days}д ${hours}ч ${minutes}м`;
+  }
+
+  if (hours > 0) {
+    return `${hours}ч ${minutes}м`;
+  }
+
+  return `${minutes}м`;
+};
+
+const getWeighingStatusId = (weighing: TaskWeighing): number | null => {
+  if (typeof weighing.statuse_weighing_id === "number") {
+    return weighing.statuse_weighing_id;
+  }
+
+  const lower = weighing.statuse_weighing_name.toLowerCase();
+
+  if (lower.includes("до погруз")) return 1;
+  if (lower.includes("после погруз")) return 2;
+  if (lower.includes("до выгруз")) return 3;
+  if (lower.includes("после выгруз")) return 4;
+
+  return null;
+};
+
+const sortTaskWeighings = (weighings: TaskWeighing[]): TaskWeighing[] => {
+  return [...weighings].sort((left, right) => {
+    const leftSort = left.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const rightSort = right.sort_order ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftSort !== rightSort) {
+      return leftSort - rightSort;
+    }
+
+    const leftStatus = getWeighingStatusId(left) ?? Number.MAX_SAFE_INTEGER;
+    const rightStatus = getWeighingStatusId(right) ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftStatus !== rightStatus) {
+      return leftStatus - rightStatus;
+    }
+
+    return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
+  });
+};
+
+const getWeighingDifference = (weighings: TaskWeighing[], weighing: TaskWeighing): number | null => {
+  const currentStatusId = getWeighingStatusId(weighing);
+
+  if (!currentStatusId || currentStatusId % 2 !== 0) {
+    return null;
+  }
+
+  const pairStatusId = currentStatusId - 1;
+  const currentSortOrder = weighing.sort_order ?? null;
+
+  const pairWeighing = [...weighings]
+    .reverse()
+    .find((candidate) => {
+      const candidateStatusId = getWeighingStatusId(candidate);
+      const candidateSortOrder = candidate.sort_order ?? null;
+
+      return candidateStatusId === pairStatusId && candidateSortOrder === currentSortOrder;
+    }) ?? [...weighings]
+    .reverse()
+    .find((candidate) => getWeighingStatusId(candidate) === pairStatusId);
+
+  if (!pairWeighing) {
+    return null;
+  }
+
+  return weighing.weight - pairWeighing.weight;
+};
+
+const formatWeightDifference = (difference: number | null): string | null => {
+  if (difference === null) {
+    return null;
+  }
+
+  const sign = difference > 0 ? "+" : "";
+  return `${sign}${difference} кг`;
+};
+
 // Получение цвета статуса
 const getStatusColor = (status: string): string => {
   const lower = status.toLowerCase();
@@ -124,12 +224,12 @@ interface TaskTableProps {
 
 // Компонент карточки задания
 const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task, onEdit }) => {
-  const [expanded, setExpanded] = useState(false);
+  const sortedTaskWeighings = sortTaskWeighings(task.task_weighings);
 
   return (
-    <Card className="p-4 transition-all duration-200 hover:shadow-md">
+    <Card className="p-3 sm:p-4 transition-all duration-200 hover:shadow-md">
       {/* Верхняя часть - основная информация */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         {/* Левая часть */}
         <div className="flex-1 min-w-0">
           {/* Рейс и статус */}
@@ -159,9 +259,9 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
         </div>
 
         {/* Правая часть - время и меню */}
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex items-start justify-between gap-3 lg:flex-col lg:items-end lg:min-w-48">
           {/* Плановая дата */}
-          <div className="text-right">
+          <div className="text-left lg:text-right">
             <div className="text-xs text-muted-foreground">План</div>
             <div className="text-sm font-medium">{formatDate(task.plan_date)}</div>
           </div>
@@ -183,7 +283,7 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
       </div>
 
       {/* Временные метки */}
-      <div className="flex flex-wrap gap-4 mt-3 text-sm">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
         {task.begin_date && (
           <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
             <ArrowRight className="w-3 h-3" />
@@ -196,27 +296,18 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
             <span>Убытие: {formatDate(task.end_date)}</span>
           </div>
         )}
+        {task.begin_date && (
+          <div className="flex items-center gap-1 text-purple-600 dark:text-purple-400">
+            <Timer className="w-3 h-3" />
+            <span>
+              На территории: {calculateStayDuration(task.begin_date, task.end_date)}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Погрузки - краткая информация */}
-      {task.task_loadings.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {task.task_loadings.map((loading, i) => (
-            <Badge key={i} variant="outline" className="text-xs">
-              <Warehouse className="w-3 h-3 mr-1" />
-              {loading.warehouse_name}
-              {loading.arrival_at && loading.departure_at && (
-                <span className="ml-1 text-purple-600">
-                  ({calculateDuration(loading.arrival_at, loading.departure_at)})
-                </span>
-              )}
-            </Badge>
-          ))}
-        </div>
-      )}
-
       {/* Водитель - всегда показываем */}
-      <div className="mt-3 pt-3 border-t flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <div className="mt-2 pt-2 border-t flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <div className="flex items-center gap-1">
           <User className="w-3 h-3 text-muted-foreground" />
           <span>{task.user_name}</span>
@@ -229,21 +320,12 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
         )}
       </div>
 
-      {/* Раскрывающаяся секция */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
-      >
-        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        {expanded ? "Скрыть детали" : "Показать детали"}
-      </button>
-
-      {expanded && (
-        <div className="mt-3 pt-3 border-t space-y-4 animate-in slide-in-from-top-2">
+      <div className="mt-2 pt-2 border-t grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <div className="grid gap-3 lg:grid-cols-2">
           {/* Детали ТС */}
           <div className="space-y-1">
             <div className="text-xs font-medium text-muted-foreground uppercase">Транспорт</div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+            <div className="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-2">
               {task.truck_model_name && (
                 <div><span className="text-muted-foreground">Модель:</span> {task.truck_model_name}</div>
               )}
@@ -267,47 +349,46 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
               {task.phone && <span className="text-muted-foreground ml-2">({task.phone})</span>}
               {task.company && <span className="text-muted-foreground ml-2">• {task.company}</span>}
             </div>
+            {task.description && (
+              <div className="mt-2 text-sm leading-snug text-muted-foreground">
+                {task.description}
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Описание */}
-          {task.description && (
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-muted-foreground uppercase">Описание</div>
-              <div className="text-sm">{task.description}</div>
-            </div>
-          )}
-
+        <div className="space-y-4">
           {/* Детальная информация о погрузках */}
           {task.task_loadings.length > 0 && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground uppercase">Погрузки</div>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 2xl:grid-cols-2">
                 {task.task_loadings.map((loading, i) => (
-                  <div key={i} className="p-3 bg-muted/50 rounded-lg text-sm space-y-1">
+                  <div key={i} className="p-2.5 bg-muted/50 rounded-lg text-sm space-y-1">
                     <div className="font-medium flex items-center gap-1">
                       <Warehouse className="w-4 h-4" />
                       {loading.warehouse_name}
                     </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                       <div>
                         <span className="text-muted-foreground">План:</span>{" "}
                         <span>{formatTime(loading.plane_date)}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Ворота план:</span>{" "}
+                        <span className="text-muted-foreground">Ворота:</span>{" "}
                         <span>{loading.warehouse_gate_plan_name || "—"}</span>
                       </div>
                       <div className={loading.arrival_at ? "text-green-600" : ""}>
                         <span className="text-muted-foreground">Прибытие:</span>{" "}
-                        <span>{formatTime(loading.arrival_at)}</span>
+                        <span>{formatDate(loading.arrival_at)}</span>
                       </div>
                       <div className={loading.departure_at ? "text-blue-600" : ""}>
                         <span className="text-muted-foreground">Убытие:</span>{" "}
-                        <span>{formatTime(loading.departure_at)}</span>
+                        <span>{formatDate(loading.departure_at)}</span>
                       </div>
                     </div>
                     {loading.arrival_at && loading.departure_at && (
-                      <div className="pt-1 mt-1 border-t border-muted text-purple-600 font-medium flex items-center gap-1">
+                      <div className="pt-1 mt-1 border-t border-muted text-purple-600 font-medium flex items-center gap-1 text-xs">
                         <Timer className="w-3 h-3" />
                         Время на складе: {calculateDuration(loading.arrival_at, loading.departure_at)}
                       </div>
@@ -319,21 +400,26 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
           )}
 
           {/* Взвешивания */}
-          {task.task_weighings.length > 0 && (
+          {sortedTaskWeighings.length > 0 && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground uppercase">Взвешивания</div>
-              <div className="flex flex-wrap gap-2">
-                {task.task_weighings.map((weighing, i) => (
-                  <Badge key={i} variant="secondary" className="text-xs">
+              <div className="flex flex-wrap gap-1.5">
+                {sortedTaskWeighings.map((weighing, i) => {
+                  const difference = formatWeightDifference(getWeighingDifference(sortedTaskWeighings, weighing));
+
+                  return (
+                  <Badge key={weighing.id ?? i} variant="secondary" className="text-xs">
                     <Scale className="w-3 h-3 mr-1" />
-                    {weighing.weight} кг — {weighing.statuse_weighing_name}
+                    {weighing.weight} кг
+                    {difference && <span className="ml-1 text-emerald-700 dark:text-emerald-400">({difference})</span>}
+                    <span className="ml-1">— {weighing.statuse_weighing_name}</span>
                   </Badge>
-                ))}
+                )})}
               </div>
             </div>
           )}
         </div>
-      )}
+      </div>
     </Card>
   );
 };
@@ -386,7 +472,7 @@ const TaskTable: React.FC<TaskTableProps> = ({ tasks, fetchTasks }) => {
       />
 
       {/* Карточки заданий */}
-      <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="flex w-full flex-col gap-3">
         {tasks.map(task => (
           <TaskCard key={task.id} task={task} onEdit={setModalTaskId} />
         ))}

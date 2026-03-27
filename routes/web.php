@@ -129,6 +129,7 @@ Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck']); 
 Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePermits']); //Получить активные пропуска
 // Система подтверждения посетителей (ошибки OCR камер DSS)
 Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors']); //Получить ожидающих подтверждения
+Route::post('/security/checkpoint-review-queue', [VisitorsCotroller::class,'getCheckpointReviewQueue']); //Очередь проверки на КПП
 Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor']); //Подтвердить посетителя
 Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor']); //Отклонить посетителя
 Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates']); //Поиск похожих номеров

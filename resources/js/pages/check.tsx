@@ -3,25 +3,26 @@ import { Head } from "@inertiajs/react";
 import AppLayout from "@/layouts/app-layout";
 import { type BreadcrumbItem } from "@/types";
 import SecurityCheckMobile from "@/components/check/SecurityCheckMobile";
+import CheckpointReview from "@/components/check/CheckpointReview";
 import VisitorHistory from "@/components/check/VisitorHistory";
 import EntryPermitsManager from "@/components/check/EntryPermitsManager";
-import { Shield, History, KeyRound } from "lucide-react";
+import { Shield, History, Camera } from "lucide-react";
 
 const breadcrumbs: BreadcrumbItem[] = [
   {
-    title: "Проверка на КПП",
+    title: "Охрана територии",
     href: "/check",
   },
 ];
 
-type TabType = 'checkpoint' | 'history' | 'permits';
+type TabType = 'checkpoint' | 'checkpoint-review' | 'history' | 'permits';
 
 export default function Check() {
   const [activeTab, setActiveTab] = useState<TabType>('checkpoint');
 
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
-      <Head title="Проверка на КПП - Охрана" />
+      <Head title="Охрана територии " />
       <div className="flex h-full flex-1 flex-col">
         {/* Вкладки */}
         <div className="bg-white dark:bg-gray-800 border-b sticky top-0 z-30">
@@ -35,6 +36,17 @@ export default function Check() {
               }`}
             >
               <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Территория</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('checkpoint-review')}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${
+                activeTab === 'checkpoint-review'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>Проверка на КПП</span>
             </button>
             <button
@@ -53,6 +65,7 @@ export default function Check() {
 
         {/* Содержимое вкладок */}
         {activeTab === 'checkpoint' && <SecurityCheckMobile />}
+        {activeTab === 'checkpoint-review' && <CheckpointReview />}
         {activeTab === 'history' && <VisitorHistory />}
       </div>
     </AppLayout>
