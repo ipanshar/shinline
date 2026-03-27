@@ -1563,8 +1563,8 @@ class VisitorsCotroller extends Controller
     private function findActiveVisitorsForExitReview(CheckpointExitReview $review): array
     {
         $query = Visitor::query()
-            ->where('yard_id', $review->yard_id)
-            ->whereNull('exit_date')
+            ->where('visitors.yard_id', $review->yard_id)
+            ->whereNull('visitors.exit_date')
             ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
             ->select('visitors.*', 'tasks.name as task_name');
 
