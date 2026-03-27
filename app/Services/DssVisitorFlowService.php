@@ -243,13 +243,14 @@ class DssVisitorFlowService
             $this->closeVisitorExit($existingVisitor, null, $captureTime, true);
 
             $checkpoint = Checkpoint::find($device->checkpoint_id);
+            $elapsedTimeText = $this->formatDurationHumanReadable($existingVisitor->entry_date, $captureTime ?? now());
             $notificationText = "<b>⚠️ Пропущенный выезд ТС</b>\n\n"
                 . '<b>🏷️ ТС:</b> ' . e($plateNo) . "\n"
                 . '<b>🏢 Двор:</b> ' . e($yard->name ?? 'Неизвестный') . "\n"
                 . '<b>📍 КПП въезда:</b> ' . e($checkpoint->name ?? 'Неизвестный') . "\n"
                 . '<b>⏰ Предыдущий въезд:</b> ' . $existingVisitor->entry_date->format('d.m.Y H:i') . "\n"
                 . '<b>⏰ Новый въезд:</b> ' . (($captureTime ?? now())->format('d.m.Y H:i')) . "\n"
-                . '<b>⏱️ Прошло времени:</b> ' . $minutesSinceEntry . " мин.\n\n"
+                . '<b>⏱️ Прошло времени:</b> ' . $elapsedTimeText . "\n\n"
                 . '<i>Камера выезда не зафиксировала выезд. Предыдущий визит автоматически закрыт.</i>';
 
             $this->notificationService->send($notificationText);
@@ -335,6 +336,64 @@ class DssVisitorFlowService
     private function normalizePlate(string $plateNumber): string
     {
         return strtolower(str_replace([' ', '-'], '', $plateNumber));
+    }
+
+    private function formatDurationHumanReadable($from, $to): string
+    {
+        $fromTime = $from instanceof \Carbon\CarbonInterface ? $from->copy() : \Carbon\Carbon::parse($from);
+        $toTime = $to instanceof \Carbon\CarbonInterface ? $to->copy() : \Carbon\Carbon::parse($to);
+
+        $totalSeconds = abs($fromTime->diffInSeconds($toTime));
+
+        if ($totalSeconds < 60) {
+            return $this->formatDurationPart($totalSeconds, 'секунда', 'секунды', 'секунд');
+        }
+
+        $units = [
+            ['seconds' => 31536000, 'forms' => ['год', 'года', 'лет']],
+            ['seconds' => 2592000, 'forms' => ['месяц', 'месяца', 'месяцев']],
+            ['seconds' => 86400, 'forms' => ['день', 'дня', 'дней']],
+            ['seconds' => 3600, 'forms' => ['час', 'часа', 'часов']],
+            ['seconds' => 60, 'forms' => ['минута', 'минуты', 'минут']],
+            ['seconds' => 1, 'forms' => ['секунда', 'секунды', 'секунд']],
+        ];
+
+        $parts = [];
+
+        foreach ($units as $unit) {
+            if ($totalSeconds < $unit['seconds']) {
+                continue;
+            }
+
+            $value = intdiv($totalSeconds, $unit['seconds']);
+            $totalSeconds %= $unit['seconds'];
+
+            $parts[] = $this->formatDurationPart($value, ...$unit['forms']);
+
+            if (count($parts) >= 3) {
+                break;
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    private function formatDurationPart(int $value, string $one, string $few, string $many): string
+    {
+        $mod100 = $value % 100;
+        $mod10 = $value % 10;
+
+        if ($mod100 >= 11 && $mod100 <= 14) {
+            $word = $many;
+        } elseif ($mod10 === 1) {
+            $word = $one;
+        } elseif ($mod10 >= 2 && $mod10 <= 4) {
+            $word = $few;
+        } else {
+            $word = $many;
+        }
+
+        return $value . ' ' . $word;
     }
 
     private function createPendingExitReview(

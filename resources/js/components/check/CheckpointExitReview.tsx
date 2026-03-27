@@ -757,27 +757,25 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
       </Dialog>
 
       <Dialog open={imagePreview.open} onOpenChange={(open) => !open && closeImagePreview()}>
-        <DialogContent className="w-[96vw] max-w-6xl border-none bg-black/95 p-0 text-white [&>button]:hidden">
-          <button
-            type="button"
-            onClick={closeImagePreview}
-            className="absolute right-4 top-4 z-50 rounded-full bg-black/40 p-2 text-white transition hover:bg-black/60"
-          >
-            <XCircle className="h-7 w-7" />
-          </button>
-
-          <div
-            className="fixed inset-0 -z-10 bg-black/80"
-            onClick={closeImagePreview}
-          />
-
-          <div className="flex max-h-[90vh] min-h-[70vh] items-center justify-center p-4 sm:p-6">
-            <img
-              src={imagePreview.src}
-              alt={imagePreview.title}
-              className="max-h-[86vh] w-auto max-w-full rounded-lg object-contain shadow-2xl"
-            />
-          </div>
+        <DialogContent
+          className="h-[96vh] w-[98vw] max-w-[98vw] border-0 bg-black/95 p-2 text-white [&>button]:text-white [&>button]:opacity-90 [&>button]:ring-white/30 [&>button]:hover:bg-white/10 [&>button]:hover:text-white sm:h-[98vh] sm:w-[98vw] sm:max-w-[98vw] sm:p-4"
+          onClick={closeImagePreview}
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>{imagePreview.title}</DialogTitle>
+          </DialogHeader>
+          {imagePreview.src && (
+            <div
+              className="flex h-full w-full items-center justify-center overflow-hidden rounded-lg"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                src={imagePreview.src}
+                alt={imagePreview.title}
+                className="max-h-[92vh] w-auto max-w-full rounded-lg object-contain sm:max-h-[94vh]"
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
