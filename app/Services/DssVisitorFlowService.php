@@ -175,7 +175,18 @@ class DssVisitorFlowService
             return;
         }
 
-        $autoConfirm = $confirmation['auto_confirm'];
+        if (($confirmation['auto_confirm'] ?? false) === true) {
+            $this->structuredLogger->warning('unexpected_auto_confirm_blocked', [
+                'plate_number' => $plateNo,
+                'truck_id' => $truck?->id,
+                'yard_id' => $zone->yard_id,
+                'device_id' => $device->id,
+            ]);
+        }
+
+        $confirmation['status'] = Visitor::CONFIRMATION_PENDING;
+        $confirmation['auto_confirm'] = false;
+        $autoConfirm = false;
 
         $recentPendingVisitor = $this->findRecentPendingVisitor($device, $zone->yard_id, $truck, $plateNo, $captureTime);
         if ($recentPendingVisitor) {
@@ -268,50 +279,6 @@ class DssVisitorFlowService
             'device_id' => $device->id,
             'confirmation_status' => $confirmation['status'],
         ]);
-
-        if ($autoConfirm) {
-            $this->structuredLogger->info('visitor_auto_confirmed', [
-                'visitor_id' => $visitor->id,
-                'truck_id' => $truck?->id,
-                'yard_id' => $zone->yard_id,
-                'device_id' => $device->id,
-            ]);
-
-            if ($task) {
-                $task->status_id = $statusRow->id;
-                $task->begin_date = now();
-                $task->yard_id = $zone->yard_id;
-                $task->save();
-            }
-
-            $warehouse = $task ? DB::table('task_loadings')
-                ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
-                ->where('task_loadings.task_id', $task->id)
-                ->where('warehouses.yard_id', $zone->yard_id)
-                ->select('warehouses.name as name')
-                ->get() : collect();
-
-            if ($task && $truck) {
-                $checkpointName = Checkpoint::where('id', $device->checkpoint_id)->value('name');
-                $notificationText = '<b>🚛 Въезд на территорию ' . e($yard->name ?? 'Неизвестный двор') . "</b>\n\n"
-                    . '<b>🏷️ ТС:</b> ' . e($truck->plate_number) . "\n"
-                    . '<b>📦 Задание:</b> ' . e($task->name) . "\n"
-                    . '<b>📝 Описание:</b> ' . e($task->description) . "\n"
-                    . '<b>👤 Водитель:</b> ' . ($task->user_id
-                        ? e(DB::table('users')->where('id', $task->user_id)->value('name'))
-                        . ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')'
-                        : 'Не указан') . "\n"
-                    . '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n"
-                    . '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n"
-                    . '<b>🛂 Разрешение:</b> <i>' . e($permitText) . '</i>' . "\n"
-                    . '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n"
-                    . '<b>📍 КПП:</b> ' . e($checkpointName) . ' - ' . $device->channelName;
-
-                $this->notificationService->send($notificationText);
-            }
-
-            return;
-        }
 
         $reason = $confirmation['reason'];
 
