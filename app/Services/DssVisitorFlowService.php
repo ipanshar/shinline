@@ -3,11 +3,13 @@
 namespace App\Services;
 
 use App\Models\Checkpoint;
+use App\Models\CheckpointExitReview;
 use App\Models\Devaice;
 use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\Truck;
+use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
 use App\Models\Zone;
@@ -162,6 +164,8 @@ class DssVisitorFlowService
             $visitor = $visitorQuery->orderBy('id', 'desc')->first();
             if ($visitor) {
                 $this->closeVisitorExit($visitor, $device, $captureTime);
+            } else {
+                $this->createPendingExitReview($device, $zone, $truck, $plateNo, $captureTime, $captureData);
             }
 
             return;
@@ -364,5 +368,58 @@ class DssVisitorFlowService
     private function normalizePlate(string $plateNumber): string
     {
         return strtolower(str_replace([' ', '-'], '', $plateNumber));
+    }
+
+    private function createPendingExitReview(
+        Devaice $device,
+        Zone $zone,
+        ?Truck $truck,
+        string $plateNo,
+        $captureTime,
+        array $captureData = []
+    ): void {
+        if (!$device->checkpoint_id) {
+            return;
+        }
+
+        $normalizedPlate = $this->normalizePlate($plateNo);
+        $review = CheckpointExitReview::query()
+            ->where('checkpoint_id', $device->checkpoint_id)
+            ->where('status', 'pending')
+            ->where('normalized_plate', $normalizedPlate)
+            ->where('capture_time', '>=', ($captureTime ?? now())->copy()->subMinutes(2))
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$review) {
+            $review = new CheckpointExitReview();
+        }
+
+        $review->vehicle_capture_id = $captureData['vehicle_capture_id'] ?? $review->vehicle_capture_id;
+        $review->device_id = $device->id;
+        $review->checkpoint_id = $device->checkpoint_id;
+        $review->yard_id = $zone->yard_id;
+        $review->truck_id = $truck?->id;
+        $review->plate_number = $plateNo;
+        $review->normalized_plate = $normalizedPlate;
+        $review->recognition_confidence = $captureData['confidence'] ?? $review->recognition_confidence;
+        $review->capture_time = $captureTime ?? now();
+        $review->status = 'pending';
+
+        if (!$review->note) {
+            $review->note = 'Камера выезда зафиксировала ТС, но активный подтверждённый визит не найден.';
+        }
+
+        $review->save();
+
+        $this->structuredLogger->warning('exit_review_created', [
+            'checkpoint_id' => $device->checkpoint_id,
+            'device_id' => $device->id,
+            'yard_id' => $zone->yard_id,
+            'plate_number' => $plateNo,
+            'truck_id' => $truck?->id,
+            'capture_time' => $captureTime?->toDateTimeString(),
+            'vehicle_capture_id' => $captureData['vehicle_capture_id'] ?? null,
+        ]);
     }
 }

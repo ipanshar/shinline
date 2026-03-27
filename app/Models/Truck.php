@@ -27,6 +27,31 @@ class Truck extends Model
 
     ];
 
+    public static function normalizePlateNumber(?string $plateNumber): ?string
+    {
+        if ($plateNumber === null) {
+            return null;
+        }
+
+        $normalized = preg_replace('/[\s-]+/u', '', trim($plateNumber));
+
+        if ($normalized === null || $normalized === '') {
+            return null;
+        }
+
+        return mb_strtoupper($normalized, 'UTF-8');
+    }
+
+    public function setPlateNumberAttribute($value): void
+    {
+        $this->attributes['plate_number'] = self::normalizePlateNumber($value);
+    }
+
+    public function setTrailerNumberAttribute($value): void
+    {
+        $this->attributes['trailer_number'] = self::normalizePlateNumber($value);
+    }
+
     public function user()
     {
         return $this->belongsToMany(User::class, 'truck_user', 'user_id', 'truck_id')->withPivot('assigned_date');

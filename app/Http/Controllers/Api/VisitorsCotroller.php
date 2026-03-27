@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\TelegramController;
+use App\Models\Checkpoint;
+use App\Models\CheckpointExitReview;
 use App\Models\Devaice;
 use App\Models\EntryPermit;
 use App\Models\Status;
@@ -15,6 +17,7 @@ use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
 use App\Services\DssVisitorConfirmationService;
+use App\Services\DssVisitorFlowService;
 use App\Services\WeighingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
@@ -23,6 +26,7 @@ class VisitorsCotroller extends Controller
 {
     public function __construct(
         private DssVisitorConfirmationService $confirmationService,
+        private DssVisitorFlowService $visitorFlowService,
         private WeighingService $weighingService,
     ) {
     }
@@ -30,8 +34,10 @@ class VisitorsCotroller extends Controller
     public function addVisitor(Request $request)
     {
         try {
-            $plate_number = strtolower(str_replace(' ', '', $request->plate_number));
-            $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$plate_number])->first();
+            $plate_number = Truck::normalizePlateNumber($request->plate_number);
+            $truck = $plate_number
+                ? Truck::whereRaw("REPLACE(REPLACE(UPPER(plate_number), ' ', ''), '-', '') = ?", [$plate_number])->first()
+                : null;
             if (!$truck && $request->truck_model_name) {
 
                 $truck_model = TruckModel::where('name', $request->truck_model_name)->first();
@@ -43,7 +49,7 @@ class VisitorsCotroller extends Controller
 
                 if ($truck_model) {
                     $truck = Truck::create([
-                        'plate_number' => $request->plate_number,
+                        'plate_number' => $plate_number,
                         'truck_model_id' => $truck_model->id,
                         'truck_brand_id' => $request->truck_brand_id ?? null,
                         'truck_category_id' => $request->truck_category_id ?? null,
@@ -195,6 +201,8 @@ class VisitorsCotroller extends Controller
             ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
             ->leftJoin('devaices as entrance_device', 'visitors.entrance_device_id', '=', 'entrance_device.id')
             ->leftJoin('devaices as exit_device', 'visitors.exit_device_id', '=', 'exit_device.id')
+            ->leftJoin('checkpoints as entrance_checkpoint', 'entrance_device.checkpoint_id', '=', 'entrance_checkpoint.id')
+            ->leftJoin('checkpoints as exit_checkpoint', 'exit_device.checkpoint_id', '=', 'exit_checkpoint.id')
             ->select(
                 'visitors.*',
                 'tasks.name as name',
@@ -210,7 +218,9 @@ class VisitorsCotroller extends Controller
                 'trucks.vip_level as truck_vip_level',
                 'truck_models.name as truck_model_name',
                 'entrance_device.channelName as entrance_device_name',
-                'exit_device.channelName as exit_device_name'
+                'exit_device.channelName as exit_device_name',
+                'entrance_checkpoint.name as entrance_checkpoint_name',
+                'exit_checkpoint.name as exit_checkpoint_name'
             )
             ->orderBy('visitors.id', 'desc');
 
@@ -452,7 +462,6 @@ class VisitorsCotroller extends Controller
     public function exitVisitor(Request $request)
     {
         try {
-            $status = DB::table('statuses')->where('key', 'left_territory')->first();
             $validate = $request->validate([
                 'id' => 'required|integer',
             ]);
@@ -463,50 +472,15 @@ class VisitorsCotroller extends Controller
                     'message' => 'Visitor Not Found',
                 ], 404);
             }
-            $visitor->update([
-                'exit_date' => now(),
-                'status_id' => $status->id,
-            ]);
-            $task = Task::where('id', $visitor->task_id)->first();
 
-            $PermitText = 'Многоразовое';
-
-            $permit = EntryPermit::where('truck_id', $visitor->truck_id)
-                ->where('yard_id', $visitor->yard_id)
-                ->where('one_permission', true)
-                ->where('status_id', Status::where('key', 'active')->first()->id)
-                ->orderBy('created_at', 'desc')
-                ->first();
-
-            if ($permit) {
-                $permit->update([
-                    'end_date' => now(),
-                    'status_id' => Status::where('key', 'not_active')->first()->id,
-                ]);
-                $PermitText = 'Аннулировано';
+            if ($visitor->exit_date !== null) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Visitor already exited',
+                ], 200);
             }
 
-
-            if ($task) {
-                $task->update([
-                    'end_date' => now(),
-                    'status_id' => $status->id,
-                ]);
-                // (new TelegramController())->sendNotification(
-                //     '<b>🚛 Выезд с территории: ' .
-                //         ($visitor->yard_id ? e(DB::table('yards')->where('id', $visitor->yard_id)->value('name')) : 'Не указано') .
-                //         "</b>\n\n" .
-                //         '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
-                //         '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
-                //         '<b>👤 Водитель:</b> ' .
-                //         ($task->user_id
-                //             ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
-                //             ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')'
-                //             : 'Не указан') . "\n" .
-                //         '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                //         '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
-                // );
-            }
+            $this->visitorFlowService->closeVisitorExit($visitor);
 
             return response()->json([
                 'status' => true,
@@ -915,6 +889,336 @@ class VisitorsCotroller extends Controller
     }
 
     /**
+     * Ручное добавление посетителя на выбранном КПП
+     */
+    public function addManualCheckpointVisitor(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'checkpoint_id' => 'required|integer|exists:checkpoints,id',
+                'plate_number' => 'required|string|max:50',
+            ]);
+
+            $checkpoint = Checkpoint::findOrFail($validate['checkpoint_id']);
+            $yard = Yard::findOrFail($checkpoint->yard_id);
+            $device = Devaice::query()
+                ->where('checkpoint_id', $checkpoint->id)
+                ->where('type', 'Entry')
+                ->orderBy('id')
+                ->first();
+
+            $normalizedPlate = $this->normalizePlateNumber($validate['plate_number']);
+
+            $existingVisitor = Visitor::query()
+                ->where('yard_id', $yard->id)
+                ->whereNull('exit_date')
+                ->whereIn('confirmation_status', [
+                    Visitor::CONFIRMATION_PENDING,
+                    Visitor::CONFIRMATION_CONFIRMED,
+                ])
+                ->whereRaw(
+                    "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
+                    [$normalizedPlate]
+                )
+                ->orderByDesc('id')
+                ->first();
+
+            if ($existingVisitor) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Visitor already exists in active queue',
+                    'data' => [
+                        'visitor_id' => $existingVisitor->id,
+                        'already_exists' => true,
+                    ],
+                ], 200);
+            }
+
+            $originalPlate = strtoupper(trim($validate['plate_number']));
+            $truck = Truck::whereRaw(
+                "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
+                [$normalizedPlate]
+            )->first();
+
+            $permit = $truck ? $this->getActivePermitForTruck($truck->id, $yard->id) : null;
+            $task = $permit?->task_id ? Task::find($permit->task_id) : null;
+            $statusRow = DB::table('statuses')->where('key', 'on_territory')->first();
+
+            if (!$statusRow) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Status on_territory not found',
+                ], 404);
+            }
+
+            $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
+
+            $visitor = Visitor::create([
+                'plate_number' => $originalPlate,
+                'original_plate_number' => $originalPlate,
+                'entry_date' => now(),
+                'status_id' => $statusRow->id,
+                'confirmation_status' => $confirmation['status'],
+                'recognition_confidence' => null,
+                'yard_id' => $yard->id,
+                'truck_id' => $truck?->id,
+                'task_id' => $task?->id,
+                'entrance_device_id' => $device?->id,
+                'entry_permit_id' => $permit?->id,
+                'truck_category_id' => $truck?->truck_category_id,
+                'truck_brand_id' => $truck?->truck_brand_id,
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Manual checkpoint visitor created',
+                'data' => [
+                    'visitor_id' => $visitor->id,
+                    'already_exists' => false,
+                ],
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function getCheckpointExitReviewQueue(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'checkpoint_id' => 'required|integer|exists:checkpoints,id',
+                'limit' => 'nullable|integer|min:1|max:50',
+            ]);
+
+            $limit = $validate['limit'] ?? 20;
+
+            $reviewsQuery = CheckpointExitReview::query()
+                ->where('checkpoint_id', $validate['checkpoint_id'])
+                ->where('status', 'pending')
+                ->orderByDesc('capture_time');
+
+            $totalCount = (clone $reviewsQuery)->count();
+
+            $reviews = $reviewsQuery
+                ->limit($limit)
+                ->get();
+
+            $data = $reviews->map(function (CheckpointExitReview $review) {
+                $capture = $review->vehicle_capture_id ? VehicleCapture::find($review->vehicle_capture_id) : null;
+                $checkpoint = Checkpoint::find($review->checkpoint_id);
+                $yard = $review->yard_id ? Yard::find($review->yard_id) : null;
+                $device = $review->device_id ? Devaice::find($review->device_id) : null;
+
+                return [
+                    'review_id' => $review->id,
+                    'plate_number' => $review->plate_number,
+                    'capture_time' => $review->capture_time,
+                    'recognition_confidence' => $review->recognition_confidence,
+                    'checkpoint_id' => $review->checkpoint_id,
+                    'checkpoint_name' => $checkpoint?->name,
+                    'yard_id' => $review->yard_id,
+                    'yard_name' => $yard?->name,
+                    'device_id' => $review->device_id,
+                    'device_name' => $device?->channelName,
+                    'truck_id' => $review->truck_id,
+                    'note' => $review->note,
+                    'capture_picture_url' => $this->buildCapturePictureUrl($capture),
+                    'capture_plate_picture_url' => $this->buildPlatePictureUrl($capture),
+                    'candidate_visitors' => $this->findActiveVisitorsForExitReview($review),
+                ];
+            })->values();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Checkpoint exit review queue retrieved',
+                'count' => $data->count(),
+                'total_count' => $totalCount,
+                'data' => $data,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function confirmExitReview(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'review_id' => 'required|integer|exists:checkpoint_exit_reviews,id',
+                'operator_user_id' => 'required|integer|exists:users,id',
+                'visitor_id' => 'nullable|integer|exists:visitors,id',
+            ]);
+
+            $review = CheckpointExitReview::findOrFail($validate['review_id']);
+            if ($review->status !== 'pending') {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Exit review already processed',
+                ], 400);
+            }
+
+            $visitor = !empty($validate['visitor_id'])
+                ? Visitor::find($validate['visitor_id'])
+                : $this->resolveSingleExitCandidate($review);
+
+            if (!$visitor) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Не удалось определить активный визит для выезда',
+                ], 422);
+            }
+
+            if ($visitor->yard_id !== $review->yard_id || $visitor->exit_date !== null) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Выбранный визит уже закрыт или не относится к этому двору',
+                ], 422);
+            }
+
+            if ($visitor->confirmation_status === Visitor::CONFIRMATION_PENDING) {
+                $visitor->confirmation_status = Visitor::CONFIRMATION_CONFIRMED;
+                $visitor->confirmed_by_user_id = $validate['operator_user_id'];
+                $visitor->confirmed_at = now();
+                $visitor->save();
+            }
+
+            $device = Devaice::find($review->device_id);
+            $this->visitorFlowService->closeVisitorExit($visitor, $device, $review->capture_time ?? now());
+
+            $review->status = 'confirmed';
+            $review->resolved_at = now();
+            $review->resolved_by_user_id = $validate['operator_user_id'];
+            $review->resolved_visitor_id = $visitor->id;
+            $review->save();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Exit confirmed successfully',
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function rejectExitReview(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'review_id' => 'required|integer|exists:checkpoint_exit_reviews,id',
+                'operator_user_id' => 'required|integer|exists:users,id',
+                'reason' => 'nullable|string|max:255',
+            ]);
+
+            $review = CheckpointExitReview::findOrFail($validate['review_id']);
+            if ($review->status !== 'pending') {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Exit review already processed',
+                ], 400);
+            }
+
+            $review->status = 'rejected';
+            $review->resolved_at = now();
+            $review->resolved_by_user_id = $validate['operator_user_id'];
+            $review->note = $validate['reason'] ?? $review->note;
+            $review->save();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Exit review rejected',
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function searchActiveVisitorsForExit(Request $request)
+    {
+        try {
+            $validate = $request->validate([
+                'yard_id' => 'required|integer|exists:yards,id',
+                'plate_number' => 'required|string|max:50',
+            ]);
+
+            $normalizedPlate = $this->normalizePlateNumber($validate['plate_number']);
+            $likePlate = '%' . $normalizedPlate . '%';
+
+            $visitors = Visitor::query()
+                ->where('visitors.yard_id', $validate['yard_id'])
+                ->whereNull('visitors.exit_date')
+                ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+                ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
+                ->select(
+                    'visitors.*',
+                    'tasks.name as task_name',
+                    'trucks.plate_number as truck_plate_number'
+                )
+                ->where(function ($query) use ($normalizedPlate, $likePlate) {
+                    $query->whereRaw(
+                        "REPLACE(REPLACE(LOWER(visitors.plate_number), ' ', ''), '-', '') LIKE ?",
+                        [$likePlate]
+                    )
+                    ->orWhereRaw(
+                        "REPLACE(REPLACE(LOWER(COALESCE(trucks.plate_number, '')), ' ', ''), '-', '') LIKE ?",
+                        [$likePlate]
+                    )
+                    ->orWhereRaw(
+                        "REPLACE(REPLACE(LOWER(visitors.plate_number), ' ', ''), '-', '') = ?",
+                        [$normalizedPlate]
+                    )
+                    ->orWhereRaw(
+                        "REPLACE(REPLACE(LOWER(COALESCE(trucks.plate_number, '')), ' ', ''), '-', '') = ?",
+                        [$normalizedPlate]
+                    );
+                })
+                ->orderByRaw("CASE WHEN visitors.confirmation_status = ? THEN 0 ELSE 1 END", [Visitor::CONFIRMATION_CONFIRMED])
+                ->orderByDesc('visitors.entry_date')
+                ->limit(15)
+                ->get()
+                ->map(function ($visitor) use ($normalizedPlate) {
+                    $visitorPlate = $this->normalizePlateNumber((string) $visitor->plate_number);
+                    $truckPlate = $this->normalizePlateNumber((string) ($visitor->truck_plate_number ?? ''));
+
+                    return [
+                        'visitor_id' => $visitor->id,
+                        'plate_number' => $visitor->plate_number,
+                        'entry_date' => $visitor->entry_date,
+                        'task_id' => $visitor->task_id,
+                        'task_name' => $visitor->task_name,
+                        'confirmation_status' => $visitor->confirmation_status,
+                        'truck_id' => $visitor->truck_id,
+                        'is_exact_truck_match' => $truckPlate !== '' && $truckPlate === $normalizedPlate,
+                        'is_exact_plate_match' => $visitorPlate === $normalizedPlate,
+                    ];
+                })
+                ->values();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Active visitors found',
+                'data' => $visitors,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Определить причину, почему посетитель ожидает подтверждения
      */
     private function determinePendingReason($visitor): array
@@ -946,7 +1250,7 @@ class VisitorsCotroller extends Controller
         // 4. Другая причина (ручное добавление, ошибка OCR и т.д.)
         return [
             'code' => 'manual_check',
-            'text' => '👁️ Требуется проверка',
+            'text' => 'Требуется проверка',
         ];
     }
 
@@ -1254,6 +1558,62 @@ class VisitorsCotroller extends Controller
         }
 
         return $capture->plateNoPicture;
+    }
+
+    private function findActiveVisitorsForExitReview(CheckpointExitReview $review): array
+    {
+        $query = Visitor::query()
+            ->where('yard_id', $review->yard_id)
+            ->whereNull('exit_date')
+            ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+            ->select('visitors.*', 'tasks.name as task_name');
+
+        if ($review->truck_id) {
+            $query->where(function ($builder) use ($review) {
+                $builder->where('visitors.truck_id', $review->truck_id)
+                    ->orWhereRaw(
+                        "REPLACE(REPLACE(LOWER(visitors.plate_number), ' ', ''), '-', '') = ?",
+                        [$review->normalized_plate]
+                    );
+            });
+        } else {
+            $query->whereRaw(
+                "REPLACE(REPLACE(LOWER(visitors.plate_number), ' ', ''), '-', '') = ?",
+                [$review->normalized_plate]
+            );
+        }
+
+        return $query
+            ->orderByRaw("CASE WHEN visitors.confirmation_status = ? THEN 0 ELSE 1 END", [Visitor::CONFIRMATION_CONFIRMED])
+            ->orderByDesc('visitors.entry_date')
+            ->limit(10)
+            ->get()
+            ->map(function ($visitor) use ($review) {
+                return [
+                    'visitor_id' => $visitor->id,
+                    'plate_number' => $visitor->plate_number,
+                    'entry_date' => $visitor->entry_date,
+                    'task_id' => $visitor->task_id,
+                    'task_name' => $visitor->task_name,
+                    'confirmation_status' => $visitor->confirmation_status,
+                    'truck_id' => $visitor->truck_id,
+                    'is_exact_truck_match' => $review->truck_id ? (int) $visitor->truck_id === (int) $review->truck_id : false,
+                    'is_exact_plate_match' => $this->normalizePlateNumber((string) $visitor->plate_number) === $review->normalized_plate,
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function resolveSingleExitCandidate(CheckpointExitReview $review): ?Visitor
+    {
+        $candidates = $this->findActiveVisitorsForExitReview($review);
+
+        if (count($candidates) !== 1) {
+            return null;
+        }
+
+        return Visitor::find($candidates[0]['visitor_id']);
     }
 
     /**

@@ -18,7 +18,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 type TabType = 'checkpoint' | 'checkpoint-review' | 'history' | 'permits';
 
 export default function Check() {
-  const [activeTab, setActiveTab] = useState<TabType>('checkpoint');
+  const [activeTab, setActiveTab] = useState<TabType>('checkpoint-review');
 
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
@@ -28,38 +28,37 @@ export default function Check() {
         <div className="bg-white dark:bg-gray-800 border-b sticky top-0 z-30">
           <div className="flex">
             <button
-              onClick={() => setActiveTab('checkpoint')}
-              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${
-                activeTab === 'checkpoint'
-                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700/50'
-              }`}
-            >
-              <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span>Территория</span>
-            </button>
-            <button
               onClick={() => setActiveTab('checkpoint-review')}
-              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${
-                activeTab === 'checkpoint-review'
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${activeTab === 'checkpoint-review'
                   ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700/50'
-              }`}
+                }`}
             >
               <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>Проверка на КПП</span>
             </button>
+
             <button
-              onClick={() => setActiveTab('history')}
-              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${
-                activeTab === 'history'
+              onClick={() => setActiveTab('checkpoint')}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${activeTab === 'checkpoint'
                   ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700/50'
-              }`}
+                }`}
+            >
+              <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Территория</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${activeTab === 'history'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700/50'
+                }`}
             >
               <History className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>История</span>
-            </button> 
+            </button>
           </div>
         </div>
 

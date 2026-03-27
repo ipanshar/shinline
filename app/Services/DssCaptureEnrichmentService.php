@@ -69,6 +69,7 @@ class DssCaptureEnrichmentService
         $capture->save();
 
         $this->visitorFlowService->handleCapture($device, $truck, array_merge($captureData, [
+            'vehicle_capture_id' => $capture->id,
             'confidence' => $confidence,
             'truck_was_found' => $truckWasFound,
         ]));
@@ -126,7 +127,7 @@ class DssCaptureEnrichmentService
 
     private function normalizePlate(string $plateNumber): string
     {
-        return strtolower(str_replace([' ', '-'], '', $plateNumber));
+        return Truck::normalizePlateNumber($plateNumber) ?? '';
     }
 
     private function remember(array &$cache, string $key, callable $resolver)

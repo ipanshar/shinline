@@ -130,8 +130,13 @@ Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePe
 // Система подтверждения посетителей (ошибки OCR камер DSS)
 Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors']); //Получить ожидающих подтверждения
 Route::post('/security/checkpoint-review-queue', [VisitorsCotroller::class,'getCheckpointReviewQueue']); //Очередь проверки на КПП
+Route::post('/security/checkpoint-review-manual-add', [VisitorsCotroller::class,'addManualCheckpointVisitor']); //Ручное добавление посетителя на КПП
+Route::post('/security/checkpoint-exit-review-queue', [VisitorsCotroller::class,'getCheckpointExitReviewQueue']); //Очередь проверки выезда на КПП
 Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor']); //Подтвердить посетителя
 Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor']); //Отклонить посетителя
+Route::post('/security/confirm-exit-review', [VisitorsCotroller::class,'confirmExitReview']); //Подтвердить спорный выезд
+Route::post('/security/reject-exit-review', [VisitorsCotroller::class,'rejectExitReview']); //Отклонить спорный выезд
+Route::post('/security/search-active-visitors-for-exit', [VisitorsCotroller::class,'searchActiveVisitorsForExit']); //Поиск активных визитов для спорного выезда
 Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates']); //Поиск похожих номеров
 Route::post('/security/getvisitorhistory', [VisitorsCotroller::class,'getVisitorHistory']); //История въездов/выездов
 Route::post('/security/getshiftreport', [VisitorsCotroller::class,'getShiftReport']); //Данные для акта передачи смены

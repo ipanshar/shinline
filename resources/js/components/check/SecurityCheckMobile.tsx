@@ -33,7 +33,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import PendingVisitors from './PendingVisitors';
 import ShiftHandoverReport from './ShiftHandoverReport';
 import { createWorker } from 'tesseract.js';
 
@@ -73,13 +72,16 @@ interface Visitor {
   truck_own: any;
   truck_vip_level?: number;
   entrance_device_name?: string;
+  entrance_checkpoint_name?: string;
   exit_device_name?: string;
+  exit_checkpoint_name?: string;
 }
 
 interface Task {
   truck_own: any;
   truck_plate_number?: string;
   truck_model_name?: string;
+  truck_category_name?: string;
   user_name?: string;
   user_phone?: string;
   status_name?: string;
@@ -121,7 +123,6 @@ const SecurityCheckMobile = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newCarNumber, setNewCarNumber] = useState('');
   const [newModel, setNewModel] = useState('');
-  const [expandedVisitorId, setExpandedVisitorId] = useState<number | null>(null);
   const [showExpectedTasks, setShowExpectedTasks] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [isVisitorsCollapsed, setIsVisitorsCollapsed] = useState(false);
@@ -547,7 +548,7 @@ const SecurityCheckMobile = () => {
   const formatDateTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return {
-      date: date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+      date: date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
       time: date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     };
   };
@@ -747,13 +748,6 @@ const SecurityCheckMobile = () => {
             )}
           </div>
 
-          {/* Ожидающие подтверждения */}
-          <PendingVisitors 
-            selectedYardId={selectedYardId} 
-            strictMode={getCurrentYard()?.strict_mode}
-            onConfirmed={loadVisitors}
-          />
-
           {/* Ожидаемые ТС (сворачиваемый блок) */}
           {expectedTasks.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
@@ -787,6 +781,16 @@ const SecurityCheckMobile = () => {
                         {task.name && <span>📦 {task.name}</span>}
                         {task.user_name && <span className="ml-2">👤 {task.user_name}</span>}
                       </div>
+                      {(task.truck_category_name || task.truck_model_name) && (
+                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          🚛 {[task.truck_category_name, task.truck_model_name].filter(Boolean).join(' • ')}
+                        </div>
+                      )}
+                      {task.description && (
+                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words">
+                          📝 {task.description}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -979,7 +983,6 @@ const SecurityCheckMobile = () => {
               const vipStyle = getVipStyle(visitor.truck_vip_level);
               const entryTime = formatDateTime(visitor.entry_date);
               const exitTime = visitor.exit_date ? formatDateTime(visitor.exit_date) : null;
-              const isExpanded = expandedVisitorId === visitor.id;
 
               return (
                 <div
@@ -987,10 +990,7 @@ const SecurityCheckMobile = () => {
                   className={`${vipStyle.bg} border ${vipStyle.border} rounded-xl overflow-hidden shadow-sm`}
                 >
                   {/* Основная строка */}
-                  <div
-                    className="p-3 cursor-pointer"
-                    onClick={() => setExpandedVisitorId(isExpanded ? null : visitor.id)}
-                  >
+                  <div className="p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         {/* Номер и VIP */}
@@ -1013,15 +1013,23 @@ const SecurityCheckMobile = () => {
                         )}
 
                         {/* Время въезда */}
-                        <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            Въезд: {entryTime.time}
+                        <div className="mt-2 flex flex-wrap items-start gap-2 text-xs">
+                          <span className="inline-flex items-start gap-1 rounded-md bg-gray-100 px-2 py-1 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                            <Clock className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span className="leading-tight">
+                              <span className="block text-[11px] text-gray-500 dark:text-gray-400">Въезд</span>
+                              <span className="block">{entryTime.date}</span>
+                              <span className="block font-medium">{entryTime.time}</span>
+                            </span>
                           </span>
                           {exitTime && (
-                            <span className="flex items-center gap-1 text-red-500">
-                              <LogOut className="w-3 h-3" />
-                              Выезд: {exitTime.time}
+                            <span className="inline-flex items-start gap-1 rounded-md bg-red-50 px-2 py-1 text-red-600 dark:bg-red-950/30 dark:text-red-400">
+                              <LogOut className="mt-0.5 h-3 w-3 shrink-0" />
+                              <span className="leading-tight">
+                                <span className="block text-[11px] text-red-400 dark:text-red-500">Выезд</span>
+                                <span className="block">{exitTime.date}</span>
+                                <span className="block font-medium">{exitTime.time}</span>
+                              </span>
                             </span>
                           )}
                         </div>
@@ -1057,54 +1065,56 @@ const SecurityCheckMobile = () => {
                     </div>
                   </div>
 
-                  {/* Развёрнутая информация */}
-                  {isExpanded && (
-                    <div className="px-3 pb-3 pt-0 border-t border-gray-200 dark:border-gray-700 space-y-2 text-sm">
-                      {visitor.truck_model_name && (
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <Car className="w-4 h-4" />
-                          {visitor.truck_model_name}
-                        </div>
-                      )}
-                      {visitor.truck_own && (
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <MapPin className="w-4 h-4" />
-                          Владелец: {visitor.truck_own}
-                        </div>
-                      )}
-                      {visitor.user_name && (
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <User className="w-4 h-4" />
-                          {visitor.user_name}
-                        </div>
-                      )}
-                      {visitor.user_phone && (
-                        <a
-                          href={`tel:${visitor.user_phone}`}
-                          className="flex items-center gap-2 text-blue-600"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Phone className="w-4 h-4" />
-                          {visitor.user_phone}
-                        </a>
-                      )}
-                      {visitor.description && (
-                        <div className="text-gray-500 text-xs mt-1">
-                          {visitor.description}
-                        </div>
-                      )}
-                      {visitor.entrance_device_name && (
-                        <div className="text-xs text-gray-400">
-                          📷 Камера въезда: {visitor.entrance_device_name}
-                        </div>
-                      )}
-                      {visitor.exit_device_name && (
-                        <div className="text-xs text-gray-400">
-                          📷 Камера выезда: {visitor.exit_device_name}
-                        </div>
+                  <div className="px-3 pb-3 pt-0 border-t border-gray-200 dark:border-gray-700 space-y-2 text-sm">
+                    {visitor.truck_model_name && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Car className="w-4 h-4" />
+                        {visitor.truck_model_name}
+                      </div>
+                    )}
+                    {visitor.truck_own && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <MapPin className="w-4 h-4" />
+                        Владелец: {visitor.truck_own}
+                      </div>
+                    )}
+                    {visitor.user_name && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <User className="w-4 h-4" />
+                        {visitor.user_name}
+                      </div>
+                    )}
+                    {visitor.user_phone && (
+                      <a
+                        href={`tel:${visitor.user_phone}`}
+                        className="flex items-center gap-2 text-blue-600"
+                      >
+                        <Phone className="w-4 h-4" />
+                        {visitor.user_phone}
+                      </a>
+                    )}
+                    {visitor.description && (
+                      <div className="text-gray-500 text-xs mt-1">
+                        {visitor.description}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-400">
+                      {visitor.entrance_device_name ? (
+                        <>📷 Въезд: {visitor.entrance_device_name}{visitor.entrance_checkpoint_name ? ` • КПП ${visitor.entrance_checkpoint_name}` : ''}</>
+                      ) : (
+                        <>✍️ Въезд: ручное подтверждение{visitor.entrance_checkpoint_name ? ` • КПП ${visitor.entrance_checkpoint_name}` : ''}</>
                       )}
                     </div>
-                  )}
+                    {(visitor.exit_date || visitor.exit_device_name || visitor.exit_checkpoint_name) && (
+                      <div className="text-xs text-gray-400">
+                        {visitor.exit_device_name ? (
+                          <>📷 Выезд: {visitor.exit_device_name}{visitor.exit_checkpoint_name ? ` • КПП ${visitor.exit_checkpoint_name}` : ''}</>
+                        ) : (
+                          <>✍️ Выезд: ручное подтверждение{visitor.exit_checkpoint_name ? ` • КПП ${visitor.exit_checkpoint_name}` : ''}</>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

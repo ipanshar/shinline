@@ -26,6 +26,7 @@ use App\Models\Visitor;
 use App\Models\WeighingRequirement;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 class TaskCotroller extends Controller
@@ -479,71 +480,46 @@ class TaskCotroller extends Controller
 
 
             //Добавление или обновление грузовика и его модели
-            //Проверяем или создаем грузовик
-            $plate_number = !empty($validate['plate_number']) ? strtolower(str_replace(' ', '', $validate['plate_number'])) : '';
-            $truck = null;
-            
-            if ($plate_number) {
-                $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$plate_number])->first();
-                
-            }
-            
-            if (!$truck && !empty($validate['plate_number'])) {
-                $truckCategory = null;
-                if ($validate['truck_category']) {
-                    $truckCategory = TruckCategory::where('name', 'like', '%' . $validate['truck_category'] . '%')->first();
-                    if (!$truckCategory && $validate['truck_category']) {
-                        $truckCategory = TruckCategory::create([
-                            'name' => $validate['truck_category'],
-                            'ru_name' => $validate['truck_category'],
-                        ]);
-                    }
-                }
-                //Добавление или обновление модели грузовика и прицепа
-                $truckModel = null;
-                if ($validate['truck_model']) {
-                    $truckModel = TruckModel::where('name', 'like', '%' . $validate['truck_model'] . '%')->first();
-                    if (!$truckModel && $validate['truck_model']) {
-                        $truckModel = TruckModel::create([
-                            'name' => $validate['truck_model'],
-                            'truck_category_id' => $truckCategory->id,
-                        ]);
-                    }
-                }
+            $normalizedPlateNumber = Truck::normalizePlateNumber($validate['plate_number'] ?? null);
+            $normalizedTrailerNumber = Truck::normalizePlateNumber($validate['trailer_plate_number'] ?? null);
 
-                $trailerModel = null;
-                if ($validate['trailer_model']) {
-                    $trailerModel = TrailerModel::where('name', 'like', '%' . $validate['trailer_model'] . '%')->first();
-                    if (!$trailerModel && $validate['trailer_model']) {
-                        $trailerModel = TrailerModel::create([
-                            'name' => $validate['trailer_model'],
-                            'trailer_type_id' => $truckCategory->id,
-                        ]);
-                    }
-                }
+            $truckCategory = $this->resolveTruckCategory($validate['truck_category'] ?? null);
+            $truckModel = $this->resolveTruckModel($validate['truck_model'] ?? null, $truckCategory?->id);
+            $trailerType = $this->resolveTrailerType($validate['trailer_type'] ?? null);
+            $trailerModel = $this->resolveTrailerModel($validate['trailer_model'] ?? null, $trailerType?->id);
 
-                $trailerType = null;
-                if ($validate['trailer_type']) {
-                    $trailerType = TrailerType::where('name', 'like', '%' . $validate['trailer_type'] . '%')->first();
-                    if (!$trailerType && $validate['trailer_type']) {
-                        $trailerType = TrailerType::create([
-                            'name' => $validate['trailer_type'],
-                        ]);
-                    }
-                }
+            $truck = $normalizedPlateNumber ? $this->findTruckByPlateNumber($normalizedPlateNumber) : null;
 
-                //добавляем грузовик
+            if (!$truck && $normalizedPlateNumber) {
                 $truck = Truck::create([
                     'user_id' => 1,
-                    'vin' => $validate['vin'],
-                    'plate_number' => $validate['plate_number'],
-                    'trailer_plate_number' => $validate['trailer_plate_number'],
-                    'truck_model_id' => $truckModel ? $truckModel->id : null,
-                    'trailer_model_id' => $trailerModel ? $trailerModel->id : null,
-                    'trailer_type_id' => $trailerType ? $trailerType->id : null,
-                    'truck_category_id' => $truckCategory ? $truckCategory->id : null,
-                    'color' => $validate['color'],
+                    'vin' => $validate['vin'] ?? null,
+                    'plate_number' => $normalizedPlateNumber,
+                    'trailer_number' => $normalizedTrailerNumber,
+                    'truck_model_id' => $truckModel?->id,
+                    'trailer_model_id' => $trailerModel?->id,
+                    'trailer_type_id' => $trailerType?->id,
+                    'truck_category_id' => $truckCategory?->id,
+                    'color' => $validate['color'] ?? null,
                 ]);
+            } elseif ($truck) {
+                $truckUpdateData = array_filter([
+                    'vin' => $validate['vin'] ?? null,
+                    'plate_number' => $normalizedPlateNumber,
+                    'trailer_number' => $normalizedTrailerNumber,
+                    'truck_model_id' => $truckModel?->id,
+                    'trailer_model_id' => $trailerModel?->id,
+                    'trailer_type_id' => $trailerType?->id,
+                    'truck_category_id' => $truckCategory?->id,
+                    'color' => $validate['color'] ?? null,
+                ], static fn ($value) => $value !== null && $value !== '');
+
+                if (!empty($truckUpdateData)) {
+                    $truck->fill($truckUpdateData);
+                    if ($truck->isDirty()) {
+                        $truck->save();
+                    }
+                }
             }
             //--
 
@@ -803,7 +779,7 @@ class TaskCotroller extends Controller
                 'data' => $task,
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::error('addApiTask - Ошибка валидации:', [
+            Log::error('addApiTask - Ошибка валидации:', [
                 'errors' => $e->errors(),
                 'request' => $request->all()
             ]);
@@ -813,7 +789,7 @@ class TaskCotroller extends Controller
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
-            \Log::error('addApiTask - Ошибка:', [
+            Log::error('addApiTask - Ошибка:', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'request' => $request->all()
@@ -974,6 +950,109 @@ class TaskCotroller extends Controller
         }
 
         return response()->json(['status' => false, 'message' => 'Задание не содержит указанный склад'], 404);
+    }
+
+    private function findTruckByPlateNumber(?string $plateNumber): ?Truck
+    {
+        $normalizedPlate = Truck::normalizePlateNumber($plateNumber);
+
+        if (!$normalizedPlate) {
+            return null;
+        }
+
+        return Truck::whereRaw(
+            "REPLACE(REPLACE(UPPER(plate_number), ' ', ''), '-', '') = ?",
+            [$normalizedPlate]
+        )->first();
+    }
+
+    private function resolveTruckCategory(?string $truckCategoryName): ?TruckCategory
+    {
+        $truckCategoryName = trim((string) $truckCategoryName);
+
+        if ($truckCategoryName === '') {
+            return null;
+        }
+
+        $truckCategory = TruckCategory::where('name', 'like', '%' . $truckCategoryName . '%')->first();
+
+        if ($truckCategory) {
+            return $truckCategory;
+        }
+
+        return TruckCategory::create([
+            'name' => $truckCategoryName,
+            'ru_name' => $truckCategoryName,
+        ]);
+    }
+
+    private function resolveTruckModel(?string $truckModelName, ?int $truckCategoryId = null): ?TruckModel
+    {
+        $truckModelName = trim((string) $truckModelName);
+
+        if ($truckModelName === '') {
+            return null;
+        }
+
+        $truckModel = TruckModel::where('name', 'like', '%' . $truckModelName . '%')->first();
+
+        if ($truckModel) {
+            if ($truckCategoryId && !$truckModel->truck_category_id) {
+                $truckModel->truck_category_id = $truckCategoryId;
+                $truckModel->save();
+            }
+
+            return $truckModel;
+        }
+
+        return TruckModel::create([
+            'name' => $truckModelName,
+            'truck_category_id' => $truckCategoryId,
+        ]);
+    }
+
+    private function resolveTrailerType(?string $trailerTypeName): ?TrailerType
+    {
+        $trailerTypeName = trim((string) $trailerTypeName);
+
+        if ($trailerTypeName === '') {
+            return null;
+        }
+
+        $trailerType = TrailerType::where('name', 'like', '%' . $trailerTypeName . '%')->first();
+
+        if ($trailerType) {
+            return $trailerType;
+        }
+
+        return TrailerType::create([
+            'name' => $trailerTypeName,
+        ]);
+    }
+
+    private function resolveTrailerModel(?string $trailerModelName, ?int $trailerTypeId = null): ?TrailerModel
+    {
+        $trailerModelName = trim((string) $trailerModelName);
+
+        if ($trailerModelName === '') {
+            return null;
+        }
+
+        $trailerModel = TrailerModel::where('name', 'like', '%' . $trailerModelName . '%')->first();
+
+        if ($trailerModel) {
+            if ($trailerTypeId && !$trailerModel->trailer_type_id) {
+                $trailerModel->trailer_type_id = $trailerTypeId;
+                $trailerModel->save();
+            }
+
+            return $trailerModel;
+        }
+
+        return TrailerModel::create([
+            'name' => $trailerModelName,
+            'trailer_type_id' => $trailerTypeId,
+        ]);
     }
 
     public function getGateCodes()
@@ -1164,11 +1243,11 @@ class TaskCotroller extends Controller
                 'company' => $company,
                 'phone' => $user_phone ?: null,
             ]);
-            \Log::info("addApiTask - Создан новый пользователь: login={$finalLogin}, name={$user_name}");
+            Log::info("addApiTask - Создан новый пользователь: login={$finalLogin}, name={$user_name}");
             return $user;
         }
         
-        \Log::warning('addApiTask - Не удалось создать/найти пользователя: login и user_name пустые');
+        Log::warning('addApiTask - Не удалось создать/найти пользователя: login и user_name пустые');
         return null;
     }
     

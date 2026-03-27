@@ -69,8 +69,13 @@ Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermits
 Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
 Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors'])->middleware('auth:sanctum'); // Получить посетителей на подтверждение
 Route::post('/security/checkpoint-review-queue', [VisitorsCotroller::class,'getCheckpointReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки на КПП
+Route::post('/security/checkpoint-review-manual-add', [VisitorsCotroller::class,'addManualCheckpointVisitor'])->middleware('auth:sanctum'); // Ручное добавление посетителя на КПП
+Route::post('/security/checkpoint-exit-review-queue', [VisitorsCotroller::class,'getCheckpointExitReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки выезда на КПП
 Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor'])->middleware('auth:sanctum'); // Подтвердить посетителя
 Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor'])->middleware('auth:sanctum'); // Отклонить посетителя
+Route::post('/security/confirm-exit-review', [VisitorsCotroller::class,'confirmExitReview'])->middleware('auth:sanctum'); // Подтвердить спорный выезд
+Route::post('/security/reject-exit-review', [VisitorsCotroller::class,'rejectExitReview'])->middleware('auth:sanctum'); // Отклонить спорный выезд
+Route::post('/security/search-active-visitors-for-exit', [VisitorsCotroller::class,'searchActiveVisitorsForExit'])->middleware('auth:sanctum'); // Поиск активных визитов для спорного выезда
 Route::post('/security/getexpectedvehicles', [VisitorsCotroller::class,'getExpectedVehicles'])->middleware('auth:sanctum'); // Ожидаемые ТС на дворе
 Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates'])->middleware('auth:sanctum'); // Поиск похожих номеров
 
