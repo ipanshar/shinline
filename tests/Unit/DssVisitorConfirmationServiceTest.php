@@ -13,7 +13,7 @@ class DssVisitorConfirmationServiceTest extends TestCase
     use BuildsDssDomain;
     use RefreshDatabase;
 
-    public function test_non_strict_yard_auto_confirms_known_truck_without_permit(): void
+    public function test_non_strict_yard_keeps_known_truck_pending_without_permit(): void
     {
         $service = new DssVisitorConfirmationService(new DssStatusCacheService());
         $yard = $this->createYard(false);
@@ -21,9 +21,10 @@ class DssVisitorConfirmationServiceTest extends TestCase
 
         $result = $service->resolve($yard, $truck, null);
 
-        $this->assertTrue($result['auto_confirm']);
+        $this->assertFalse($result['auto_confirm']);
         $this->assertFalse($result['strict_mode']);
-        $this->assertSame('confirmed', $result['status']);
+        $this->assertSame('pending', $result['status']);
+        $this->assertSame('👁️ Требуется проверка оператором КПП', $result['reason']);
     }
 
     public function test_strict_yard_requires_permit_for_auto_confirmation(): void

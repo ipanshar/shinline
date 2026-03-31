@@ -19,7 +19,7 @@ class DssVisitorConfirmationService
         $isStrictMode = (bool) ($yard?->strict_mode ?? false);
         $truckFound = $truck !== null;
         $permitFound = $permit !== null;
-        $autoConfirm = $truckFound && ($permitFound || !$isStrictMode);
+        $autoConfirm = $truckFound && $permitFound;
 
         return [
             'status' => $autoConfirm ? Visitor::CONFIRMATION_CONFIRMED : Visitor::CONFIRMATION_PENDING,
@@ -61,10 +61,6 @@ class DssVisitorConfirmationService
 
         if ($permitFound) {
             return '✅ Найдено активное разрешение';
-        }
-
-        if (!$isStrictMode) {
-            return '✅ Известное ТС (свободный режим)';
         }
 
         return '👁️ Требуется проверка оператором КПП';
