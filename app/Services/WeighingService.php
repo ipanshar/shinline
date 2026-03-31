@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use App\Models\Weighing;
 use App\Models\WeighingRequirement;
 use App\Models\Visitor;
@@ -211,8 +212,7 @@ class WeighingService
     public function getHistoryByYard(int $yardId, ?string $dateFrom = null, ?string $dateTo = null): \Illuminate\Database\Eloquent\Collection
     {
         $query = Weighing::with(['visitor', 'truck', 'operator'])
-            ->byYard($yardId)
-            ->orderBy('weighed_at', 'desc');
+            ->byYard($yardId);
 
         if ($dateFrom) {
             $query->whereDate('weighed_at', '>=', $dateFrom);
@@ -222,7 +222,29 @@ class WeighingService
             $query->whereDate('weighed_at', '<=', $dateTo);
         }
 
-        return $query->get();
+        $weighings = $query->get();
+        $pairedWeighings = new EloquentCollection();
+
+        foreach ($weighings as $weighing) {
+            $paired = $weighing->getPairedWeighing();
+
+            if (!$paired) {
+                continue;
+            }
+
+            if ($weighings->contains('id', $paired->id) || $pairedWeighings->contains('id', $paired->id)) {
+                continue;
+            }
+
+            $pairedWeighings->push($paired);
+        }
+
+        $result = $weighings->merge($pairedWeighings);
+        $result->loadMissing(['visitor', 'truck', 'operator']);
+
+        return new EloquentCollection(
+            $result->sortByDesc('weighed_at')->values()->all()
+        );
     }
 
     /**

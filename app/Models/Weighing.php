@@ -113,6 +113,7 @@ class Weighing extends Model
         // Сначала пытаемся найти по requirement_id (самый надёжный способ)
         if ($this->requirement_id) {
             $paired = self::where('requirement_id', $this->requirement_id)
+                ->where('id', '!=', $this->id)
                 ->where('weighing_type', $pairedType)
                 ->first();
             if ($paired) return $paired;
@@ -121,27 +122,51 @@ class Weighing extends Model
         // Затем по visitor_id
         if ($this->visitor_id) {
             $paired = self::where('visitor_id', $this->visitor_id)
+                ->where('id', '!=', $this->id)
                 ->where('weighing_type', $pairedType)
                 ->first();
             if ($paired) return $paired;
         }
 
-        // Затем по truck_id + yard_id + сегодня
+        // Затем по truck_id + yard_id c поиском ближайшей парной записи во времени
         if ($this->truck_id) {
-            $paired = self::where('truck_id', $this->truck_id)
+            $pairedQuery = self::where('truck_id', $this->truck_id)
                 ->where('yard_id', $this->yard_id)
                 ->where('weighing_type', $pairedType)
-                ->whereDate('weighed_at', $this->weighed_at->toDateString())
-                ->first();
+                ->where('id', '!=', $this->id);
+
+            if ($this->isExit()) {
+                $paired = $pairedQuery
+                    ->where('weighed_at', '<=', $this->weighed_at)
+                    ->orderBy('weighed_at', 'desc')
+                    ->first();
+            } else {
+                $paired = $pairedQuery
+                    ->where('weighed_at', '>=', $this->weighed_at)
+                    ->orderBy('weighed_at', 'asc')
+                    ->first();
+            }
+
             if ($paired) return $paired;
         }
 
-        // В крайнем случае по plate_number + yard_id + сегодня
+        // В крайнем случае по plate_number + yard_id c поиском ближайшей парной записи во времени
         if ($this->plate_number) {
-            return self::where('plate_number', $this->plate_number)
+            $pairedQuery = self::where('plate_number', $this->plate_number)
                 ->where('yard_id', $this->yard_id)
                 ->where('weighing_type', $pairedType)
-                ->whereDate('weighed_at', $this->weighed_at->toDateString())
+                ->where('id', '!=', $this->id);
+
+            if ($this->isExit()) {
+                return $pairedQuery
+                    ->where('weighed_at', '<=', $this->weighed_at)
+                    ->orderBy('weighed_at', 'desc')
+                    ->first();
+            }
+
+            return $pairedQuery
+                ->where('weighed_at', '>=', $this->weighed_at)
+                ->orderBy('weighed_at', 'asc')
                 ->first();
         }
 

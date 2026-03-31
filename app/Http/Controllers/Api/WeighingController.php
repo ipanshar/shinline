@@ -83,6 +83,13 @@ class WeighingController extends Controller
             $weighings = $this->weighingService->getTodayByYard($validate['yard_id']);
 
             $data = $weighings->map(function ($w) {
+                $paired = $w->getPairedWeighing();
+                $historyGroupKey = $w->requirement_id
+                    ? 'requirement:' . $w->requirement_id
+                    : ($paired
+                        ? 'pair:' . min($w->id, $paired->id) . '-' . max($w->id, $paired->id)
+                        : 'single:' . $w->id);
+
                 return [
                     'id' => $w->id,
                     'plate_number' => $w->plate_number,
@@ -92,6 +99,8 @@ class WeighingController extends Controller
                     'weight_diff' => $w->getWeightDifference(),
                     'visitor_id' => $w->visitor_id,
                     'truck_id' => $w->truck_id,
+                    'requirement_id' => $w->requirement_id,
+                    'history_group_key' => $historyGroupKey,
                     'operator_name' => $w->operator?->name,
                     'notes' => $w->notes,
                 ];
@@ -131,6 +140,13 @@ class WeighingController extends Controller
             );
 
             $data = $weighings->map(function ($w) {
+                $paired = $w->getPairedWeighing();
+                $historyGroupKey = $w->requirement_id
+                    ? 'requirement:' . $w->requirement_id
+                    : ($paired
+                        ? 'pair:' . min($w->id, $paired->id) . '-' . max($w->id, $paired->id)
+                        : 'single:' . $w->id);
+
                 return [
                     'id' => $w->id,
                     'plate_number' => $w->plate_number,
@@ -140,6 +156,8 @@ class WeighingController extends Controller
                     'weight_diff' => $w->getWeightDifference(),
                     'visitor_id' => $w->visitor_id,
                     'truck_id' => $w->truck_id,
+                    'requirement_id' => $w->requirement_id,
+                    'history_group_key' => $historyGroupKey,
                     'operator_name' => $w->operator?->name,
                     'notes' => $w->notes,
                 ];
@@ -238,13 +256,48 @@ class WeighingController extends Controller
             // Если visitor_id не передан, но requirement_id есть - берём из него
             $visitorId = $validate['visitor_id'] ?? null;
             $taskId = null;
+            $requirementId = $validate['requirement_id'] ?? null;
 
-            if (!$visitorId && !empty($validate['requirement_id'])) {
-                $requirement = WeighingRequirement::find($validate['requirement_id']);
+            if (!$visitorId && $requirementId) {
+                $requirement = WeighingRequirement::find($requirementId);
                 if ($requirement) {
                     $visitorId = $requirement->visitor_id;
                     $taskId = $requirement->task_id;
                 }
+            } elseif ($visitorId) {
+                $visitor = Visitor::query()
+                    ->whereKey($visitorId)
+                    ->where('yard_id', $validate['yard_id'])
+                    ->whereNull('exit_date')
+                    ->first();
+
+                if (!$visitor) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Ручное взвешивание доступно только для ТС, которое сейчас находится на территории.',
+                        'code' => 'visitor_not_on_yard',
+                    ], 422);
+                }
+
+                $visitorId = $visitor->id;
+                $taskId = $visitor->task_id;
+            } else {
+                $activeVisitor = $this->findActiveVisitorForManualWeighing(
+                    yardId: (int) $validate['yard_id'],
+                    normalizedPlate: $normalizedPlate,
+                    truckId: $truck?->id,
+                );
+
+                if (!$activeVisitor) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Ручное взвешивание доступно только для ТС, которое сейчас находится на территории.',
+                        'code' => 'visitor_not_on_yard',
+                    ], 422);
+                }
+
+                $visitorId = $activeVisitor->id;
+                $taskId = $activeVisitor->task_id;
             }
 
             // Если visitor_id есть - берём task_id из него
@@ -261,7 +314,7 @@ class WeighingController extends Controller
                 visitorId: $visitorId,
                 truckId: $truck?->id,
                 taskId: $taskId,
-                requirementId: $validate['requirement_id'] ?? null,
+                requirementId: $requirementId,
                 operatorUserId: $validate['operator_user_id'] ?? null,
                 notes: $validate['notes'] ?? null,
             );
@@ -294,6 +347,29 @@ class WeighingController extends Controller
                 "REPLACE(REPLACE(UPPER(plate_number), ' ', ''), '-', '') = ?",
                 [$normalizedPlate]
             )
+            ->first();
+    }
+
+    private function findActiveVisitorForManualWeighing(int $yardId, string $normalizedPlate, ?int $truckId): ?Visitor
+    {
+        return Visitor::query()
+            ->where('yard_id', $yardId)
+            ->whereNull('exit_date')
+            ->where(function ($query) use ($normalizedPlate, $truckId) {
+                if ($truckId) {
+                    $query->orWhere('truck_id', $truckId);
+                }
+
+                $query->orWhereRaw(
+                    "REPLACE(REPLACE(UPPER(plate_number), ' ', ''), '-', '') = ?",
+                    [$normalizedPlate]
+                );
+            })
+            ->orderByRaw("CASE WHEN confirmation_status = ? THEN 0 ELSE 1 END", [Visitor::CONFIRMATION_CONFIRMED])
+            ->when($truckId, function ($query, $truckId) {
+                $query->orderByRaw("CASE WHEN truck_id = ? THEN 0 ELSE 1 END", [$truckId]);
+            })
+            ->orderByDesc('entry_date')
             ->first();
     }
 

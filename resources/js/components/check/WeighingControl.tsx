@@ -92,12 +92,15 @@ interface Weighing {
   weight_diff: number | null;
   visitor_id: number | null;
   truck_id: number | null;
+  requirement_id: number | null;
+  history_group_key: string | null;
   operator_name: string | null;
   notes: string | null;
 }
 
 // Группированное взвешивание (въезд + выезд в одной записи)
 interface GroupedWeighing {
+  group_key: string;
   plate_number: string;
   entry_weight: number | null;
   entry_time: string | null;
@@ -130,15 +133,24 @@ const sanitizePlateInput = (value: string): string =>
 const normalizePlateInput = (value: string): string =>
   sanitizePlateInput(value).replace(/[\s-]+/g, "");
 
+const formatHistoryDateTime = (dateValue: string | null): string => {
+  if (!dateValue) {
+    return "—";
+  }
+
+  return format(new Date(dateValue), "dd.MM HH:mm");
+};
+
 // Функция группировки взвешиваний по номеру ТС
 const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
   const grouped: Record<string, GroupedWeighing> = {};
   
   weighings.forEach(w => {
-    const key = w.plate_number;
+    const key = w.history_group_key || `single:${w.id}`;
     
     if (!grouped[key]) {
       grouped[key] = {
+        group_key: key,
         plate_number: w.plate_number,
         entry_weight: null,
         entry_time: null,
@@ -286,6 +298,8 @@ const WeighingControl: React.FC = () => {
       fetchHistory();
     }
   }, [selectedYardId, fetchPending, fetchHistory]);
+
+  const groupedHistory = groupWeighings(historyWeighings);
 
   const searchTrucks = useCallback(
     async (plate: string) => {
@@ -709,9 +723,9 @@ const WeighingControl: React.FC = () => {
     {
       field: "weighed_at",
       headerName: "Время",
-      width: 100,
+      width: 140,
       renderCell: (params) =>
-        params.value ? format(new Date(params.value), "HH:mm") : "—",
+        params.value ? format(new Date(params.value), "dd.MM HH:mm") : "—",
     },
     {
       field: "plate_number",
@@ -1028,14 +1042,14 @@ const WeighingControl: React.FC = () => {
         ) : isMobile ? (
           // Мобильный вид - группированные карточки истории взвешиваний
           <div className="space-y-3">
-            {historyWeighings.length === 0 ? (
+            {groupedHistory.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p>Нет взвешиваний за выбранный период</p>
               </div>
             ) : (
-              groupWeighings(historyWeighings).map((g, idx) => (
-                <Card key={`${g.plate_number}-${idx}`} className="p-3">
+              groupedHistory.map((g) => (
+                <Card key={g.group_key} className="p-3">
                   {/* Верхняя часть - номер и статус */}
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -1067,7 +1081,7 @@ const WeighingControl: React.FC = () => {
                         <>
                           <p className="font-bold text-green-600">{parseFloat(String(g.entry_weight)).toFixed(0)} кг</p>
                           <p className="text-xs text-gray-400">
-                            {g.entry_time && format(new Date(g.entry_time), "HH:mm")}
+                            {formatHistoryDateTime(g.entry_time)}
                           </p>
                         </>
                       ) : (
@@ -1082,7 +1096,7 @@ const WeighingControl: React.FC = () => {
                         <>
                           <p className="font-bold text-orange-600">{parseFloat(String(g.exit_weight)).toFixed(0)} кг</p>
                           <p className="text-xs text-gray-400">
-                            {g.exit_time && format(new Date(g.exit_time), "HH:mm")}
+                            {formatHistoryDateTime(g.exit_time)}
                           </p>
                         </>
                       ) : (
@@ -1146,7 +1160,7 @@ const WeighingControl: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {historyWeighings.length === 0 ? (
+                {groupedHistory.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                       <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -1154,8 +1168,8 @@ const WeighingControl: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  groupWeighings(historyWeighings).map((g, idx) => (
-                    <tr key={`${g.plate_number}-${idx}`} className="hover:bg-gray-50">
+                  groupedHistory.map((g) => (
+                    <tr key={g.group_key} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <TruckIcon className="w-4 h-4 text-gray-400" />
@@ -1169,7 +1183,7 @@ const WeighingControl: React.FC = () => {
                               {parseFloat(String(g.entry_weight)).toFixed(2)} кг
                             </span>
                             <p className="text-xs text-gray-400">
-                              {g.entry_time && format(new Date(g.entry_time), "HH:mm")}
+                              {formatHistoryDateTime(g.entry_time)}
                             </p>
                           </div>
                         ) : (
@@ -1183,7 +1197,7 @@ const WeighingControl: React.FC = () => {
                               {parseFloat(String(g.exit_weight)).toFixed(2)} кг
                             </span>
                             <p className="text-xs text-gray-400">
-                              {g.exit_time && format(new Date(g.exit_time), "HH:mm")}
+                              {formatHistoryDateTime(g.exit_time)}
                             </p>
                           </div>
                         ) : (
@@ -1295,7 +1309,7 @@ const WeighingControl: React.FC = () => {
                   {!selectedTruck && normalizePlateInput(weighFormData.plate_number).length >= 3 && (
                     <div className="rounded-md border border-dashed p-3 text-sm">
                       <p className="text-gray-600">
-                        Если ТС не найдено, создайте его явно. Запись с произвольным номером без подтверждения не сохранится.
+                        Если ТС не найдено, создайте его явно. Ручное взвешивание доступно только для ТС, которое сейчас находится на территории.
                       </p>
                       <Button
                         type="button"
