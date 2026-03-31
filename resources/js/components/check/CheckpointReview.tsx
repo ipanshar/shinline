@@ -23,6 +23,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -155,12 +156,16 @@ const CheckpointReview: React.FC = () => {
     correctedPlate: string;
     selectedTruckId: number | null;
     selectedTaskId: number | null;
+    createPermit: boolean;
+    createWeighing: boolean;
   }>({
     open: false,
     item: null,
     correctedPlate: '',
     selectedTruckId: null,
     selectedTaskId: null,
+    createPermit: false,
+    createWeighing: false,
   });
   const [searchResults, setSearchResults] = useState<SimilarPlate[]>([]);
   const [expectedTasks, setExpectedTasks] = useState<ExpectedTask[]>([]);
@@ -365,6 +370,8 @@ const CheckpointReview: React.FC = () => {
       correctedPlate: item.matched_plate_number || item.plate_number,
       selectedTruckId: item.matched_truck_id ?? null,
       selectedTaskId: item.task_id ?? null,
+      createPermit: false,
+      createWeighing: false,
     });
     setSearchResults([]);
     setExpectedTasks([]);
@@ -377,6 +384,8 @@ const CheckpointReview: React.FC = () => {
       correctedPlate: '',
       selectedTruckId: null,
       selectedTaskId: null,
+      createPermit: false,
+      createWeighing: false,
     });
     setSearchResults([]);
     setExpectedTasks([]);
@@ -499,14 +508,27 @@ const CheckpointReview: React.FC = () => {
 
     const selectedTruck = searchResults.find((truck) => truck.truck_id === confirmDialog.selectedTruckId);
     const hasPermit = selectedTruck ? selectedTruck.has_permit : item.has_permit;
+    const willCreatePermit = confirmDialog.createPermit && !hasPermit;
 
-    if (item.yard_strict_mode && !hasPermit) {
+    if (item.yard_strict_mode && !hasPermit && !willCreatePermit) {
       toast.error('🚫 Въезд запрещён: строгий режим активен, требуется разрешение на въезд');
       setProcessingVisitorId(null);
       return;
     }
 
     try {
+      if (willCreatePermit && confirmDialog.selectedTruckId) {
+        await axios.post('/security/addpermit', {
+          truck_id: confirmDialog.selectedTruckId,
+          yard_id: item.yard_id,
+          one_permission: true,
+          weighing_required: confirmDialog.createWeighing,
+          granted_by_user_id: userId,
+        }, {
+          headers: getAuthHeaders(),
+        });
+      }
+
       const response = await axios.post('/security/confirmvisitor', {
         visitor_id: item.visitor_id,
         operator_user_id: userId,
@@ -518,7 +540,23 @@ const CheckpointReview: React.FC = () => {
       });
 
       if (response.data?.status) {
-        toast.success('Въезд подтверждён');
+        if (confirmDialog.createWeighing && !willCreatePermit) {
+          try {
+            await axios.post('/weighing/create-requirement', {
+              yard_id: item.yard_id,
+              visitor_id: item.visitor_id,
+              plate_number: confirmDialog.correctedPlate || item.plate_number,
+              truck_id: confirmDialog.selectedTruckId ?? undefined,
+              task_id: confirmDialog.selectedTaskId ?? undefined,
+            }, {
+              headers: getAuthHeaders(),
+            });
+          } catch {
+            console.error('Не удалось создать задание на взвешивание');
+          }
+        }
+
+        toast.success(willCreatePermit ? 'Въезд подтверждён, разовый пропуск создан' : 'Въезд подтверждён');
         closeConfirmDialog();
         await loadQueue();
         await loadExitQueueCount();
@@ -829,8 +867,8 @@ const CheckpointReview: React.FC = () => {
       </Card>
 
       <Dialog open={confirmDialog.open} onOpenChange={(open) => !open && closeConfirmDialog()}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[95vh] flex-col sm:max-h-[90vh] sm:max-w-4xl">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Подтверждение въезда на КПП</DialogTitle>
             <DialogDescription>
               Охранник может скорректировать номер, выбрать ТС и привязать задание перед подтверждением въезда.
@@ -838,7 +876,7 @@ const CheckpointReview: React.FC = () => {
           </DialogHeader>
 
           {confirmDialog.item && (
-            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 lg:grid-cols-[260px_minmax(0,1fr)]">
               <div className="space-y-3">
                 <div className="group relative overflow-hidden rounded-lg border bg-muted/20">
                   {confirmDialog.item.capture_picture_url ? (
@@ -969,11 +1007,50 @@ const CheckpointReview: React.FC = () => {
                     {confirmDialog.item.has_weighing_task ? 'Нужно взвешивание' : 'Без взвешивания'}
                   </Badge>
                 </div>
+
+                {(!confirmDialog.item.has_permit || !confirmDialog.item.has_weighing_task) && (
+                  <div className="space-y-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/20">
+                    <div className="text-sm font-medium text-blue-800 dark:text-blue-300">Дополнительные действия</div>
+
+                    {!confirmDialog.item.has_permit && (
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <Checkbox
+                          checked={confirmDialog.createPermit}
+                          onCheckedChange={(checked) => setConfirmDialog((prev) => ({ ...prev, createPermit: !!checked }))}
+                          className="mt-0.5"
+                          disabled={!confirmDialog.selectedTruckId}
+                        />
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-medium">Создать разовый пропуск</div>
+                          <div className="text-xs text-muted-foreground">
+                            {confirmDialog.selectedTruckId
+                              ? 'Будет создано разовое разрешение на въезд для выбранного ТС'
+                              : 'Сначала выберите ТС из списка подходящих'}
+                          </div>
+                        </div>
+                      </label>
+                    )}
+
+                    {!confirmDialog.item.has_weighing_task && (
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <Checkbox
+                          checked={confirmDialog.createWeighing}
+                          onCheckedChange={(checked) => setConfirmDialog((prev) => ({ ...prev, createWeighing: !!checked }))}
+                          className="mt-0.5"
+                        />
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-medium">Назначить взвешивание</div>
+                          <div className="text-xs text-muted-foreground">Будет создано задание на взвешивание (въезд + выезд)</div>
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t pt-4">
             <Button variant="outline" onClick={closeConfirmDialog}>Отмена</Button>
             <Button onClick={handleConfirm} disabled={!confirmDialog.item || processingVisitorId === confirmDialog.item?.visitor_id}>
               {processingVisitorId === confirmDialog.item?.visitor_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
