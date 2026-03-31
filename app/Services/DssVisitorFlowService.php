@@ -24,6 +24,7 @@ class DssVisitorFlowService
         private DssZoneHistoryService $zoneHistoryService,
         private DssStatusCacheService $statusCache,
         private DssStructuredLogger $structuredLogger,
+        private WeighingService $weighingService,
     )
     {
     }
@@ -263,6 +264,11 @@ class DssVisitorFlowService
             'truck_category_id' => $truck?->truck_category_id,
             'truck_brand_id' => $truck?->truck_brand_id,
         ]);
+
+        if ($autoConfirm) {
+            $visitor->load(['yard', 'truck', 'task']);
+            $this->weighingService->createRequirement($visitor);
+        }
 
         $this->structuredLogger->info('visitor_created', [
             'visitor_id' => $visitor->id,

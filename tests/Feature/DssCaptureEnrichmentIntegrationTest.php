@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\TruckZoneHistory;
 use App\Models\Visitor;
+use App\Models\WeighingRequirement;
 use App\Services\DssCaptureEnrichmentService;
 use App\Services\DssZoneHistoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,7 +17,7 @@ class DssCaptureEnrichmentIntegrationTest extends TestCase
     use BuildsDssDomain;
     use RefreshDatabase;
 
-    public function test_new_capture_for_known_truck_creates_confirmed_visitor_and_active_zone_history(): void
+    public function test_new_capture_for_truck_with_permit_creates_confirmed_visitor_and_weighing_requirement(): void
     {
         Queue::fake();
         $statuses = $this->seedDssStatuses();
@@ -25,17 +26,23 @@ class DssCaptureEnrichmentIntegrationTest extends TestCase
         $checkpoint = $this->createCheckpoint($yard);
         $device = $this->createDevice($zone, $checkpoint, 'Entry');
         $truck = $this->createTruck(['plate_number' => 'A123BC']);
+        $this->createPermit($truck, $yard, ['weighing_required' => true]);
         $capture = $this->createVehicleCapture($device, ['plateNo' => $truck->plate_number]);
 
         $result = app(DssCaptureEnrichmentService::class)->processCaptureById($capture->id);
 
         $capture->refresh();
         $visitor = Visitor::first();
+        $requirement = WeighingRequirement::first();
 
         $this->assertTrue($result['success']);
         $this->assertSame($truck->id, $capture->truck_id);
         $this->assertNotNull($capture->processed_at);
         $this->assertSame(Visitor::CONFIRMATION_CONFIRMED, $visitor?->confirmation_status);
+        $this->assertNotNull($requirement);
+        $this->assertSame($visitor?->id, $requirement?->visitor_id);
+        $this->assertSame(WeighingRequirement::REASON_PERMIT, $requirement?->reason);
+        $this->assertSame(WeighingRequirement::STATUS_PENDING, $requirement?->status);
         $this->assertDatabaseHas('truck_zone_history', [
             'truck_id' => $truck->id,
             'zone_id' => $zone->id,

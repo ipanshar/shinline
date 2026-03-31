@@ -698,8 +698,9 @@ class VisitorsCotroller extends Controller
                 'truck_brand_id' => $truck?->truck_brand_id,
             ]);
 
-            // Если автоподтверждение - обновляем задачу
-            if ($autoConfirm && $task) {
+            // Если автоподтверждение - выполняем постобработку confirmed visitor,
+            // включая создание требования на взвешивание по разрешению/двору/ТС.
+            if ($autoConfirm) {
                 $this->processConfirmedVisitor($visitor, $task, $validate['yard_id']);
             }
 
@@ -1000,7 +1001,7 @@ class VisitorsCotroller extends Controller
                 'truck_brand_id' => $truck?->truck_brand_id,
             ]);
 
-            if ($autoConfirm && $task) {
+            if ($autoConfirm) {
                 $this->processConfirmedVisitor($visitor, $task, $yard->id);
             }
 
@@ -1411,10 +1412,9 @@ class VisitorsCotroller extends Controller
                 'confirmed_at' => now(),
             ]);
 
-            // Обработка подтверждённого посетителя
-            if ($task) {
-                $this->processConfirmedVisitor($visitor, $task, $visitor->yard_id);
-            }
+            // Обработка подтверждённого посетителя, даже если задача отсутствует:
+            // это нужно для создания требования на взвешивание по разрешению или политике двора.
+            $this->processConfirmedVisitor($visitor, $task, $visitor->yard_id);
 
             return response()->json([
                 'status' => true,
@@ -1800,56 +1800,53 @@ class VisitorsCotroller extends Controller
     /**
      * Обработка подтверждённого посетителя (обновление задачи, уведомления)
      */
-    private function processConfirmedVisitor(Visitor $visitor, Task $task, int $yardId): void
+    private function processConfirmedVisitor(Visitor $visitor, ?Task $task, int $yardId): void
     {
         $statusOnTerritory = Status::where('key', 'on_territory')->first();
         $yard = DB::table('yards')->where('id', $yardId)->first();
 
-        // Обновляем задачу
-        $task->update([
-            'begin_date' => $visitor->entry_date ?? now(),
-            'yard_id' => $yardId,
-            'status_id' => $statusOnTerritory->id,
-        ]);
+        if ($task && $statusOnTerritory) {
+            $task->update([
+                'begin_date' => $visitor->entry_date ?? now(),
+                'yard_id' => $yardId,
+                'status_id' => $statusOnTerritory->id,
+            ]);
 
-        // Получаем склады для уведомления
-        $warehouses = DB::table('task_loadings')
-            ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
-            ->where('task_loadings.task_id', $task->id)
-            ->select('warehouses.name')
-            ->get();
+            $warehouses = DB::table('task_loadings')
+                ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+                ->where('task_loadings.task_id', $task->id)
+                ->select('warehouses.name')
+                ->get();
 
-        // Получаем информацию о разрешении (последнее активное)
-        $permit = EntryPermit::where('truck_id', $visitor->truck_id)
-            ->where('yard_id', $yardId)
-            ->where('status_id', Status::where('key', 'active')->first()->id)
-            // Только действующие (не просроченные) разрешения
-            ->where(function ($q) {
-                $q->whereNull('end_date')
-                  ->orWhere('end_date', '>=', now()->startOfDay());
-            })
-            ->orderBy('created_at', 'desc')
-            ->first();
+            $permit = EntryPermit::where('truck_id', $visitor->truck_id)
+                ->where('yard_id', $yardId)
+                ->where('status_id', Status::where('key', 'active')->first()->id)
+                ->where(function ($q) {
+                    $q->whereNull('end_date')
+                      ->orWhere('end_date', '>=', now()->startOfDay());
+                })
+                ->orderBy('created_at', 'desc')
+                ->first();
 
-        $permitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
+            $permitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
 
-        // Отправляем уведомление в Telegram
-        (new TelegramController())->sendNotification(
-            '<b>🚛 Въезд на территорию ' . e($yard->name) . "</b>\n\n" .
-            '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
-            '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
-            '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
-            '<b>👤 Водитель:</b> ' . ($task->user_id 
-                ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
-                  ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' 
-                : 'Не указан') . "\n" .
-            '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-            '<b>🏬 Склады:</b> ' . e($warehouses->pluck('name')->implode(', ')) . "\n" .
-            '<b>🛂 Разрешение:</b> <i>' . e($permitText) . '</i>' .
-            ($visitor->original_plate_number !== $visitor->plate_number 
-                ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . " → " . e($visitor->plate_number)
-                : '')
-        );
+            (new TelegramController())->sendNotification(
+                '<b>🚛 Въезд на территорию ' . e($yard->name) . "</b>\n\n" .
+                '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
+                '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
+                '<b>📝 Описание:</b> ' . e($task->description) . "\n" .
+                '<b>👤 Водитель:</b> ' . ($task->user_id
+                    ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
+                      ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')'
+                    : 'Не указан') . "\n" .
+                '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
+                '<b>🏬 Склады:</b> ' . e($warehouses->pluck('name')->implode(', ')) . "\n" .
+                '<b>🛂 Разрешение:</b> <i>' . e($permitText) . '</i>' .
+                ($visitor->original_plate_number !== $visitor->plate_number
+                    ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . " → " . e($visitor->plate_number)
+                    : '')
+            );
+        }
 
         // Загружаем связи для корректной работы WeighingService
         $visitor->load(['yard', 'truck', 'task']);
