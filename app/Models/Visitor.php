@@ -29,6 +29,7 @@ class Visitor extends Model
         'entrance_device_id',
         'exit_device_id',
         'entry_permit_id',
+        'comment',
     ];
 
     protected $casts = [

@@ -78,6 +78,7 @@ interface Visitor {
   has_permit?: boolean;
   permit_id?: number;
   permit_type?: 'one_time' | 'permanent' | null;
+  comment?: string;
 }
 
 interface Task {
@@ -1108,6 +1109,12 @@ const SecurityCheckMobile = () => {
                         <Phone className="w-4 h-4" />
                         {visitor.user_phone}
                       </a>
+                    )}
+                    {visitor.comment && (
+                      <div className="flex items-start gap-2 text-gray-600 mt-1">
+                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium shrink-0">Цель визита</span>
+                        <span className="text-xs">{visitor.comment}</span>
+                      </div>
                     )}
                     {visitor.description && (
                       <div className="text-gray-500 text-xs mt-1">

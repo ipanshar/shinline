@@ -1335,6 +1335,7 @@ class VisitorsCotroller extends Controller
                 'truck_id' => 'nullable|integer|exists:trucks,id',
                 'task_id' => 'nullable|integer|exists:tasks,id',
                 'corrected_plate_number' => 'nullable|string|max:50',
+                'comment' => 'nullable|string|max:500',
             ]);
 
             $visitor = Visitor::find($validate['visitor_id']);
@@ -1410,6 +1411,7 @@ class VisitorsCotroller extends Controller
                 'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
                 'confirmed_by_user_id' => $validate['operator_user_id'],
                 'confirmed_at' => now(),
+                'comment' => $validate['comment'] ?? null,
             ]);
 
             // Обработка подтверждённого посетителя, даже если задача отсутствует:

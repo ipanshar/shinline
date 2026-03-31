@@ -158,6 +158,7 @@ const CheckpointReview: React.FC = () => {
     selectedTaskId: number | null;
     createPermit: boolean;
     createWeighing: boolean;
+    comment: string;
   }>({
     open: false,
     item: null,
@@ -166,6 +167,7 @@ const CheckpointReview: React.FC = () => {
     selectedTaskId: null,
     createPermit: false,
     createWeighing: false,
+    comment: '',
   });
   const [searchResults, setSearchResults] = useState<SimilarPlate[]>([]);
   const [expectedTasks, setExpectedTasks] = useState<ExpectedTask[]>([]);
@@ -372,6 +374,7 @@ const CheckpointReview: React.FC = () => {
       selectedTaskId: item.task_id ?? null,
       createPermit: false,
       createWeighing: false,
+      comment: '',
     });
     setSearchResults([]);
     setExpectedTasks([]);
@@ -386,6 +389,7 @@ const CheckpointReview: React.FC = () => {
       selectedTaskId: null,
       createPermit: false,
       createWeighing: false,
+      comment: '',
     });
     setSearchResults([]);
     setExpectedTasks([]);
@@ -535,6 +539,7 @@ const CheckpointReview: React.FC = () => {
         truck_id: confirmDialog.selectedTruckId ?? undefined,
         task_id: confirmDialog.selectedTaskId ?? undefined,
         corrected_plate_number: confirmDialog.correctedPlate || item.plate_number,
+        comment: confirmDialog.comment.trim() || undefined,
       }, {
         headers: getAuthHeaders(),
       });
@@ -991,6 +996,18 @@ const CheckpointReview: React.FC = () => {
                       );
                     })}
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Цель визита</label>
+                  <textarea
+                    value={confirmDialog.comment}
+                    onChange={(event) => setConfirmDialog((prev) => ({ ...prev, comment: event.target.value }))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="Например: загрузка зерна, доставка комбикорма..."
+                    rows={2}
+                    maxLength={500}
+                  />
                 </div>
 
                 <div className="flex flex-wrap gap-2">
