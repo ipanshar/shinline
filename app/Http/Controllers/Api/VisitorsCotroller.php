@@ -648,10 +648,9 @@ class VisitorsCotroller extends Controller
 
             $statusRow = DB::table('statuses')->where('key', 'on_territory')->first();
             
-            // Определяем статус подтверждения
-            // Логика автоподтверждения:
-            // - Если двор СТРОГИЙ: нужен truck + permit
-            // - Если двор НЕ строгий: достаточно truck
+            // Определяем статус подтверждения через единый сервис.
+            // confirmed выставляется только при truck + active permit,
+            // иначе visitor остаётся pending независимо от режима двора.
             $confidence = $request->recognition_confidence ?? 0;
             
             $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);

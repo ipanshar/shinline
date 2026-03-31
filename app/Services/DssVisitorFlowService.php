@@ -272,25 +272,27 @@ class DssVisitorFlowService
 
         $reason = $confirmation['reason'];
 
-        $this->structuredLogger->warning('visitor_pending', [
-            'visitor_id' => $visitor->id,
-            'truck_id' => $truck?->id,
-            'yard_id' => $zone->yard_id,
-            'device_id' => $device->id,
-            'reason' => $reason,
-        ]);
+        if (!$autoConfirm) {
+            $this->structuredLogger->warning('visitor_pending', [
+                'visitor_id' => $visitor->id,
+                'truck_id' => $truck?->id,
+                'yard_id' => $zone->yard_id,
+                'device_id' => $device->id,
+                'reason' => $reason,
+            ]);
 
-        $checkpointName = Checkpoint::where('id', $device->checkpoint_id)->value('name');
-        $this->notificationService->send(
-            '<b>⚠️ Требуется подтверждение въезда</b>' . "\n\n"
-            . '<b>🏷️ Распознанный номер:</b> ' . e($plateNo) . "\n"
-            . '<b>📍 КПП:</b> ' . e($checkpointName) . ' - ' . $device->channelName . "\n"
-            . '<b>🏢 Двор:</b> ' . e($yard->name ?? 'Неизвестный') . "\n"
-            . '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n"
-            . ($confidence !== null ? '<b>🎯 Уверенность:</b> ' . $confidence . "%\n" : '')
-            . '<b>❓ Причина:</b> ' . $reason . "\n\n"
-            . '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>'
-        );
+            $checkpointName = Checkpoint::where('id', $device->checkpoint_id)->value('name');
+            $this->notificationService->send(
+                '<b>⚠️ Требуется подтверждение въезда</b>' . "\n\n"
+                . '<b>🏷️ Распознанный номер:</b> ' . e($plateNo) . "\n"
+                . '<b>📍 КПП:</b> ' . e($checkpointName) . ' - ' . $device->channelName . "\n"
+                . '<b>🏢 Двор:</b> ' . e($yard->name ?? 'Неизвестный') . "\n"
+                . '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n"
+                . ($confidence !== null ? '<b>🎯 Уверенность:</b> ' . $confidence . "%\n" : '')
+                . '<b>❓ Причина:</b> ' . $reason . "\n\n"
+                . '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>'
+            );
+        }
     }
 
     private function findRecentPendingVisitor(
