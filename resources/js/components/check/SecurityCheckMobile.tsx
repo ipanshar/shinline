@@ -75,6 +75,9 @@ interface Visitor {
   entrance_checkpoint_name?: string;
   exit_device_name?: string;
   exit_checkpoint_name?: string;
+  has_permit?: boolean;
+  permit_id?: number;
+  permit_type?: 'one_time' | 'permanent' | null;
 }
 
 interface Task {
@@ -1003,6 +1006,19 @@ const SecurityCheckMobile = () => {
                               {vipStyle.badge}
                             </span>
                           )}
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            visitor.has_permit
+                              ? visitor.permit_type === 'one_time'
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                              : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                          }`}>
+                            {visitor.has_permit
+                              ? visitor.permit_type === 'one_time'
+                                ? '🎫 Разрешение: разовое'
+                                : '♾️ Разрешение: есть'
+                              : '🚫 Без разрешения'}
+                          </span>
                         </div>
 
                         {/* Задание */}

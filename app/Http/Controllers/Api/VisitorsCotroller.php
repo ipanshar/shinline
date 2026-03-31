@@ -238,6 +238,31 @@ class VisitorsCotroller extends Controller
 
         $visitors = $query->take(1000)->get();
 
+        $activeStatusId = Status::where('key', 'active')->value('id');
+
+        $visitors = $visitors->map(function ($visitor) use ($activeStatusId) {
+            $permit = null;
+
+            if ($visitor->truck_id && $visitor->yard_id && $activeStatusId) {
+                $permit = EntryPermit::query()
+                    ->where('truck_id', $visitor->truck_id)
+                    ->where('yard_id', $visitor->yard_id)
+                    ->where('status_id', $activeStatusId)
+                    ->where(function ($query) {
+                        $query->whereNull('end_date')
+                            ->orWhere('end_date', '>=', now()->startOfDay());
+                    })
+                    ->orderByDesc('created_at')
+                    ->first();
+            }
+
+            $visitor->permit_id = $permit?->id;
+            $visitor->permit_type = $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null;
+            $visitor->has_permit = $permit !== null;
+
+            return $visitor;
+        });
+
         if ($visitors->isEmpty()) {
             return response()->json([
                 'status' => false,
