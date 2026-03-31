@@ -122,7 +122,9 @@ class DssVisitorFlowServiceTest extends TestCase
         $notificationService = Mockery::mock(DssNotificationService::class);
         $notificationService->shouldReceive('send')->once()->with(Mockery::on(function (string $message) {
             return str_contains($message, 'Требуется подтверждение въезда')
-                && str_contains($message, '667ACJ02');
+                && str_contains($message, '667ACJ02')
+                && str_contains($message, '🎫 Разрешение:')
+                && str_contains($message, 'Нет активного разрешения');
         }));
         $this->app->instance(DssNotificationService::class, $notificationService);
 

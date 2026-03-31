@@ -147,6 +147,7 @@ class DssVisitorFlowService
         $yard = Yard::find($zone->yard_id);
         $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
         $isStrictMode = $confirmation['strict_mode'];
+        $permitText = $this->formatPermitNotificationText($permit);
 
         if ($device->type === 'Exit') {
             $visitorQuery = Visitor::query()
@@ -235,6 +236,7 @@ class DssVisitorFlowService
             $elapsedTimeText = $this->formatDurationHumanReadable($existingVisitor->entry_date, $captureTime ?? now());
             $notificationText = "<b>⚠️ Пропущенный выезд ТС</b>\n\n"
                 . '<b>🏷️ ТС:</b> ' . e($plateNo) . "\n"
+                . '<b>🎫 Разрешение:</b> ' . $permitText . "\n"
                 . '<b>🏢 Двор:</b> ' . e($yard->name ?? 'Неизвестный') . "\n"
                 . '<b>📍 КПП въезда:</b> ' . e($checkpoint->name ?? 'Неизвестный') . "\n"
                 . '<b>⏰ Предыдущий въезд:</b> ' . $existingVisitor->entry_date->format('d.m.Y H:i') . "\n"
@@ -285,6 +287,7 @@ class DssVisitorFlowService
             $this->notificationService->send(
                 '<b>⚠️ Требуется подтверждение въезда</b>' . "\n\n"
                 . '<b>🏷️ Распознанный номер:</b> ' . e($plateNo) . "\n"
+                . '<b>🎫 Разрешение:</b> ' . $permitText . "\n"
                 . '<b>📍 КПП:</b> ' . e($checkpointName) . ' - ' . $device->channelName . "\n"
                 . '<b>🏢 Двор:</b> ' . e($yard->name ?? 'Неизвестный') . "\n"
                 . '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n"
@@ -293,6 +296,15 @@ class DssVisitorFlowService
                 . '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>'
             );
         }
+    }
+
+    private function formatPermitNotificationText(?EntryPermit $permit): string
+    {
+        if (!$permit) {
+            return 'Нет активного разрешения';
+        }
+
+        return $permit->one_permission ? 'Есть активное разовое разрешение' : 'Есть активное постоянное разрешение';
     }
 
     private function findRecentPendingVisitor(
