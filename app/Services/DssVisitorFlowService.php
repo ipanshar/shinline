@@ -175,18 +175,7 @@ class DssVisitorFlowService
             return;
         }
 
-        if (($confirmation['auto_confirm'] ?? false) === true) {
-            $this->structuredLogger->warning('unexpected_auto_confirm_blocked', [
-                'plate_number' => $plateNo,
-                'truck_id' => $truck?->id,
-                'yard_id' => $zone->yard_id,
-                'device_id' => $device->id,
-            ]);
-        }
-
-        $confirmation['status'] = Visitor::CONFIRMATION_PENDING;
-        $confirmation['auto_confirm'] = false;
-        $autoConfirm = false;
+        $autoConfirm = (bool) ($confirmation['auto_confirm'] ?? false);
 
         $recentPendingVisitor = $this->findRecentPendingVisitor($device, $zone->yard_id, $truck, $plateNo, $captureTime);
         if ($recentPendingVisitor) {

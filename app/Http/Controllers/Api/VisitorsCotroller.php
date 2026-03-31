@@ -106,6 +106,9 @@ class VisitorsCotroller extends Controller
                 }
             }
 
+            $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
+            $autoConfirm = (bool) $confirmation['auto_confirm'];
+
 
             $Visitor =  Visitor::create([
                 'name' => $request->name ? $request->name : null,
@@ -118,6 +121,8 @@ class VisitorsCotroller extends Controller
                 'entry_date' => now(),
                 'user_id' => $request->user_id ? $request->user_id : null,
                 'status_id' => $status,
+                'confirmation_status' => $confirmation['status'],
+                'confirmed_at' => $autoConfirm ? now() : null,
                 'yard_id' => $request->yard_id ? $request->yard_id : null,
                 'truck_id' => $truck ? $truck->id : null,
                 'task_id' => $task ? $task->id : null,
@@ -952,6 +957,7 @@ class VisitorsCotroller extends Controller
             }
 
             $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
+            $autoConfirm = (bool) $confirmation['auto_confirm'];
 
             $visitor = Visitor::create([
                 'plate_number' => $originalPlate,
@@ -959,6 +965,7 @@ class VisitorsCotroller extends Controller
                 'entry_date' => now(),
                 'status_id' => $statusRow->id,
                 'confirmation_status' => $confirmation['status'],
+                'confirmed_at' => $autoConfirm ? now() : null,
                 'recognition_confidence' => null,
                 'yard_id' => $yard->id,
                 'truck_id' => $truck?->id,
@@ -968,6 +975,10 @@ class VisitorsCotroller extends Controller
                 'truck_category_id' => $truck?->truck_category_id,
                 'truck_brand_id' => $truck?->truck_brand_id,
             ]);
+
+            if ($autoConfirm && $task) {
+                $this->processConfirmedVisitor($visitor, $task, $yard->id);
+            }
 
             return response()->json([
                 'status' => true,

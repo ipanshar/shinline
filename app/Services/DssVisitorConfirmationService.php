@@ -19,10 +19,11 @@ class DssVisitorConfirmationService
         $isStrictMode = (bool) ($yard?->strict_mode ?? false);
         $truckFound = $truck !== null;
         $permitFound = $permit !== null;
+        $autoConfirm = $truckFound && ($permitFound || !$isStrictMode);
 
         return [
-            'status' => Visitor::CONFIRMATION_PENDING,
-            'auto_confirm' => false,
+            'status' => $autoConfirm ? Visitor::CONFIRMATION_CONFIRMED : Visitor::CONFIRMATION_PENDING,
+            'auto_confirm' => $autoConfirm,
             'reason' => $this->resolveReason($isStrictMode, $truckFound, $permitFound),
             'strict_mode' => $isStrictMode,
             'truck_found' => $truckFound,
@@ -56,6 +57,14 @@ class DssVisitorConfirmationService
 
         if ($isStrictMode && !$permitFound) {
             return '🔒 Нет разрешения (строгий режим)';
+        }
+
+        if ($permitFound) {
+            return '✅ Найдено активное разрешение';
+        }
+
+        if (!$isStrictMode) {
+            return '✅ Известное ТС (свободный режим)';
         }
 
         return '👁️ Требуется проверка оператором КПП';
