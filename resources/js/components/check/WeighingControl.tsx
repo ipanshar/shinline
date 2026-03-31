@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { DataGrid, GridColDef, GridActionsCellItem } from "@mui/x-data-grid";
-import { Box, CircularProgress, Chip, Tooltip, IconButton } from "@mui/material";
+import { Autocomplete, Box, CircularProgress, Chip, TextField, Tooltip, IconButton } from "@mui/material";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +55,13 @@ import { cn } from "@/lib/utils";
 interface Yard {
   id: number;
   name: string;
+}
+
+interface TruckOption {
+  id: number;
+  plate_number: string;
+  truck_model_name?: string | null;
+  truck_brand_name?: string | null;
 }
 
 interface WeighingRequirement {
@@ -111,6 +118,17 @@ interface WeighFormData {
   requirement_id: number | null;
   visitor_id: number | null;
 }
+
+const sanitizePlateInput = (value: string): string =>
+  value
+    .toUpperCase()
+    .replace(/[^0-9A-ZА-ЯЁ\s-]/g, "")
+    .replace(/\s+/g, " ")
+    .trimStart()
+    .slice(0, 20);
+
+const normalizePlateInput = (value: string): string =>
+  sanitizePlateInput(value).replace(/[\s-]+/g, "");
 
 // Функция группировки взвешиваний по номеру ТС
 const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
@@ -195,6 +213,11 @@ const WeighingControl: React.FC = () => {
     visitor_id: null,
   });
 
+  const [truckOptions, setTruckOptions] = useState<TruckOption[]>([]);
+  const [searchingTruck, setSearchingTruck] = useState(false);
+  const [selectedTruck, setSelectedTruck] = useState<TruckOption | null>(null);
+  const [truckCreationConfirmed, setTruckCreationConfirmed] = useState(false);
+
   const [saving, setSaving] = useState(false);
 
   const token = localStorage.getItem("auth_token");
@@ -264,9 +287,69 @@ const WeighingControl: React.FC = () => {
     }
   }, [selectedYardId, fetchPending, fetchHistory]);
 
+  const searchTrucks = useCallback(
+    async (plate: string) => {
+      const normalizedQuery = normalizePlateInput(plate);
+
+      if (normalizedQuery.length < 3) {
+        setTruckOptions([]);
+        setSelectedTruck(null);
+        return;
+      }
+
+      setSearchingTruck(true);
+
+      try {
+        const response = await axios.post(
+          "/security/searchtruck",
+          {
+            plate_number: normalizedQuery,
+            yard_id: selectedYardId,
+          },
+          { headers }
+        );
+
+        const nextOptions: TruckOption[] = response.data.data || [];
+        const exactMatch = nextOptions.find(
+          (truck) => normalizePlateInput(truck.plate_number) === normalizedQuery
+        ) || null;
+
+        setTruckOptions(nextOptions);
+        setSelectedTruck((currentTruck) => {
+          if (exactMatch) {
+            return exactMatch;
+          }
+
+          if (currentTruck && nextOptions.some((truck) => truck.id === currentTruck.id)) {
+            return currentTruck;
+          }
+
+          return null;
+        });
+
+        if (exactMatch) {
+          setTruckCreationConfirmed(false);
+          setWeighFormData((prev) => ({
+            ...prev,
+            plate_number: exactMatch.plate_number,
+          }));
+        }
+      } catch (error) {
+        console.error("Ошибка поиска ТС:", error);
+        setTruckOptions([]);
+      } finally {
+        setSearchingTruck(false);
+      }
+    },
+    [headers, selectedYardId]
+  );
+
   // Обработчики
   const handleWeigh = (req: WeighingRequirement, type: "entry" | "exit") => {
     setSelectedRequirement(req);
+    setSelectedTruck(null);
+    setTruckOptions([]);
+    setTruckCreationConfirmed(false);
     setWeighFormData({
       plate_number: req.plate_number,
       weight: "",
@@ -280,6 +363,9 @@ const WeighingControl: React.FC = () => {
 
   const handleManualWeigh = () => {
     setSelectedRequirement(null);
+    setSelectedTruck(null);
+    setTruckOptions([]);
+    setTruckCreationConfirmed(false);
     setWeighFormData({
       plate_number: "",
       weight: "",
@@ -291,6 +377,53 @@ const WeighingControl: React.FC = () => {
     setWeighDialogOpen(true);
   };
 
+  const handlePlateInputChange = (value: string) => {
+    const sanitizedPlate = sanitizePlateInput(value);
+
+    setTruckCreationConfirmed(false);
+    setSelectedTruck(null);
+    setWeighFormData((prev) => ({
+      ...prev,
+      plate_number: sanitizedPlate,
+    }));
+
+    void searchTrucks(sanitizedPlate);
+  };
+
+  const handleTruckSelection = (truck: TruckOption | null) => {
+    setSelectedTruck(truck);
+    setTruckCreationConfirmed(false);
+
+    if (truck) {
+      setWeighFormData((prev) => ({
+        ...prev,
+        plate_number: truck.plate_number,
+      }));
+      return;
+    }
+
+    setWeighFormData((prev) => ({
+      ...prev,
+      plate_number: sanitizePlateInput(prev.plate_number),
+    }));
+  };
+
+  const confirmTruckCreation = () => {
+    const normalizedPlate = normalizePlateInput(weighFormData.plate_number);
+
+    if (normalizedPlate.length < 3) {
+      toast.error("Введите корректный номер ТС");
+      return;
+    }
+
+    setSelectedTruck(null);
+    setTruckCreationConfirmed(true);
+    setWeighFormData((prev) => ({
+      ...prev,
+      plate_number: normalizedPlate,
+    }));
+  };
+
   const handleSkipOpen = (req: WeighingRequirement) => {
     setSelectedRequirement(req);
     setSkipReason("");
@@ -298,13 +431,20 @@ const WeighingControl: React.FC = () => {
   };
 
   const submitWeighing = async () => {
+    const normalizedPlate = normalizePlateInput(weighFormData.plate_number);
+
     if (!weighFormData.weight || parseFloat(weighFormData.weight) <= 0) {
       toast.error("Введите корректный вес");
       return;
     }
 
-    if (!weighFormData.plate_number.trim()) {
+    if (!normalizedPlate) {
       toast.error("Введите номер ТС");
+      return;
+    }
+
+    if (!selectedRequirement && !selectedTruck && !truckCreationConfirmed) {
+      toast.error("Выберите ТС из базы или подтвердите создание нового");
       return;
     }
 
@@ -318,13 +458,15 @@ const WeighingControl: React.FC = () => {
         "/weighing/record",
         {
           yard_id: selectedYardId,
-          plate_number: weighFormData.plate_number,
+          plate_number: normalizedPlate,
           weighing_type: weighFormData.weighing_type,
           weight: parseFloat(weighFormData.weight),
           visitor_id: weighFormData.visitor_id,
+          truck_id: selectedTruck?.id ?? null,
           requirement_id: weighFormData.requirement_id,
           operator_user_id: operatorUserId,
           notes: weighFormData.notes || null,
+          create_truck: !selectedRequirement && truckCreationConfirmed,
         },
         { headers }
       );
@@ -335,9 +477,12 @@ const WeighingControl: React.FC = () => {
           const diff = response.data.data.weight_diff;
           toast.info(`Разница: ${diff > 0 ? "+" : ""}${diff.toFixed(2)} кг`);
         }
+        setSelectedTruck(null);
+        setTruckOptions([]);
+        setTruckCreationConfirmed(false);
         setWeighDialogOpen(false);
         fetchPending();
-        fetchToday();
+        fetchHistory();
       } else {
         toast.error(response.data.message || "Ошибка записи");
       }
@@ -1092,14 +1237,80 @@ const WeighingControl: React.FC = () => {
           <div className="grid gap-4 py-4">
             <div>
               <Label>Номер ТС</Label>
-              <Input
-                value={weighFormData.plate_number}
-                onChange={(e) =>
-                  setWeighFormData({ ...weighFormData, plate_number: e.target.value.toUpperCase() })
-                }
-                placeholder="А123БВ777"
-                disabled={!!selectedRequirement}
-              />
+              {selectedRequirement ? (
+                <Input
+                  value={weighFormData.plate_number}
+                  placeholder="А123БВ777"
+                  disabled
+                />
+              ) : (
+                <div className="grid gap-2">
+                  <Autocomplete
+                    options={truckOptions}
+                    value={selectedTruck}
+                    inputValue={weighFormData.plate_number}
+                    disablePortal
+                    onChange={(_, newValue) => handleTruckSelection(newValue)}
+                    onInputChange={(_, newInputValue, reason) => {
+                      if (reason === "input" || reason === "clear") {
+                        handlePlateInputChange(newInputValue);
+                      }
+                    }}
+                    getOptionLabel={(option) =>
+                      `${option.plate_number}${option.truck_brand_name ? ` (${option.truck_brand_name}${option.truck_model_name ? ` ${option.truck_model_name}` : ""})` : ""}`
+                    }
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    filterOptions={(options) => options}
+                    loading={searchingTruck}
+                    noOptionsText={
+                      normalizePlateInput(weighFormData.plate_number).length >= 3
+                        ? "ТС не найдено"
+                        : "Введите минимум 3 символа"
+                    }
+                    renderOption={(props, option) => (
+                      <li {...props} key={option.id}>
+                        <div className="flex flex-col py-1">
+                          <span className="font-mono font-semibold">{option.plate_number}</span>
+                          {(option.truck_brand_name || option.truck_model_name) && (
+                            <span className="text-xs text-gray-500">
+                              {[option.truck_brand_name, option.truck_model_name].filter(Boolean).join(" ")}
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    )}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder="Введите номер ТС"
+                        size="small"
+                      />
+                    )}
+                  />
+                  {selectedTruck && (
+                    <p className="text-sm text-green-600">
+                      Выбрано ТС из базы: {selectedTruck.plate_number}
+                    </p>
+                  )}
+                  {!selectedTruck && normalizePlateInput(weighFormData.plate_number).length >= 3 && (
+                    <div className="rounded-md border border-dashed p-3 text-sm">
+                      <p className="text-gray-600">
+                        Если ТС не найдено, создайте его явно. Запись с произвольным номером без подтверждения не сохранится.
+                      </p>
+                      <Button
+                        type="button"
+                        variant={truckCreationConfirmed ? "default" : "outline"}
+                        className="mt-2"
+                        onClick={confirmTruckCreation}
+                      >
+                        {truckCreationConfirmed
+                          ? `Будет создано новое ТС: ${normalizePlateInput(weighFormData.plate_number)}`
+                          : `Создать новое ТС: ${normalizePlateInput(weighFormData.plate_number)}`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <Label>Тип взвешивания</Label>

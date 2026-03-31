@@ -147,9 +147,11 @@ class WeighingService
         ?int $operatorUserId = null,
         ?string $notes = null
     ): Weighing {
+        $normalizedPlateNumber = Truck::normalizePlateNumber($plateNumber) ?? $plateNumber;
+
         $weighing = Weighing::create([
             'yard_id' => $yardId,
-            'plate_number' => $plateNumber,
+            'plate_number' => $normalizedPlateNumber,
             'weighing_type' => $weighingType,
             'weight' => $weight,
             'weighed_at' => now(),

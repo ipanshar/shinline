@@ -8,8 +8,10 @@ use App\Models\WeighingRequirement;
 use App\Models\Visitor;
 use App\Models\Truck;
 use App\Services\WeighingService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class WeighingController extends Controller
 {
@@ -164,20 +166,74 @@ class WeighingController extends Controller
     public function record(Request $request)
     {
         try {
-            $validate = $request->validate([
+            $validator = Validator::make($request->all(), [
                 'yard_id' => 'required|integer|exists:yards,id',
                 'plate_number' => 'required|string|max:50',
                 'weighing_type' => 'required|in:entry,exit,intermediate',
                 'weight' => 'required|numeric|min:0|max:999999.99',
                 'visitor_id' => 'nullable|integer|exists:visitors,id',
+                'truck_id' => 'nullable|integer|exists:trucks,id',
                 'requirement_id' => 'nullable|integer|exists:weighing_requirements,id',
                 'operator_user_id' => 'nullable|integer|exists:users,id',
                 'notes' => 'nullable|string|max:1000',
+                'create_truck' => 'nullable|boolean',
             ]);
 
-            // Пытаемся найти truck по номеру
-            $normalizedPlate = strtolower(str_replace(' ', '', $validate['plate_number']));
-            $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate])->first();
+            if ($validator->fails()) {
+                return $this->validationErrorResponse(
+                    $validator->errors()->first(),
+                    $validator->errors()->toArray()
+                );
+            }
+
+            $validate = $validator->validated();
+
+            $normalizedPlate = Truck::normalizePlateNumber($validate['plate_number']);
+
+            if (!$this->isValidManualPlateNumber($normalizedPlate)) {
+                return $this->validationErrorResponse(
+                    'Некорректный номер ТС. Допустимы только буквы, цифры, пробелы и дефисы.',
+                    ['plate_number' => ['Некорректный номер ТС. Допустимы только буквы, цифры, пробелы и дефисы.']]
+                );
+            }
+
+            $truck = $this->findTruckByPlateNumber($normalizedPlate);
+            $requestedTruck = !empty($validate['truck_id'])
+                ? Truck::find($validate['truck_id'])
+                : null;
+
+            if ($requestedTruck) {
+                $requestedTruckPlate = Truck::normalizePlateNumber($requestedTruck->plate_number);
+
+                if ($requestedTruckPlate !== $normalizedPlate) {
+                    return $this->validationErrorResponse(
+                        'Выбранное ТС не соответствует введённому номеру.',
+                        ['truck_id' => ['Выбранное ТС не соответствует введённому номеру.']]
+                    );
+                }
+
+                $truck = $requestedTruck;
+            }
+
+            $shouldCreateTruck = (bool) ($validate['create_truck'] ?? false);
+
+            if (!$truck && !$shouldCreateTruck) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'ТС не найдено. Выберите существующее или подтвердите создание нового.',
+                    'code' => 'truck_not_found',
+                    'requires_truck_creation' => true,
+                    'data' => [
+                        'plate_number' => $normalizedPlate,
+                    ],
+                ], 422);
+            }
+
+            if (!$truck && $shouldCreateTruck) {
+                $truck = Truck::create([
+                    'plate_number' => $normalizedPlate,
+                ]);
+            }
 
             // Если visitor_id не передан, но requirement_id есть - берём из него
             $visitorId = $validate['visitor_id'] ?? null;
@@ -199,7 +255,7 @@ class WeighingController extends Controller
 
             $weighing = $this->weighingService->recordWeighing(
                 yardId: $validate['yard_id'],
-                plateNumber: $validate['plate_number'],
+                plateNumber: $normalizedPlate,
                 weighingType: $validate['weighing_type'],
                 weight: $validate['weight'],
                 visitorId: $visitorId,
@@ -229,6 +285,40 @@ class WeighingController extends Controller
                 'message' => 'Error: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function findTruckByPlateNumber(string $normalizedPlate): ?Truck
+    {
+        return Truck::query()
+            ->whereRaw(
+                "REPLACE(REPLACE(UPPER(plate_number), ' ', ''), '-', '') = ?",
+                [$normalizedPlate]
+            )
+            ->first();
+    }
+
+    private function isValidManualPlateNumber(?string $plateNumber): bool
+    {
+        if ($plateNumber === null) {
+            return false;
+        }
+
+        $length = mb_strlen($plateNumber, 'UTF-8');
+
+        if ($length < 3 || $length > 20) {
+            return false;
+        }
+
+        return preg_match('/^[0-9A-ZА-ЯЁ]+$/u', $plateNumber) === 1;
+    }
+
+    private function validationErrorResponse(string $message, array $errors): JsonResponse
+    {
+        return response()->json([
+            'status' => false,
+            'message' => $message,
+            'errors' => $errors,
+        ], 422);
     }
 
     /**
