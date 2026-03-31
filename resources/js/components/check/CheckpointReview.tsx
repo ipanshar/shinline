@@ -187,6 +187,9 @@ const CheckpointReview: React.FC = () => {
   const [creatingManualVisitor, setCreatingManualVisitor] = useState(false);
   const [manualTruckResults, setManualTruckResults] = useState<ManualTruckSearchResult[]>([]);
   const [manualTruckSearchLoading, setManualTruckSearchLoading] = useState(false);
+  const [manualCreatePermit, setManualCreatePermit] = useState(false);
+  const [manualCreateWeighing, setManualCreateWeighing] = useState(false);
+  const [manualComment, setManualComment] = useState('');
 
   const selectedCheckpoint = useMemo(
     () => checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null,
@@ -414,6 +417,9 @@ const CheckpointReview: React.FC = () => {
   const openManualDialog = () => {
     setManualPlateNumber('');
     setManualTruckResults([]);
+    setManualCreatePermit(false);
+    setManualCreateWeighing(false);
+    setManualComment('');
     setManualDialogOpen(true);
   };
 
@@ -465,33 +471,24 @@ const CheckpointReview: React.FC = () => {
       const response = await axios.post('/security/checkpoint-review-manual-add', {
         checkpoint_id: selectedCheckpointId,
         plate_number: manualPlateNumber.trim().toUpperCase(),
+        comment: manualComment.trim() || undefined,
+        create_permit: manualCreatePermit && selectedManualTruck && !selectedManualTruck.has_permit,
+        create_weighing: manualCreateWeighing,
       }, {
         headers: getAuthHeaders(),
       });
 
       if (response.data?.status) {
-        const queueDataResponse = await axios.post('/security/checkpoint-review-queue', {
-          checkpoint_id: selectedCheckpointId,
-          limit: 20,
-        }, {
-          headers: getAuthHeaders(),
-        });
-
-        const items: CheckpointQueueItem[] = queueDataResponse.data?.data ?? [];
-        setQueue(items);
-        setLastUpdatedAt(new Date());
+        await loadQueue();
+        await loadExitQueueCount();
         setManualDialogOpen(false);
         setManualPlateNumber('');
         setManualTruckResults([]);
+        setManualCreatePermit(false);
+        setManualCreateWeighing(false);
+        setManualComment('');
 
-        const visitorId = response.data?.data?.visitor_id;
-        const createdItem = items.find((item) => item.visitor_id === visitorId);
-
-        if (createdItem) {
-          openConfirmDialog(createdItem);
-        }
-
-        toast.success(response.data?.data?.already_exists ? 'Найдена существующая запись для подтверждения' : 'Посетитель добавлен вручную');
+        toast.success(response.data?.data?.already_exists ? 'Найдена существующая запись' : 'Посетитель добавлен и подтверждён');
       }
     } catch (error: any) {
       console.error('Ошибка ручного добавления посетителя:', error);
@@ -1179,6 +1176,53 @@ const CheckpointReview: React.FC = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Цель визита</label>
+            <textarea
+              value={manualComment}
+              onChange={(event) => setManualComment(event.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="Например: загрузка зерна, доставка комбикорма..."
+              rows={2}
+              maxLength={500}
+            />
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/20">
+            <div className="text-sm font-medium text-blue-800 dark:text-blue-300">Дополнительные действия</div>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <Checkbox
+                checked={manualCreatePermit}
+                onCheckedChange={(checked) => setManualCreatePermit(!!checked)}
+                className="mt-0.5"
+                disabled={!selectedManualTruck || selectedManualTruck.has_permit}
+              />
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">Создать разовый пропуск</div>
+                <div className="text-xs text-muted-foreground">
+                  {selectedManualTruck?.has_permit
+                    ? 'Разрешение уже есть'
+                    : selectedManualTruck
+                      ? 'Будет создано разовое разрешение на въезд'
+                      : 'Сначала выберите ТС из базы'}
+                </div>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <Checkbox
+                checked={manualCreateWeighing}
+                onCheckedChange={(checked) => setManualCreateWeighing(!!checked)}
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">Назначить взвешивание</div>
+                <div className="text-xs text-muted-foreground">Будет создано задание на взвешивание (въезд + выезд)</div>
+              </div>
+            </label>
           </div>
 
           <DialogFooter>

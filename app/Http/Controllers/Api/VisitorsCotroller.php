@@ -927,6 +927,9 @@ class VisitorsCotroller extends Controller
             $validate = $request->validate([
                 'checkpoint_id' => 'required|integer|exists:checkpoints,id',
                 'plate_number' => 'required|string|max:50',
+                'comment' => 'nullable|string|max:500',
+                'create_permit' => 'nullable|boolean',
+                'create_weighing' => 'nullable|boolean',
             ]);
 
             $checkpoint = Checkpoint::findOrFail($validate['checkpoint_id']);
@@ -981,16 +984,14 @@ class VisitorsCotroller extends Controller
                 ], 404);
             }
 
-            $confirmation = $this->confirmationService->resolve($yard, $truck, $permit);
-            $autoConfirm = (bool) $confirmation['auto_confirm'];
-
             $visitor = Visitor::create([
                 'plate_number' => $originalPlate,
                 'original_plate_number' => $originalPlate,
                 'entry_date' => now(),
                 'status_id' => $statusRow->id,
-                'confirmation_status' => $confirmation['status'],
-                'confirmed_at' => $autoConfirm ? now() : null,
+                'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+                'confirmed_at' => now(),
+                'confirmed_by_user_id' => $request->user()?->id,
                 'recognition_confidence' => null,
                 'yard_id' => $yard->id,
                 'truck_id' => $truck?->id,
@@ -999,11 +1000,37 @@ class VisitorsCotroller extends Controller
                 'entry_permit_id' => $permit?->id,
                 'truck_category_id' => $truck?->truck_category_id,
                 'truck_brand_id' => $truck?->truck_brand_id,
+                'comment' => $validate['comment'] ?? null,
             ]);
 
-            if ($autoConfirm) {
-                $this->processConfirmedVisitor($visitor, $task, $yard->id);
+            // Создание разового пропуска если запрошено
+            if (!empty($validate['create_permit']) && $truck && !$permit) {
+                $activeStatus = Status::where('key', 'active')->first();
+                if ($activeStatus) {
+                    $newPermit = EntryPermit::create([
+                        'truck_id' => $truck->id,
+                        'yard_id' => $yard->id,
+                        'one_permission' => true,
+                        'weighing_required' => !empty($validate['create_weighing']),
+                        'status_id' => $activeStatus->id,
+                        'granted_by_user_id' => $request->user()?->id,
+                    ]);
+                    $visitor->update(['entry_permit_id' => $newPermit->id]);
+                }
             }
+
+            // Ручное создание задания на взвешивание (если нет пропуска с weighing)
+            if (!empty($validate['create_weighing']) && empty($validate['create_permit'])) {
+                $this->weighingService->createManualRequirement(
+                    $yard->id,
+                    $visitor->id,
+                    $originalPlate,
+                    $truck?->id,
+                    $task?->id
+                );
+            }
+
+            $this->processConfirmedVisitor($visitor, $task, $yard->id);
 
             return response()->json([
                 'status' => true,
