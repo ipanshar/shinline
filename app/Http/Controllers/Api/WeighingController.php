@@ -253,6 +253,8 @@ class WeighingController extends Controller
                 ]);
             }
 
+            $visitor = null;
+
             // Если visitor_id не передан, но requirement_id есть - берём из него
             $visitorId = $validate['visitor_id'] ?? null;
             $taskId = null;
@@ -263,6 +265,7 @@ class WeighingController extends Controller
                 if ($requirement) {
                     $visitorId = $requirement->visitor_id;
                     $taskId = $requirement->task_id;
+                    $visitor = $requirement->visitor_id ? Visitor::find($requirement->visitor_id) : null;
                 }
             } elseif ($visitorId) {
                 $visitor = Visitor::query()
@@ -282,13 +285,13 @@ class WeighingController extends Controller
                 $visitorId = $visitor->id;
                 $taskId = $visitor->task_id;
             } else {
-                $activeVisitor = $this->findActiveVisitorForManualWeighing(
+                $visitor = $this->findActiveVisitorForManualWeighing(
                     yardId: (int) $validate['yard_id'],
                     normalizedPlate: $normalizedPlate,
                     truckId: $truck?->id,
                 );
 
-                if (!$activeVisitor) {
+                if (!$visitor) {
                     return response()->json([
                         'status' => false,
                         'message' => 'Ручное взвешивание доступно только для ТС, которое сейчас находится на территории.',
@@ -296,14 +299,21 @@ class WeighingController extends Controller
                     ], 422);
                 }
 
-                $visitorId = $activeVisitor->id;
-                $taskId = $activeVisitor->task_id;
+                $visitorId = $visitor->id;
+                $taskId = $visitor->task_id;
             }
 
             // Если visitor_id есть - берём task_id из него
             if ($visitorId && !$taskId) {
-                $visitor = Visitor::find($visitorId);
+                $visitor = $visitor ?? Visitor::find($visitorId);
                 $taskId = $visitor?->task_id;
+            }
+
+            if (!$requirementId && $visitor) {
+                $this->confirmVisitorForManualWeighing(
+                    $visitor,
+                    $validate['operator_user_id'] ?? null,
+                );
             }
 
             $weighing = $this->weighingService->recordWeighing(
@@ -371,6 +381,15 @@ class WeighingController extends Controller
             })
             ->orderByDesc('entry_date')
             ->first();
+    }
+
+    private function confirmVisitorForManualWeighing(Visitor $visitor, ?int $operatorUserId): void
+    {
+        $visitor->forceFill([
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $operatorUserId,
+            'confirmed_at' => now(),
+        ])->save();
     }
 
     private function isValidManualPlateNumber(?string $plateNumber): bool

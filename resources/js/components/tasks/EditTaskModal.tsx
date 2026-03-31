@@ -382,7 +382,11 @@ const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
-    const { name, type, value, checked, dataset } = e.target as HTMLInputElement & HTMLSelectElement;
+    const target = e.target;
+    const { name, value, dataset } = target;
+    const isCheckbox = target instanceof HTMLInputElement && target.type === 'checkbox';
+    const checked = target instanceof HTMLInputElement ? target.checked : false;
+
     if (dataset.index !== undefined) {
       // Nested warehouse item
       const index = Number(dataset.index);
@@ -406,7 +410,7 @@ const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
       }
     } else {
       // Top-level fields
-      if (type === 'checkbox') {
+      if (isCheckbox) {
         setFormData((prev) => ({
           ...prev,
           [name]: checked,

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { DataGrid, GridActionsCellItem, GridRowId, GridRowModesModel, GridRowModes, GridRowModel } from "@mui/x-data-grid";
+import { DataGrid, GridActionsCellItem, GridRowId, GridRowModesModel, GridRowModes, GridRowModel, GridColDef } from "@mui/x-data-grid";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { Box, useMediaQuery, CircularProgress } from "@mui/material";
 import KPPForm from '@/components/KPP/KPPForm ';
@@ -11,6 +11,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 interface Kpp {
     id: number;
     name: string;
+    code?: string | null;
 }
 
 interface kkpProps {
@@ -60,7 +61,7 @@ const KppTable: React.FC<kkpProps> = () => {
     }
 
     const processRowUpdate = (newRow: GridRowModel) => {
-        const updatedRow: Kpp = { id: newRow.id, name: newRow.name};
+        const updatedRow: Kpp = { id: newRow.id, name: newRow.name, code: newRow.code ?? null };
         setKpp(kpp.map((row) => (row.id === newRow.id ? updatedRow : row)));
 
 
@@ -85,11 +86,11 @@ const KppTable: React.FC<kkpProps> = () => {
             })
             .catch(error => console.error("Ошибка удаления:", error));
     }
-    const columns = [
+    const columns: GridColDef<Kpp>[] = [
         { field: "id", headerName: "Код", width: isMobile ? 50 : 80 },
         { field: "name", headerName: "Название", flex: 1, minWidth: 120, editable: true, },
         {
-            field: 'actions', headerName: '', width: 120, headerAlign: 'center', type: 'actions', cellClassName: 'actions', getActions: ({ id }: { id: GridRowId }) => {
+            field: 'actions', headerName: '', width: 120, headerAlign: 'center', type: 'actions' as const, cellClassName: 'actions', getActions: ({ id }: { id: GridRowId }) => {
                 const isInEditMode = rowModesModel[id]?.mode === GridRowModes.Edit;
 
                 if (isInEditMode) {

@@ -64,6 +64,18 @@ interface TruckOption {
   truck_brand_name?: string | null;
 }
 
+interface ActiveVisitorOption {
+  visitor_id: number;
+  plate_number: string;
+  entry_date: string | null;
+  task_id: number | null;
+  task_name: string | null;
+  confirmation_status: string;
+  truck_id: number | null;
+  is_exact_truck_match: boolean;
+  is_exact_plate_match: boolean;
+}
+
 interface WeighingRequirement {
   id: number;
   visitor_id: number | null;
@@ -139,6 +151,53 @@ const formatHistoryDateTime = (dateValue: string | null): string => {
   }
 
   return format(new Date(dateValue), "dd.MM HH:mm");
+};
+
+const formatVisitorDateTime = (dateValue: string | null): string => {
+  if (!dateValue) {
+    return "—";
+  }
+
+  return format(new Date(dateValue), "dd.MM.yyyy HH:mm");
+};
+
+const getConfirmationStatusLabel = (status: string): string => {
+  switch (status) {
+    case "confirmed":
+      return "Подтверждён";
+    case "pending":
+      return "Ожидает";
+    case "rejected":
+      return "Отклонён";
+    default:
+      return status;
+  }
+};
+
+const getConfirmationStatusBadgeClass = (status: string): string => {
+  switch (status) {
+    case "confirmed":
+      return "bg-emerald-100 text-emerald-700";
+    case "pending":
+      return "bg-amber-100 text-amber-700";
+    case "rejected":
+      return "bg-red-100 text-red-700";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+};
+
+const getLatestVisitor = (visitors: ActiveVisitorOption[]): ActiveVisitorOption | null => {
+  if (visitors.length === 0) {
+    return null;
+  }
+
+  return [...visitors].sort((left, right) => {
+    const leftTime = left.entry_date ? new Date(left.entry_date).getTime() : 0;
+    const rightTime = right.entry_date ? new Date(right.entry_date).getTime() : 0;
+
+    return rightTime - leftTime;
+  })[0] ?? null;
 };
 
 // Функция группировки взвешиваний по номеру ТС
@@ -228,7 +287,10 @@ const WeighingControl: React.FC = () => {
   const [truckOptions, setTruckOptions] = useState<TruckOption[]>([]);
   const [searchingTruck, setSearchingTruck] = useState(false);
   const [selectedTruck, setSelectedTruck] = useState<TruckOption | null>(null);
+  const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorOption[]>([]);
+  const [searchingVisitors, setSearchingVisitors] = useState(false);
   const [truckCreationConfirmed, setTruckCreationConfirmed] = useState(false);
+  const [weighingErrorMessage, setWeighingErrorMessage] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
 
@@ -300,6 +362,7 @@ const WeighingControl: React.FC = () => {
   }, [selectedYardId, fetchPending, fetchHistory]);
 
   const groupedHistory = groupWeighings(historyWeighings);
+  const latestActiveVisitor = getLatestVisitor(activeVisitors);
 
   const searchTrucks = useCallback(
     async (plate: string) => {
@@ -358,12 +421,63 @@ const WeighingControl: React.FC = () => {
     [headers, selectedYardId]
   );
 
+  const searchActiveVisitors = useCallback(
+    async (plate: string, exactTruckId?: number | null) => {
+      const normalizedQuery = normalizePlateInput(plate);
+
+      if (!selectedYardId || normalizedQuery.length < 3) {
+        setActiveVisitors([]);
+        return;
+      }
+
+      setSearchingVisitors(true);
+
+      try {
+        const response = await axios.post(
+          "/security/search-active-visitors-for-exit",
+          {
+            yard_id: selectedYardId,
+            plate_number: normalizedQuery,
+          },
+          { headers }
+        );
+
+        const nextVisitors: ActiveVisitorOption[] = response.data.data || [];
+
+        setActiveVisitors(nextVisitors);
+
+        const exactVisitor = nextVisitors.find((visitor) => {
+          if (exactTruckId && visitor.truck_id === exactTruckId) {
+            return true;
+          }
+
+          return visitor.is_exact_truck_match || visitor.is_exact_plate_match;
+        }) || null;
+
+        const fallbackVisitor = getLatestVisitor(nextVisitors);
+
+        setWeighFormData((prev) => ({
+          ...prev,
+          visitor_id: exactVisitor?.visitor_id ?? fallbackVisitor?.visitor_id ?? (selectedRequirement ? prev.visitor_id : null),
+        }));
+      } catch (error) {
+        console.error("Ошибка поиска активных visits:", error);
+        setActiveVisitors([]);
+      } finally {
+        setSearchingVisitors(false);
+      }
+    },
+    [headers, selectedRequirement, selectedYardId]
+  );
+
   // Обработчики
   const handleWeigh = (req: WeighingRequirement, type: "entry" | "exit") => {
     setSelectedRequirement(req);
     setSelectedTruck(null);
     setTruckOptions([]);
+    setActiveVisitors([]);
     setTruckCreationConfirmed(false);
+    setWeighingErrorMessage(null);
     setWeighFormData({
       plate_number: req.plate_number,
       weight: "",
@@ -379,7 +493,9 @@ const WeighingControl: React.FC = () => {
     setSelectedRequirement(null);
     setSelectedTruck(null);
     setTruckOptions([]);
+    setActiveVisitors([]);
     setTruckCreationConfirmed(false);
+    setWeighingErrorMessage(null);
     setWeighFormData({
       plate_number: "",
       weight: "",
@@ -394,6 +510,7 @@ const WeighingControl: React.FC = () => {
   const handlePlateInputChange = (value: string) => {
     const sanitizedPlate = sanitizePlateInput(value);
 
+    setWeighingErrorMessage(null);
     setTruckCreationConfirmed(false);
     setSelectedTruck(null);
     setWeighFormData((prev) => ({
@@ -402,9 +519,11 @@ const WeighingControl: React.FC = () => {
     }));
 
     void searchTrucks(sanitizedPlate);
+    void searchActiveVisitors(sanitizedPlate);
   };
 
   const handleTruckSelection = (truck: TruckOption | null) => {
+    setWeighingErrorMessage(null);
     setSelectedTruck(truck);
     setTruckCreationConfirmed(false);
 
@@ -413,13 +532,17 @@ const WeighingControl: React.FC = () => {
         ...prev,
         plate_number: truck.plate_number,
       }));
+      void searchActiveVisitors(truck.plate_number, truck.id);
       return;
     }
 
     setWeighFormData((prev) => ({
       ...prev,
       plate_number: sanitizePlateInput(prev.plate_number),
+      visitor_id: null,
     }));
+
+    void searchActiveVisitors(weighFormData.plate_number);
   };
 
   const confirmTruckCreation = () => {
@@ -430,11 +553,13 @@ const WeighingControl: React.FC = () => {
       return;
     }
 
+    setWeighingErrorMessage(null);
     setSelectedTruck(null);
     setTruckCreationConfirmed(true);
     setWeighFormData((prev) => ({
       ...prev,
       plate_number: normalizedPlate,
+      visitor_id: activeVisitors.find((visitor) => visitor.is_exact_plate_match)?.visitor_id ?? prev.visitor_id,
     }));
   };
 
@@ -446,6 +571,7 @@ const WeighingControl: React.FC = () => {
 
   const submitWeighing = async () => {
     const normalizedPlate = normalizePlateInput(weighFormData.plate_number);
+    setWeighingErrorMessage(null);
 
     if (!weighFormData.weight || parseFloat(weighFormData.weight) <= 0) {
       toast.error("Введите корректный вес");
@@ -501,7 +627,15 @@ const WeighingControl: React.FC = () => {
         toast.error(response.data.message || "Ошибка записи");
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Ошибка записи взвешивания");
+      const responseStatus = err.response?.status;
+      const apiMessage = err.response?.data?.message || "Ошибка записи взвешивания";
+
+      if (responseStatus === 422) {
+        setWeighingErrorMessage(apiMessage);
+        toast.error(apiMessage);
+      } else {
+        toast.error(apiMessage);
+      }
     } finally {
       setSaving(false);
     }
@@ -1026,9 +1160,6 @@ const WeighingControl: React.FC = () => {
                 disableRowSelectionOnClick
                 localeText={{
                   noRowsLabel: "Нет ожидающих взвешивания",
-                  MuiTablePagination: {
-                    labelRowsPerPage: "Строк:",
-                  },
                 }}
                 sx={{
                   bgcolor: "white",
@@ -1249,6 +1380,12 @@ const WeighingControl: React.FC = () => {
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {weighingErrorMessage && (
+              <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{weighingErrorMessage}</span>
+              </div>
+            )}
             <div>
               <Label>Номер ТС</Label>
               {selectedRequirement ? (
@@ -1305,6 +1442,45 @@ const WeighingControl: React.FC = () => {
                     <p className="text-sm text-green-600">
                       Выбрано ТС из базы: {selectedTruck.plate_number}
                     </p>
+                  )}
+                  {normalizePlateInput(weighFormData.plate_number).length >= 3 && (
+                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                      <div className="mb-2 flex items-center gap-2 font-medium text-slate-700">
+                        <User className="h-4 w-4" />
+                        Visitors по этому ТС
+                      </div>
+                      {searchingVisitors ? (
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <CircularProgress size={14} />
+                          Ищем активные визиты...
+                        </div>
+                      ) : latestActiveVisitor ? (
+                        <div className="rounded-md border bg-white p-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline">Визит #{latestActiveVisitor.visitor_id}</Badge>
+                            <Badge className="bg-green-100 text-green-700">На территории</Badge>
+                            <Badge className={cn("border-0", getConfirmationStatusBadgeClass(latestActiveVisitor.confirmation_status))}>
+                              {getConfirmationStatusLabel(latestActiveVisitor.confirmation_status)}
+                            </Badge>
+                            {latestActiveVisitor.is_exact_truck_match && (
+                              <Badge className="bg-emerald-100 text-emerald-700">Совпадает ТС</Badge>
+                            )}
+                            {latestActiveVisitor.is_exact_plate_match && (
+                              <Badge className="bg-blue-100 text-blue-700">Точный номер</Badge>
+                            )}
+                          </div>
+                          <div className="mt-2 text-xs text-slate-600">
+                            Последний visitor: на территории
+                            {latestActiveVisitor.entry_date ? ` • Въезд: ${formatVisitorDateTime(latestActiveVisitor.entry_date)}` : ""}
+                            {latestActiveVisitor.task_name ? ` • Задание: ${latestActiveVisitor.task_name}` : ""}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-slate-500">
+                          Активная запись visitors по этому ТС не найдена.
+                        </div>
+                      )}
+                    </div>
                   )}
                   {!selectedTruck && normalizePlateInput(weighFormData.plate_number).length >= 3 && (
                     <div className="rounded-md border border-dashed p-3 text-sm">

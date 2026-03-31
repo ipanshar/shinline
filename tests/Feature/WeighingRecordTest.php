@@ -53,6 +53,7 @@ class WeighingRecordTest extends TestCase
             'user_id' => $user->id,
             'entry_date' => now(),
             'exit_date' => null,
+            'confirmation_status' => Visitor::CONFIRMATION_PENDING,
         ]);
 
         Sanctum::actingAs($user);
@@ -81,6 +82,12 @@ class WeighingRecordTest extends TestCase
             'visitor_id' => $visitor->id,
             'plate_number' => 'A123BC777',
             'weighing_type' => 'entry',
+        ]);
+
+        $this->assertDatabaseHas('visitors', [
+            'id' => $visitor->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
         ]);
     }
 
@@ -124,6 +131,7 @@ class WeighingRecordTest extends TestCase
             'user_id' => $user->id,
             'entry_date' => now()->subHour(),
             'exit_date' => null,
+            'confirmation_status' => Visitor::CONFIRMATION_PENDING,
         ]);
 
         Sanctum::actingAs($user);
@@ -147,6 +155,12 @@ class WeighingRecordTest extends TestCase
             'visitor_id' => $visitor->id,
             'plate_number' => 'C789DE777',
             'weighing_type' => 'entry',
+        ]);
+
+        $this->assertDatabaseHas('visitors', [
+            'id' => $visitor->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
         ]);
     }
 

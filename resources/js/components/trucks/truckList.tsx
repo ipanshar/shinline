@@ -1,49 +1,22 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import TruckCard from "@/components/trucks/truckCard";
+import type { TruckCardTruck } from "@/components/trucks/truckCard";
 import Pagination from "@/components/pagination"
 import AddTruckModal from "./AddTruckModal";
 import EditTruckModal from "./EditTruckModal";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
-interface Truck {
-    id: number;
-    name: string | undefined;
-    user_id: number | undefined;
-    plate_number: string;
-    vin: string | undefined;
-    truck_brand_id: number | undefined;
-    truck_model_id: number | undefined;
-    color: string | undefined;
-    trailer_model_id: number | undefined;
-    trailer_type_id: number | undefined;
-    trailer_number: string | undefined;
-    trailer_height: number | undefined;
-    trailer_width: number | undefined;
-    trailer_length: number | undefined;
-    trailer_load_capacity: number | undefined;
-    truck_category_id: number | undefined;
-    created_at: string;
-    updated_at: string;
-    user_name: string | undefined;
-    truck_brand_name: string | undefined;
-    truck_model_name: string | undefined;
-    truck_categories_name: string | undefined;
-    trailer_type_name: string | undefined;
-    trailer_model_name: string | undefined;
-    truck_own: any;
-}
-
 const TruckList: React.FC = () => {
-    const [trucks, setTrucks] = useState<Truck[]>([]);
+    const [trucks, setTrucks] = useState<TruckCardTruck[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [lastPage, setLastPage] = useState<number>(1);
     const [plate_number, setPlate_number] = useState<string>('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
+    const [selectedTruck, setSelectedTruck] = useState<TruckCardTruck | null>(null);
     const fetchTrucksData = async () => {
         setLoading(true); // Начинаем загрузку
         try {
@@ -75,7 +48,7 @@ const TruckList: React.FC = () => {
         setCurrentPage(page);
     };
 
-    const handleEdit = (truck: Truck) => {
+    const handleEdit = (truck: TruckCardTruck) => {
         setSelectedTruck(truck);
         setIsEditModalOpen(true);
     };

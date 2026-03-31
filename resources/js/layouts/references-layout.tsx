@@ -11,13 +11,11 @@ const sidebarNavItems: NavItem[] = [
         title: 'Контрагенты',
         href: '/references',
         icon: null,
-        role: '',
     },
     {
         title: 'Пусто',
         href: '/references/empty',
         icon: null,
-        role: '',
     },
 ];
 

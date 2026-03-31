@@ -103,15 +103,12 @@ const OperatorWorkplace = () => {
   };
 
   return (
-    <AppLayout
-      header={
-        <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-          Рабочее место оператора
-        </h2>
-      }
-    >
+    <AppLayout>
       <TaskLayouts>
         <div className="p-6 space-y-6">
+          <h2 className="font-semibold text-xl text-gray-800 leading-tight">
+            Рабочее место оператора
+          </h2>
           {/* Заголовок и выбор задания */}
           <div className="bg-white rounded-lg shadow-sm p-6 border">
             <div className="flex items-center justify-between mb-4">

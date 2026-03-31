@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { TextField, Button, Box, Checkbox, FormControlLabel, Grid } from "@mui/material";
+import { TextField, Button, Box, Checkbox, FormControlLabel } from "@mui/material";
 import { FileSpreadsheet } from "lucide-react";
 
 interface Counterparty {
@@ -144,8 +144,8 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
 
             {error && <p style={{ color: "red" }}>{error}</p>}
 
-            <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" }, gap: 2 }}>
+                <Box>
                     <TextField
                         label="Название *"
                         name="name"
@@ -154,9 +154,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         onChange={handleChange}
                         required
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12} sm={6}>
+                <Box>
                     <TextField
                         label="ИНН *"
                         name="inn"
@@ -165,9 +165,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         onChange={handleChange}
                         required
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12}>
+                <Box sx={{ gridColumn: { xs: "1", sm: "1 / -1" } }}>
                     <TextField
                         label="Адрес"
                         name="address"
@@ -175,9 +175,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         value={formData.address}
                         onChange={handleChange}
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12} sm={6}>
+                <Box>
                     <TextField
                         label="Телефон"
                         name="phone"
@@ -185,9 +185,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         value={formData.phone}
                         onChange={handleChange}
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12} sm={6}>
+                <Box>
                     <TextField
                         label="WhatsApp"
                         name="whatsapp"
@@ -195,9 +195,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         value={formData.whatsapp}
                         onChange={handleChange}
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12}>
+                <Box sx={{ gridColumn: { xs: "1", sm: "1 / -1" } }}>
                     <TextField
                         label="Email"
                         name="email"
@@ -206,9 +206,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         value={formData.email}
                         onChange={handleChange}
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12} sm={6}>
+                <Box>
                     <TextField
                         label="Руководитель"
                         name="supervisor"
@@ -216,9 +216,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         value={formData.supervisor}
                         onChange={handleChange}
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12} sm={6}>
+                <Box>
                     <TextField
                         label="Контактное лицо"
                         name="contact_person"
@@ -226,9 +226,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         value={formData.contact_person}
                         onChange={handleChange}
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12}>
+                <Box sx={{ gridColumn: { xs: "1", sm: "1 / -1" } }}>
                     <FormControlLabel
                         control={
                             <Checkbox
@@ -239,9 +239,9 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                         }
                         label="Международный перевозчик"
                     />
-                </Grid>
+                </Box>
 
-                <Grid item xs={12}>
+                <Box sx={{ gridColumn: { xs: "1", sm: "1 / -1" } }}>
                     <Box sx={{ display: "flex", gap: 2 }}>
                         <Button 
                             variant="contained" 
@@ -270,8 +270,8 @@ const CounterpartyForm: React.FC<CounterpartyFormProps> = ({
                             </Button>
                         )}
                     </Box>
-                </Grid>
-            </Grid>
+                </Box>
+            </Box>
         </Box>
     );
 };

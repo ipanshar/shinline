@@ -95,10 +95,13 @@ const AddTruckModal: React.FC<{ isOpen: boolean; onClose: () => void; onTruckAdd
     fetchReferenceData();
   }, []);   
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type, checked } = e.target as HTMLInputElement & HTMLSelectElement;
+    const target = e.target;
+    const { name, value } = target;
+    const isCheckbox = target instanceof HTMLInputElement && target.type === 'checkbox';
+    const checked = target instanceof HTMLInputElement ? target.checked : false;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: isCheckbox ? checked : value
     }));
   };
 

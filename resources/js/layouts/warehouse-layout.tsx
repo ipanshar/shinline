@@ -11,13 +11,11 @@ const sidebarNavItems: NavItem[] = [
         title:  'Склады',
         href: '/warehouses',
         icon: null,
-        role:'',
     },
     {
         title:  'Ворота',
         href: '/warehouses/gate',
         icon: null,
-        role:'',
     },
 ];
 

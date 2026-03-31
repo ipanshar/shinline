@@ -22,23 +22,37 @@ InfoRow.propTypes = {
 };
 
 // Типизация пропсов грузовика
-interface Truck {
+export interface TruckCardTruck {
     id: number;
+    name: string | undefined;
+    user_id: number | undefined;
     truck_own: any;
-    truck_model_name?: string;
-    plate_number?: string;
-    truck_brand_name?: string;
-    truck_categories_name?: string;
-    color?: string;
-    vin?: string;
-    trailer_model_name?: string;
-    trailer_type_name?: string;
+    plate_number: string;
+    truck_model_name: string | undefined;
+    truck_brand_name: string | undefined;
+    truck_categories_name: string | undefined;
+    color: string | undefined;
+    vin: string | undefined;
+    truck_brand_id: number | undefined;
+    truck_model_id: number | undefined;
+    trailer_model_id: number | undefined;
+    trailer_type_id: number | undefined;
+    trailer_number: string | undefined;
+    trailer_height: number | undefined;
+    trailer_width: number | undefined;
+    trailer_length: number | undefined;
+    trailer_load_capacity: number | undefined;
+    truck_category_id: number | undefined;
+    updated_at: string;
+    user_name: string | undefined;
+    trailer_model_name: string | undefined;
+    trailer_type_name: string | undefined;
     created_at: string | number | Date;
 }
 
 interface TruckCardProps {
-    truck: Truck;
-    onEdit?: (truck: Truck) => void;
+    truck: TruckCardTruck;
+    onEdit?: (truck: TruckCardTruck) => void;
 }
 
 // Основная карточка грузовика

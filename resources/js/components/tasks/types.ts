@@ -8,6 +8,9 @@ export type TaskLoading = {
   warehouse_name: string;
   warehouse_gate_plan_name: string;
   warehouse_gate_fact_name: string;
+  plane_date: string;
+  arrival_at: string | null;
+  departure_at: string | null;
 };
 
 export type Task = {
