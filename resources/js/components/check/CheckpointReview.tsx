@@ -43,6 +43,8 @@ type CheckpointQueueItem = {
   visitor_id: number;
   plate_number: string;
   original_plate_number?: string | null;
+  confirmation_status: 'pending' | 'confirmed' | 'rejected';
+  confirmed_at?: string | null;
   entry_date: string;
   recognition_confidence?: number | null;
   yard_id: number;
@@ -747,6 +749,9 @@ const CheckpointReview: React.FC = () => {
             <div className="space-y-3">
               {queue.map((item) => {
                 const isProcessing = processingVisitorId === item.visitor_id;
+                const isConfirmed = item.confirmation_status === 'confirmed';
+                const isRejected = item.confirmation_status === 'rejected';
+                const isResolved = isConfirmed || isRejected;
 
                 return (
                   <div key={item.visitor_id} className="overflow-hidden rounded-xl border bg-card">
@@ -780,6 +785,12 @@ const CheckpointReview: React.FC = () => {
                           {item.original_plate_number && item.original_plate_number !== item.plate_number && (
                             <Badge variant="outline">OCR: {item.original_plate_number}</Badge>
                           )}
+                          <Badge
+                            variant={isConfirmed ? 'default' : 'secondary'}
+                            className={isRejected ? 'bg-red-100 text-red-700 hover:bg-red-100' : undefined}
+                          >
+                            {isConfirmed ? 'Въезд подтверждён' : isRejected ? 'Въезд отклонён' : 'Ожидает решения'}
+                          </Badge>
                           <Badge className={getConfidenceBadgeClass(item.recognition_confidence)}>
                             {item.recognition_confidence != null ? `${item.recognition_confidence}%` : 'Уверенность n/a'}
                           </Badge>
@@ -804,10 +815,28 @@ const CheckpointReview: React.FC = () => {
                           Последняя фиксация: <span className="font-medium text-foreground">{formatRelativeSeconds(item.capture_time || item.entry_date)}</span>
                         </div>
 
-                        {item.pending_reason_text && (
+                        {!isResolved && item.pending_reason_text && (
                           <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                             <span>{item.pending_reason_text}</span>
+                          </div>
+                        )}
+
+                        {isConfirmed && (
+                          <div className="flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>
+                              Въезд уже подтверждён{item.confirmed_at ? `: ${formatDateTime(item.confirmed_at)}` : ''}
+                            </span>
+                          </div>
+                        )}
+
+                        {isRejected && (
+                          <div className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950/30 dark:text-red-300">
+                            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>
+                              Въезд был отклонён{item.confirmed_at ? `: ${formatDateTime(item.confirmed_at)}` : ''}
+                            </span>
                           </div>
                         )}
 
@@ -848,16 +877,22 @@ const CheckpointReview: React.FC = () => {
                         <div className="text-right text-xs text-muted-foreground">
                           Visitor #{item.visitor_id}
                         </div>
-                        <div className="flex flex-col gap-2">
-                          <Button onClick={() => openConfirmDialog(item)} disabled={isProcessing} className="w-full">
-                            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                            Разрешить въезд
-                          </Button>
-                          <Button variant="destructive" onClick={() => handleReject(item)} disabled={isProcessing} className="w-full">
-                            <XCircle className="h-4 w-4" />
-                            Отклонить
-                          </Button>
-                        </div>
+                        {isResolved ? (
+                          <div className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                            {isConfirmed ? 'Действия недоступны для подтверждённого въезда' : 'Действия недоступны для отклонённого въезда'}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <Button onClick={() => openConfirmDialog(item)} disabled={isProcessing} className="w-full">
+                              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                              Разрешить въезд
+                            </Button>
+                            <Button variant="destructive" onClick={() => handleReject(item)} disabled={isProcessing} className="w-full">
+                              <XCircle className="h-4 w-4" />
+                              Отклонить
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

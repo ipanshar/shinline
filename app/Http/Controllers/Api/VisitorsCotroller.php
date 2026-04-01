@@ -830,7 +830,11 @@ class VisitorsCotroller extends Controller
             $limit = $validate['limit'] ?? 20;
 
             $visitors = Visitor::query()
-                ->where('visitors.confirmation_status', Visitor::CONFIRMATION_PENDING)
+                ->whereIn('visitors.confirmation_status', [
+                    Visitor::CONFIRMATION_PENDING,
+                    Visitor::CONFIRMATION_CONFIRMED,
+                    Visitor::CONFIRMATION_REJECTED,
+                ])
                 ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
                 ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
                 ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
@@ -872,12 +876,24 @@ class VisitorsCotroller extends Controller
                 );
 
                 $visitor->permit_id = $permit?->id;
-                $pendingReason = $this->determinePendingReason($visitor);
+                $pendingReason = match ($visitor->confirmation_status) {
+                    Visitor::CONFIRMATION_CONFIRMED => [
+                        'code' => 'confirmed',
+                        'text' => 'Въезд подтверждён',
+                    ],
+                    Visitor::CONFIRMATION_REJECTED => [
+                        'code' => 'rejected',
+                        'text' => 'Въезд отклонён',
+                    ],
+                    default => $this->determinePendingReason($visitor),
+                };
 
                 return [
                     'visitor_id' => $visitor->id,
                     'plate_number' => $visitor->plate_number,
                     'original_plate_number' => $visitor->original_plate_number,
+                    'confirmation_status' => $visitor->confirmation_status,
+                    'confirmed_at' => $visitor->confirmed_at?->format('Y-m-d H:i:s'),
                     'entry_date' => $visitor->entry_date,
                     'recognition_confidence' => $visitor->recognition_confidence,
                     'yard_id' => $visitor->yard_id,
