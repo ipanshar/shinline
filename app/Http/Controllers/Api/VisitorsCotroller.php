@@ -1076,7 +1076,7 @@ class VisitorsCotroller extends Controller
 
             $reviewsQuery = CheckpointExitReview::query()
                 ->where('checkpoint_id', $validate['checkpoint_id'])
-                ->where('status', 'pending')
+                ->whereIn('status', ['pending', 'confirmed', 'rejected'])
                 ->orderByDesc('capture_time');
 
             $totalCount = (clone $reviewsQuery)->count();
@@ -1093,6 +1093,9 @@ class VisitorsCotroller extends Controller
 
                 return [
                     'review_id' => $review->id,
+                    'status' => $review->status,
+                    'resolved_at' => $review->resolved_at?->format('Y-m-d H:i:s'),
+                    'resolved_visitor_id' => $review->resolved_visitor_id,
                     'plate_number' => $review->plate_number,
                     'capture_time' => $review->capture_time,
                     'recognition_confidence' => $review->recognition_confidence,
@@ -1106,7 +1109,7 @@ class VisitorsCotroller extends Controller
                     'note' => $review->note,
                     'capture_picture_url' => $this->buildCapturePictureUrl($capture),
                     'capture_plate_picture_url' => $this->buildPlatePictureUrl($capture),
-                    'candidate_visitors' => $this->findActiveVisitorsForExitReview($review),
+                    'candidate_visitors' => $this->getExitReviewVisitors($review),
                 ];
             })->values();
 
@@ -1638,6 +1641,33 @@ class VisitorsCotroller extends Controller
         }
 
         return $capture->plateNoPicture;
+    }
+
+    private function getExitReviewVisitors(CheckpointExitReview $review): array
+    {
+        if ($review->status !== 'pending' && $review->resolved_visitor_id) {
+            $resolvedVisitor = Visitor::query()
+                ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
+                ->select('visitors.*', 'tasks.name as task_name')
+                ->where('visitors.id', $review->resolved_visitor_id)
+                ->first();
+
+            if ($resolvedVisitor) {
+                return [[
+                    'visitor_id' => $resolvedVisitor->id,
+                    'plate_number' => $resolvedVisitor->plate_number,
+                    'entry_date' => $resolvedVisitor->entry_date,
+                    'task_id' => $resolvedVisitor->task_id,
+                    'task_name' => $resolvedVisitor->task_name,
+                    'confirmation_status' => $resolvedVisitor->confirmation_status,
+                    'truck_id' => $resolvedVisitor->truck_id,
+                    'is_exact_truck_match' => $review->truck_id ? (int) $resolvedVisitor->truck_id === (int) $review->truck_id : false,
+                    'is_exact_plate_match' => $this->normalizePlateNumber((string) $resolvedVisitor->plate_number) === $review->normalized_plate,
+                ]];
+            }
+        }
+
+        return $this->findActiveVisitorsForExitReview($review);
     }
 
     private function findActiveVisitorsForExitReview(CheckpointExitReview $review): array

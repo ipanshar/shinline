@@ -166,6 +166,7 @@ class DssVisitorFlowService
             $visitor = $visitorQuery->orderBy('id', 'desc')->first();
             if ($visitor) {
                 $this->closeVisitorExit($visitor, $device, $captureTime);
+                $this->createConfirmedExitReview($visitor, $device, $zone, $plateNo, $captureTime, $captureData);
             } else {
                 $this->createPendingExitReview($device, $zone, $truck, $plateNo, $captureTime, $captureData);
             }
@@ -456,5 +457,35 @@ class DssVisitorFlowService
             'capture_time' => $captureTime?->toDateTimeString(),
             'vehicle_capture_id' => $captureData['vehicle_capture_id'] ?? null,
         ]);
+    }
+
+    private function createConfirmedExitReview(
+        Visitor $visitor,
+        Devaice $device,
+        Zone $zone,
+        string $plateNo,
+        $captureTime,
+        array $captureData = []
+    ): void {
+        if (!$device->checkpoint_id) {
+            return;
+        }
+
+        $normalizedPlate = $this->normalizePlate($plateNo);
+        $review = new CheckpointExitReview();
+        $review->vehicle_capture_id = $captureData['vehicle_capture_id'] ?? null;
+        $review->device_id = $device->id;
+        $review->checkpoint_id = $device->checkpoint_id;
+        $review->yard_id = $zone->yard_id;
+        $review->truck_id = $visitor->truck_id;
+        $review->plate_number = $plateNo;
+        $review->normalized_plate = $normalizedPlate;
+        $review->recognition_confidence = $captureData['confidence'] ?? null;
+        $review->capture_time = $captureTime ?? now();
+        $review->status = 'confirmed';
+        $review->note = 'Выезд подтверждён автоматически: активный визит найден и закрыт без участия оператора.';
+        $review->resolved_at = $captureTime ?? now();
+        $review->resolved_visitor_id = $visitor->id;
+        $review->save();
     }
 }

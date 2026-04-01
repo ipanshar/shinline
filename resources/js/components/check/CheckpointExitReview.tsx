@@ -46,6 +46,9 @@ type ExitCandidate = {
 
 type ExitReviewItem = {
   review_id: number;
+  status: 'pending' | 'confirmed' | 'rejected';
+  resolved_at?: string | null;
+  resolved_visitor_id?: number | null;
   plate_number: string;
   capture_time?: string | null;
   recognition_confidence?: number | null;
@@ -114,6 +117,17 @@ const getConfirmationStatusLabel = (status: string) => {
       return 'Отклонён';
     default:
       return status;
+  }
+};
+
+const getExitReviewStatusLabel = (status: ExitReviewItem['status']) => {
+  switch (status) {
+    case 'confirmed':
+      return 'Выезд подтверждён';
+    case 'rejected':
+      return 'Выезд отклонён';
+    default:
+      return 'Ожидает решения';
   }
 };
 
@@ -433,7 +447,7 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                 Проверка выезда на КПП
               </CardTitle>
               <CardDescription>
-                Очередь спорных выездов: камера зафиксировала ТС, но визит нельзя было уверенно закрыть автоматически.
+                Лента выездов по выбранному КПП: спорные, подтверждённые и отклонённые события.
               </CardDescription>
             </div>
 
@@ -564,7 +578,7 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
 
           {!selectedCheckpointId ? (
             <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Выберите КПП, чтобы загрузить очередь спорных выездов.
+              Выберите КПП, чтобы загрузить события выезда.
             </div>
           ) : loadingQueue && queue.length === 0 ? (
             <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-sm text-muted-foreground">
@@ -573,12 +587,15 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
             </div>
           ) : queue.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Для выбранного КПП спорных выездов нет.
+              Для выбранного КПП событий выезда пока нет.
             </div>
           ) : (
             <div className="space-y-3">
               {queue.map((item) => {
                 const isProcessing = processingReviewId === item.review_id;
+                const isResolved = item.status !== 'pending';
+                const isConfirmed = item.status === 'confirmed';
+                const isRejected = item.status === 'rejected';
 
                 return (
                   <div key={item.review_id} className="overflow-hidden rounded-xl border bg-card">
@@ -609,6 +626,12 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-2xl font-bold tracking-wide">{item.plate_number}</span>
+                          <Badge
+                            variant={isConfirmed ? 'default' : 'secondary'}
+                            className={isRejected ? 'bg-red-100 text-red-700 hover:bg-red-100' : undefined}
+                          >
+                            {getExitReviewStatusLabel(item.status)}
+                          </Badge>
                           <Badge className={getConfidenceBadgeClass(item.recognition_confidence)}>
                             {item.recognition_confidence != null ? `${item.recognition_confidence}%` : 'Уверенность n/a'}
                           </Badge>
@@ -631,24 +654,33 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                             <div className="mt-1 font-medium">{item.yard_name || '—'}</div>
                           </div>
                           <div className="rounded-lg border bg-muted/30 p-3">
-                            <div className="text-xs text-muted-foreground">Причина</div>
-                            <div className="mt-1 text-sm font-medium">{item.note || 'Нужна проверка оператора'}</div>
+                            <div className="text-xs text-muted-foreground">Статус / примечание</div>
+                            <div className="mt-1 text-sm font-medium">{item.note || (isResolved ? 'Событие обработано' : 'Нужна проверка оператора')}</div>
+                            {item.resolved_at && (
+                              <div className="mt-1 text-xs text-muted-foreground">Обработано: {formatDateTime(item.resolved_at)}</div>
+                            )}
                           </div>
                         </div>
 
-                        <div className="rounded-lg border border-orange-200 bg-orange-50/80 p-3">
-                          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-orange-900">
+                        <div className={`rounded-lg border p-3 ${isResolved ? 'border-slate-200 bg-slate-50/80' : 'border-orange-200 bg-orange-50/80'}`}>
+                          <div className={`mb-2 flex items-center gap-2 text-sm font-medium ${isResolved ? 'text-slate-900' : 'text-orange-900'}`}>
                             <Truck className="h-4 w-4" />
-                            Активные визиты-кандидаты
+                            {isResolved ? 'Связанные визиты' : 'Активные визиты-кандидаты'}
                           </div>
                           {item.candidate_visitors.length === 0 ? (
-                            <div className="text-sm text-orange-900/80">
-                              Активные визиты по этому номеру не найдены. Событие можно отклонить или позже сопоставить вручную.
+                            <div className={`text-sm ${isResolved ? 'text-slate-700' : 'text-orange-900/80'}`}>
+                              {isResolved
+                                ? 'Связанный визит для этого события не найден.'
+                                : 'Активные визиты по этому номеру не найдены. Событие можно отклонить или позже сопоставить вручную.'}
                             </div>
                           ) : (
                             <div className="flex flex-wrap gap-2">
                               {item.candidate_visitors.map((candidate) => (
-                                <Badge key={candidate.visitor_id} variant="outline" className="border-orange-300 bg-white text-orange-900">
+                                <Badge
+                                  key={candidate.visitor_id}
+                                  variant="outline"
+                                  className={isResolved ? 'border-slate-300 bg-white text-slate-900' : 'border-orange-300 bg-white text-orange-900'}
+                                >
                                   #{candidate.visitor_id} • {candidate.plate_number} • {getConfirmationStatusLabel(candidate.confirmation_status)}
                                   {candidate.task_name ? ` • ${candidate.task_name}` : ''}
                                 </Badge>
@@ -659,14 +691,22 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                       </div>
 
                       <div className="flex flex-col gap-2 xl:w-48">
-                        <Button onClick={() => openConfirmDialog(item)} disabled={isProcessing}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Подтвердить выезд
-                        </Button>
-                        <Button variant="destructive" onClick={() => handleReject(item)} disabled={isProcessing}>
-                          <XCircle className="h-4 w-4" />
-                          Отклонить
-                        </Button>
+                        {isResolved ? (
+                          <div className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                            {isConfirmed ? 'Действия недоступны для подтверждённого выезда' : 'Действия недоступны для отклонённого выезда'}
+                          </div>
+                        ) : (
+                          <>
+                            <Button onClick={() => openConfirmDialog(item)} disabled={isProcessing}>
+                              <CheckCircle2 className="h-4 w-4" />
+                              Подтвердить выезд
+                            </Button>
+                            <Button variant="destructive" onClick={() => handleReject(item)} disabled={isProcessing}>
+                              <XCircle className="h-4 w-4" />
+                              Отклонить
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
