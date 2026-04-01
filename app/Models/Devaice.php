@@ -12,6 +12,7 @@ class Devaice extends Model
         'checkpoint_id',
         'type',
         'zone_id',
+    'barrier_channel_id',
     ];
 
     // Связь с зоной

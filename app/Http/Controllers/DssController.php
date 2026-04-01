@@ -216,6 +216,7 @@ class DssController extends Controller
             'checkpoint_id' => ['nullable', 'integer', 'exists:checkpoints,id'],
             'type' => ['required', 'string', Rule::in(['Entry', 'Exit'])],
             'zone_id' => ['nullable', 'integer', 'exists:zones,id'],
+            'barrier_channel_id' => ['nullable', 'string', 'max:255'],
         ]);
 
         $devaices = Devaice::where('id', $validated['id'])->get();
@@ -229,6 +230,7 @@ class DssController extends Controller
                 'checkpoint_id' => $validated['checkpoint_id'] ?? null,
                 'type' => $validated['type'],
                 'zone_id' => $validated['zone_id'] ?? null,
+                'barrier_channel_id' => $validated['barrier_channel_id'] ?? null,
             ]);
         }
 

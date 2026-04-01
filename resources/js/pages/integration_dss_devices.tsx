@@ -25,6 +25,7 @@ interface Device{
     checkpoint_id: number;
     type: string;
     zone_id: number | null;
+    barrier_channel_id: string | null;
 }
 
 interface Zone {
@@ -108,6 +109,7 @@ export default function Integration_dss() {
                 checkpoint_id: newRow.checkpoint_id || 0,
                 type: newRow.type || '',
                 zone_id: newRow.zone_id === '' || newRow.zone_id === null || newRow.zone_id === undefined ? null : parseInt(newRow.zone_id.toString(), 10),
+                barrier_channel_id: newRow.barrier_channel_id === '' || newRow.barrier_channel_id === null || newRow.barrier_channel_id === undefined ? null : newRow.barrier_channel_id.toString(),
             };
 
             const response = await axios.post('/dss/dssdevices/update', updatedRow);
@@ -133,6 +135,14 @@ export default function Integration_dss() {
         { field: "id", headerName: "ИД", width: isMobile ? 50 : 80 },
         { field: "channelId", headerName: "channelId", flex: 1, minWidth: 120 },
         { field: "channelName", headerName: "channelName", flex: 1, minWidth: 120, editable: true },
+        {
+            field: "barrier_channel_id",
+            headerName: "channelId шлагбаума",
+            flex: 1,
+            minWidth: 180,
+            editable: true,
+            renderCell: (params: any) => params.value || 'Не задано'
+        },
         { 
             field: "checkpoint_id", 
             headerName: "КПП", 
