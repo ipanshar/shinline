@@ -983,11 +983,8 @@ class VisitorsCotroller extends Controller
                 ], 200);
             }
 
-            $originalPlate = strtoupper(trim($validate['plate_number']));
-            $truck = Truck::whereRaw(
-                "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
-                [$normalizedPlate]
-            )->first();
+            $originalPlate = Truck::normalizePlateNumber($validate['plate_number']) ?? strtoupper(trim($validate['plate_number']));
+            $truck = $this->resolveOrCreateTruckByPlate($originalPlate);
 
             $permit = $truck ? $this->getActivePermitForTruck($truck->id, $yard->id) : null;
             $task = $permit?->task_id ? Task::find($permit->task_id) : null;
@@ -1021,16 +1018,14 @@ class VisitorsCotroller extends Controller
 
             // Создание разового пропуска если запрошено
             if (!empty($validate['create_permit']) && $truck && !$permit) {
-                $activeStatus = Status::where('key', 'active')->first();
-                if ($activeStatus) {
-                    $newPermit = EntryPermit::create([
-                        'truck_id' => $truck->id,
-                        'yard_id' => $yard->id,
-                        'one_permission' => true,
-                        'weighing_required' => !empty($validate['create_weighing']),
-                        'status_id' => $activeStatus->id,
-                        'granted_by_user_id' => $request->user()?->id,
-                    ]);
+                $newPermit = $this->createOneTimePermit(
+                    $truck->id,
+                    $yard->id,
+                    $request->user()?->id,
+                    !empty($validate['create_weighing'])
+                );
+
+                if ($newPermit) {
                     $visitor->update(['entry_permit_id' => $newPermit->id]);
                 }
             }
@@ -1382,6 +1377,8 @@ class VisitorsCotroller extends Controller
                 'task_id' => 'nullable|integer|exists:tasks,id',
                 'corrected_plate_number' => 'nullable|string|max:50',
                 'comment' => 'nullable|string|max:500',
+                'create_permit' => 'nullable|boolean',
+                'create_weighing' => 'nullable|boolean',
             ]);
 
             $visitor = Visitor::find($validate['visitor_id']);
@@ -1395,7 +1392,10 @@ class VisitorsCotroller extends Controller
 
             $truck = null;
             $task = null;
-            $correctedPlate = $validate['corrected_plate_number'] ?? $visitor->plate_number;
+            $correctedPlate = Truck::normalizePlateNumber($validate['corrected_plate_number'] ?? $visitor->plate_number)
+                ?? ($validate['corrected_plate_number'] ?? $visitor->plate_number);
+            $shouldCreatePermit = !empty($validate['create_permit']);
+            $shouldCreateWeighing = !empty($validate['create_weighing']);
 
             // Если передан truck_id - используем его
             if (!empty($validate['truck_id'])) {
@@ -1404,7 +1404,7 @@ class VisitorsCotroller extends Controller
             // Иначе ищем по скорректированному номеру
             else if ($correctedPlate) {
                 $normalizedPlate = $this->normalizePlateNumber($correctedPlate);
-                $truck = Truck::whereRaw("REPLACE(LOWER(plate_number), ' ', '') = ?", [$normalizedPlate])->first();
+                $truck = $this->findTruckByNormalizedPlate($normalizedPlate);
             }
 
             // Если передан task_id - используем его
@@ -1433,11 +1433,26 @@ class VisitorsCotroller extends Controller
                 }
             }
 
+            if (!$truck && $correctedPlate) {
+                $truck = $this->resolveOrCreateTruckByPlate($correctedPlate);
+            }
+
+            $permit = $truck
+                ? $this->getActivePermitForTruck($truck->id, $visitor->yard_id)
+                : null;
+
+            if ($shouldCreatePermit && $truck && !$permit) {
+                $permit = $this->createOneTimePermit(
+                    $truck->id,
+                    $visitor->yard_id,
+                    $validate['operator_user_id'],
+                    $shouldCreateWeighing
+                );
+            }
+
             // Проверка строгого режима
             $yard = Yard::find($visitor->yard_id);
-            $hasPermit = $truck
-                ? $this->confirmationService->hasActivePermitForTruck($truck->id, $visitor->yard_id)
-                : false;
+            $hasPermit = $permit !== null;
             
             if ($yard && $yard->strict_mode && !$hasPermit) {
                 return response()->json([
@@ -1454,6 +1469,7 @@ class VisitorsCotroller extends Controller
                 'task_id' => $task?->id,
                 'truck_category_id' => $truck?->truck_category_id,
                 'truck_brand_id' => $truck?->truck_brand_id,
+                'entry_permit_id' => $permit?->id,
                 'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
                 'confirmed_by_user_id' => $validate['operator_user_id'],
                 'confirmed_at' => now(),
@@ -1574,6 +1590,50 @@ class VisitorsCotroller extends Controller
     private function normalizePlateNumber(string $plate): string
     {
         return strtolower(str_replace([' ', '-'], '', $plate));
+    }
+
+    private function findTruckByNormalizedPlate(?string $normalizedPlate): ?Truck
+    {
+        if (empty($normalizedPlate)) {
+            return null;
+        }
+
+        return Truck::whereRaw(
+            "REPLACE(REPLACE(LOWER(plate_number), ' ', ''), '-', '') = ?",
+            [$normalizedPlate]
+        )->first();
+    }
+
+    private function resolveOrCreateTruckByPlate(?string $plateNumber): ?Truck
+    {
+        $normalizedPlate = Truck::normalizePlateNumber($plateNumber);
+
+        if (empty($normalizedPlate)) {
+            return null;
+        }
+
+        return $this->findTruckByNormalizedPlate(strtolower($normalizedPlate))
+            ?? Truck::create([
+                'plate_number' => $normalizedPlate,
+            ]);
+    }
+
+    private function createOneTimePermit(int $truckId, int $yardId, ?int $grantedByUserId, bool $weighingRequired = false): ?EntryPermit
+    {
+        $activeStatus = Status::where('key', 'active')->first();
+
+        if (!$activeStatus) {
+            return null;
+        }
+
+        return EntryPermit::create([
+            'truck_id' => $truckId,
+            'yard_id' => $yardId,
+            'one_permission' => true,
+            'weighing_required' => $weighingRequired,
+            'status_id' => $activeStatus->id,
+            'granted_by_user_id' => $grantedByUserId,
+        ]);
     }
 
     private function getActivePermitForTruck(int $truckId, int $yardId): ?EntryPermit

@@ -104,6 +104,12 @@ type ManualTruckSearchResult = {
   driver_name?: string;
 };
 
+type ConfirmResolvedTruck = {
+  truckId: number | null;
+  hasPermit: boolean;
+  isNew: boolean;
+};
+
 const getConfidenceBadgeClass = (confidence?: number | null) => {
   if (confidence == null) return 'bg-gray-100 text-gray-700';
   if (confidence >= 90) return 'bg-emerald-100 text-emerald-700';
@@ -140,6 +146,8 @@ const formatRelativeSeconds = (value?: string | null) => {
 
   return `${seconds}с назад`;
 };
+
+const normalizePlateNumber = (value?: string | null) => value?.replace(/[\s-]+/g, '').toUpperCase() ?? '';
 
 const CheckpointReview: React.FC = () => {
   const [reviewMode, setReviewMode] = useState<'entry' | 'exit'>('entry');
@@ -202,6 +210,48 @@ const CheckpointReview: React.FC = () => {
     () => manualTruckResults.find((truck) => truck.plate_number.toUpperCase() === manualPlateNumber.trim().toUpperCase()) ?? null,
     [manualPlateNumber, manualTruckResults],
   );
+
+  const resolvedConfirmTruck = useMemo<ConfirmResolvedTruck>(() => {
+    const normalizedCorrectedPlate = normalizePlateNumber(confirmDialog.correctedPlate);
+    const selectedTruckCandidate = searchResults.find((truck) => truck.truck_id === confirmDialog.selectedTruckId) ?? null;
+    const selectedTruck = selectedTruckCandidate && normalizePlateNumber(selectedTruckCandidate.plate_number) === normalizedCorrectedPlate
+      ? selectedTruckCandidate
+      : null;
+
+    if (selectedTruck) {
+      return {
+        truckId: selectedTruck.truck_id,
+        hasPermit: selectedTruck.has_permit,
+        isNew: false,
+      };
+    }
+
+    if (!normalizedCorrectedPlate) {
+      return {
+        truckId: null,
+        hasPermit: confirmDialog.item?.has_permit ?? false,
+        isNew: false,
+      };
+    }
+
+    const matchedByPlate = searchResults.find(
+      (truck) => normalizePlateNumber(truck.plate_number) === normalizedCorrectedPlate,
+    );
+
+    if (matchedByPlate) {
+      return {
+        truckId: matchedByPlate.truck_id,
+        hasPermit: matchedByPlate.has_permit,
+        isNew: false,
+      };
+    }
+
+    return {
+      truckId: null,
+      hasPermit: false,
+      isNew: true,
+    };
+  }, [confirmDialog.correctedPlate, confirmDialog.item?.has_permit, confirmDialog.selectedTruckId, searchResults]);
 
   const loadCheckpoints = useCallback(async () => {
     setLoadingCheckpoints(true);
@@ -509,8 +559,7 @@ const CheckpointReview: React.FC = () => {
     const userId = Number(localStorage.getItem('user_id') || '1');
     setProcessingVisitorId(item.visitor_id);
 
-    const selectedTruck = searchResults.find((truck) => truck.truck_id === confirmDialog.selectedTruckId);
-    const hasPermit = selectedTruck ? selectedTruck.has_permit : item.has_permit;
+    const hasPermit = resolvedConfirmTruck.hasPermit;
     const willCreatePermit = confirmDialog.createPermit && !hasPermit;
 
     if (item.yard_strict_mode && !hasPermit && !willCreatePermit) {
@@ -520,18 +569,6 @@ const CheckpointReview: React.FC = () => {
     }
 
     try {
-      if (willCreatePermit && confirmDialog.selectedTruckId) {
-        await axios.post('/security/addpermit', {
-          truck_id: confirmDialog.selectedTruckId,
-          yard_id: item.yard_id,
-          one_permission: true,
-          weighing_required: confirmDialog.createWeighing,
-          granted_by_user_id: userId,
-        }, {
-          headers: getAuthHeaders(),
-        });
-      }
-
       const response = await axios.post('/security/confirmvisitor', {
         visitor_id: item.visitor_id,
         operator_user_id: userId,
@@ -539,18 +576,22 @@ const CheckpointReview: React.FC = () => {
         task_id: confirmDialog.selectedTaskId ?? undefined,
         corrected_plate_number: confirmDialog.correctedPlate || item.plate_number,
         comment: confirmDialog.comment.trim() || undefined,
+        create_permit: willCreatePermit,
+        create_weighing: confirmDialog.createWeighing,
       }, {
         headers: getAuthHeaders(),
       });
 
       if (response.data?.status) {
+        const confirmedTruckId = Number(response.data?.data?.truck_id || 0) || null;
+
         if (confirmDialog.createWeighing && !willCreatePermit) {
           try {
             await axios.post('/weighing/create-requirement', {
               yard_id: item.yard_id,
               visitor_id: item.visitor_id,
               plate_number: confirmDialog.correctedPlate || item.plate_number,
-              truck_id: confirmDialog.selectedTruckId ?? undefined,
+              truck_id: confirmedTruckId ?? undefined,
               task_id: confirmDialog.selectedTaskId ?? undefined,
             }, {
               headers: getAuthHeaders(),
@@ -1067,14 +1108,16 @@ const CheckpointReview: React.FC = () => {
                           checked={confirmDialog.createPermit}
                           onCheckedChange={(checked) => setConfirmDialog((prev) => ({ ...prev, createPermit: !!checked }))}
                           className="mt-0.5"
-                          disabled={!confirmDialog.selectedTruckId}
+                          disabled={!normalizePlateNumber(confirmDialog.correctedPlate)}
                         />
                         <div className="space-y-0.5">
                           <div className="text-sm font-medium">Создать разовый пропуск</div>
                           <div className="text-xs text-muted-foreground">
-                            {confirmDialog.selectedTruckId
-                              ? 'Будет создано разовое разрешение на въезд для выбранного ТС'
-                              : 'Сначала выберите ТС из списка подходящих'}
+                            {!normalizePlateNumber(confirmDialog.correctedPlate)
+                              ? 'Сначала укажите корректный номер ТС'
+                              : resolvedConfirmTruck.isNew
+                                ? 'Если ТС нет в базе, оно будет создано автоматически вместе с пропуском'
+                                : 'Будет создано разовое разрешение на въезд для выбранного ТС'}
                           </div>
                         </div>
                       </label>
