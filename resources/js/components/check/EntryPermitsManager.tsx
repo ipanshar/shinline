@@ -28,10 +28,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import PermitExcelImportModal from "@/components/check/PermitExcelImportModal";
 import { 
   Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, 
   Truck as TruckIcon, UserRound, MoreVertical, MapPin, Phone, Building2, MessageSquare,
-  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle,
+  Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Upload,
   Filter, ArrowUpDown, ArrowUp, ArrowDown, X, SlidersHorizontal
 } from "lucide-react";
 import { format } from "date-fns";
@@ -196,6 +197,7 @@ const EntryPermitsManager: React.FC = () => {
 
   // Массовая деактивация
   const [deactivatingExpired, setDeactivatingExpired] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Ошибка формы
   const [formError, setFormError] = useState<string | null>(null);
@@ -991,6 +993,10 @@ const EntryPermitsManager: React.FC = () => {
             <RefreshCw className="w-4 h-4 mr-2" />
             Обновить
           </Button>
+          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="w-4 h-4 mr-2" />
+            Импорт Excel
+          </Button>
           <div className="flex-1" />
           <Button onClick={openAddDialog}>
             <Plus className="w-4 h-4 mr-2" />
@@ -1533,6 +1539,15 @@ const EntryPermitsManager: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PermitExcelImportModal
+        open={importDialogOpen}
+        yards={yards}
+        onClose={() => setImportDialogOpen(false)}
+        onImported={() => {
+          fetchPermits(1);
+        }}
+      />
     </div>
   );
 };

@@ -22,6 +22,7 @@ use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\ClientRegistrationController;
@@ -149,6 +150,7 @@ Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivateP
 Route::post('/security/deactivateexpired', [VisitorsCotroller::class,'deactivateExpiredPermits']); //Деактивировать все просроченные
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit']); //Удалить разрешение
 Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck']); //Получить разрешения для ТС
+Route::post('/security/import-permits', [PermitImportController::class, 'import']); // Массовый импорт ТС и разрешений
 
 // Весовой контроль (Weighing)
 Route::post('/weighing/pending', [WeighingController::class, 'getPending']); // Ожидающие взвешивания

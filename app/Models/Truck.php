@@ -9,6 +9,7 @@ class Truck extends Model
     protected $fillable = [
         'name',
             'user_id',
+            'counterparty_id',
             'truck_brand_id',
             'truck_category_id',
             'vin',
@@ -55,5 +56,15 @@ class Truck extends Model
     public function user()
     {
         return $this->belongsToMany(User::class, 'truck_user', 'user_id', 'truck_id')->withPivot('assigned_date');
+    }
+
+    public function counterparty()
+    {
+        return $this->belongsTo(Counterparty::class);
+    }
+
+    public function truckCategory()
+    {
+        return $this->belongsTo(TruckCategory::class);
     }
 }

@@ -17,6 +17,7 @@ use App\Http\Controllers\DssController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\TelegramController;
@@ -64,6 +65,7 @@ Route::post('/security/updatepermit', [VisitorsCotroller::class,'updatePermit'])
 Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivatePermit'])->middleware('auth:sanctum'); //Деактивировать разрешение
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit'])->middleware('auth:sanctum'); //Удалить разрешение
 Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck'])->middleware('auth:sanctum'); //Получить разрешения для ТС
+Route::post('/security/import-permits', [PermitImportController::class, 'import'])->middleware('auth:sanctum'); //Массовый импорт ТС и разрешений
 
 // Visitor Confirmation routes (полуавтоматическое подтверждение от камер DSS)
 Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)

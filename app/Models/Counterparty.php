@@ -23,4 +23,9 @@ class Counterparty extends Model
     protected $casts = [
         'carrier_type' => 'boolean',
     ];
+
+    public function trucks()
+    {
+        return $this->hasMany(Truck::class);
+    }
 }
