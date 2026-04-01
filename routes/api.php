@@ -178,6 +178,7 @@ Route::middleware(['auth:sanctum', 'permission:integrations.dss'])->group(functi
     Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS
     Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
     Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
+    Route::post('/dss/dssdevices/sync-barrier-channels', [DssController::class, 'syncBarrierChannelsFromParkingLots']); //Загрузить channelId шлагбаумов из парковок DSS
     Route::post('/dss/add-person', [DssController::class, 'dssAddPerson']); //Добавление пользователя в DSS
     Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview']); //Технический обзор DSS
     Route::post('/dss/events-journal', [DssController::class, 'eventsJournal']); //Журнал DSS

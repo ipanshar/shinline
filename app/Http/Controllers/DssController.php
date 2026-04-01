@@ -12,6 +12,7 @@ use App\Models\Devaice;
 use App\Models\DssSetings;
 use App\Services\DssAuthService;
 use App\Services\DssObservabilityService;
+use App\Services\DssParkingService;
 use App\Services\DssPersonService;
 use App\Services\DssZoneHistoryService;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class DssController extends Controller
     public function __construct(
         protected DssAuthService $authService,
         protected DssPersonService $personService,
+        protected DssParkingService $parkingService,
         protected DssZoneHistoryService $zoneHistoryService,
         protected DssObservabilityService $observabilityService,
     ) {
@@ -244,6 +246,17 @@ class DssController extends Controller
             return response()->json(['error' => 'Устройства не найдены'], 404);
         }
         return response()->json(['status' => true, 'message' => 'Устройства успешно получены', 'data' => $devaices], 200);
+    }
+
+    public function syncBarrierChannelsFromParkingLots()
+    {
+        $result = $this->parkingService->syncBarrierChannelsToDevices();
+
+        if (isset($result['error'])) {
+            return $this->errorResponse($result['error'], $result['details'] ?? $result, 500);
+        }
+
+        return $this->successResponse('channelId шлагбаумов загружены из DSS', $result);
     }
 
     /**

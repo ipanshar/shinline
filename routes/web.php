@@ -76,6 +76,7 @@ Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->midd
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('permission:integrations.dss');
 Route::post('/dss/dssdevices', [DssController::class, 'dssDevices'])->middleware('permission:integrations.dss');
 Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate'])->middleware('permission:integrations.dss');
+Route::post('/dss/dssdevices/sync-barrier-channels', [DssController::class, 'syncBarrierChannelsFromParkingLots'])->middleware('permission:integrations.dss');
 Route::post('/dss/add-person', [DssController::class, 'dssAddPerson'])->middleware('permission:integrations.dss');
 Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory'])->middleware('permission:integrations.dss|history.view');
 Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone'])->middleware('permission:integrations.dss|history.view');

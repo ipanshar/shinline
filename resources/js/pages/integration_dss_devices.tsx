@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import AppLayout from '@/layouts/app-layout';
+import { toast } from '@/hooks/use-toast';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import Edit from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
-import DeleteIcon from "@mui/icons-material/Delete";
-import { Box, useMediaQuery, CircularProgress } from "@mui/material";
+import SyncIcon from "@mui/icons-material/Sync";
+import { Box, useMediaQuery, CircularProgress, Button, Typography } from "@mui/material";
 import { DataGrid, GridActionsCellItem, GridRowId, GridRowModesModel, GridRowModes, GridRowModel, GridColDef } from "@mui/x-data-grid";
 import axios from "axios";
 
@@ -45,6 +46,8 @@ export default function Integration_dss() {
     const [zones, setZones] = useState<Zone[]>([]);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [loading, setLoading] = useState(true);
+    const [syncingBarrierChannels, setSyncingBarrierChannels] = useState(false);
+    const [lastSyncSummary, setLastSyncSummary] = useState<string | null>(null);
     const isMobile = useMediaQuery("(max-width: 768px)");
     const [rowModesModel, setRowModesModel] = React.useState<GridRowModesModel>({});
     const fetchZones = () => {
@@ -83,6 +86,33 @@ export default function Integration_dss() {
         fetchCheckpoints();
         fetchDevices();
     }, []);
+
+    const handleSyncBarrierChannels = async () => {
+        setSyncingBarrierChannels(true);
+
+        try {
+            const response = await axios.post('/dss/dssdevices/sync-barrier-channels');
+            const summary = response.data?.data;
+            const message = `Обновлено: ${summary?.updated ?? 0}, совпадений: ${summary?.matched ?? 0}, без совпадений: ${summary?.unmatched?.length ?? 0}`;
+
+            setLastSyncSummary(message);
+            toast({
+                title: 'Парковки DSS загружены',
+                description: message,
+            });
+
+            await fetchDevices();
+        } catch (error: any) {
+            const message = error?.response?.data?.error || 'Не удалось загрузить парковки и channelId из DSS';
+            toast({
+                title: 'Ошибка загрузки парковок DSS',
+                description: message,
+                variant: 'destructive',
+            });
+        } finally {
+            setSyncingBarrierChannels(false);
+        }
+    };
 
     // Обработчики событий
     const handleCancelClick = (id: GridRowId) => () => {
@@ -231,6 +261,21 @@ export default function Integration_dss() {
             <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
                 <div className="border-sidebar-border/70 dark:border-sidebar-border relative min-h-[100vh] flex-1 overflow-hidden rounded-xl border md:min-h-min p-4">
                     <Box sx={{ width: "100%", maxWidth: "1200px", margin: "auto", padding: "10px" }}>
+                        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
+                            <Button
+                                variant="contained"
+                                startIcon={syncingBarrierChannels ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />}
+                                onClick={handleSyncBarrierChannels}
+                                disabled={syncingBarrierChannels}
+                            >
+                                Загрузить парковки из DSS
+                            </Button>
+                            {lastSyncSummary ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    {lastSyncSummary}
+                                </Typography>
+                            ) : null}
+                        </Box>
                         {loading ? (
                              <Box sx={{ display: "flex", justifyContent: "center", padding: 5 }}>
                                 <CircularProgress />
