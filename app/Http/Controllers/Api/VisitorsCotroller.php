@@ -2076,6 +2076,7 @@ class VisitorsCotroller extends Controller
                 ->orderBy('entry_permits.created_at', 'desc');
 
             $maxBatchSize = max(1, (int) config('dss.permit_vehicle_sync.max_batch_size', 28));
+            $inactiveStatusId = Status::where('key', 'not_active')->value('id');
             $totalMatching = (clone $baseQuery)->count('entry_permits.id');
 
             $permits = $baseQuery
@@ -2098,9 +2099,19 @@ class VisitorsCotroller extends Controller
                 $processedPermitIds[] = $permit->id;
 
                 try {
-                    $result = $this->isPermitEffectiveActive($permit)
-                        ? $this->permitVehicleService->syncPermitVehicleSafely($permit)
-                        : $this->permitVehicleService->revokePermitVehicleSafely($permit);
+                    $isEffectiveActive = $this->isPermitEffectiveActive($permit);
+
+                    if ($isEffectiveActive) {
+                        $result = $this->permitVehicleService->syncPermitVehicleSafely($permit);
+                    } else {
+                        if (($permit->status_key ?? null) === 'active' && $inactiveStatusId) {
+                            $permit->status_id = $inactiveStatusId;
+                            $permit->save();
+                            $permit->status_key = 'not_active';
+                        }
+
+                        $result = $this->permitVehicleService->revokePermitVehicleSafely($permit);
+                    }
 
                     if (!empty($result['success'])) {
                         if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {

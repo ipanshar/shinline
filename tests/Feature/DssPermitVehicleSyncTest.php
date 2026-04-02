@@ -693,6 +693,68 @@ class DssPermitVehicleSyncTest extends TestCase
             ->assertJsonPath('summary.skipped', 0);
     }
 
+    public function test_sync_permits_with_dss_deactivates_expired_active_permit_before_dss_revoke(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Expired sync yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => 'EXP11105',
+            'name' => 'Truck EXP11105',
+        ]);
+
+        $expiredPermit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now()->subDays(2),
+            'end_date' => now()->subDay(),
+        ]);
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldNotReceive('syncPermitVehicleSafely');
+        $service->shouldReceive('revokePermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $expiredPermit->id && (int) $argument->status_id === $inactiveStatus->id))
+            ->andReturn(['success' => true, 'action' => 'revoke', 'status' => 'revoked']);
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/syncpermitsdss', [
+            'yard_id' => $yard->id,
+            'dss_sync_scope' => 'all',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('summary.processed', 1)
+            ->assertJsonPath('summary.revoked', 1);
+
+        $this->assertDatabaseHas('entry_permits', [
+            'id' => $expiredPermit->id,
+            'status_id' => $inactiveStatus->id,
+        ]);
+    }
+
     public function test_sync_permits_with_dss_can_filter_only_failed_records(): void
     {
         $activeStatus = Status::create([
