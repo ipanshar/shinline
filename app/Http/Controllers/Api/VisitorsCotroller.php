@@ -2131,10 +2131,13 @@ class VisitorsCotroller extends Controller
                 }
             }
 
+            $remoteVehicleIdBackfill = $this->permitVehicleService->backfillRemoteVehicleIdsForPermits($processedPermitIds);
+
             return response()->json([
                 'status' => true,
                 'message' => 'Синхронизация разрешений с DSS завершена',
                 'summary' => $summary,
+                'remote_vehicle_id_backfill' => $remoteVehicleIdBackfill,
                 'processed_permit_ids' => $processedPermitIds,
                 'batch_limit' => $maxBatchSize,
                 'matching_total' => $totalMatching,

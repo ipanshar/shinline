@@ -66,6 +66,14 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
+                    'totalCount' => '0',
+                    'pageData' => [],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
                     'vehicles' => [
                         [
                             'id' => '25',
@@ -85,11 +93,12 @@ class DssPermitVehicleSyncTest extends TestCase
         $result = $service->syncPermitVehicle($permit);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(1, $history);
-        $this->assertSame('/ipms/api/v1.1/vehicle/save/batch', $history[0]['request']->getUri()->getPath());
+    $this->assertCount(2, $history);
+    $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
+    $this->assertSame('/ipms/api/v1.1/vehicle/save/batch', $history[1]['request']->getUri()->getPath());
         $this->assertSame('live-token', $history[0]['request']->getHeaderLine('X-Subject-Token'));
 
-        $payload = json_decode((string) $history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+    $payload = json_decode((string) $history[1]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
 
         $this->assertSame('001001', $payload['orgCode']);
         $this->assertSame('Shin-Line', $payload['orgName']);
@@ -157,6 +166,14 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $history = [];
         $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '0',
+                    'pageData' => [],
+                ],
+            ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
                 'code' => 1000,
                 'desc' => 'Success',
@@ -233,6 +250,14 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
+                    'totalCount' => '0',
+                    'pageData' => [],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
                     'vehicles' => [
                         [
                             'id' => '25',
@@ -250,7 +275,7 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $service->syncPermitVehicle($permit);
 
-        $payload = json_decode((string) $history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $payload = json_decode((string) $history[1]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
         $expectedStart = Carbon::parse('2026-04-02', config('app.timezone'))->startOfDay()->timestamp;
         $expectedEnd = Carbon::parse('2026-04-02', config('app.timezone'))->endOfDay()->timestamp;
 
@@ -296,6 +321,14 @@ class DssPermitVehicleSyncTest extends TestCase
         $history = [];
         $client = $this->makeHistoryMockClient([
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '0',
+                    'pageData' => [],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
                 'code' => 10004,
                 'desc' => 'The car num is already exists or repeat.',
                 'data' => [
@@ -303,6 +336,24 @@ class DssPermitVehicleSyncTest extends TestCase
                     'visiterExistingPlateNos' => [],
                     'groupExistingPlateNos' => [],
                     'overstepPlateNos' => null,
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 10004,
+                'desc' => 'The car num is already exists or repeat.',
+                'data' => [
+                    'repeatPlateNos' => ['777SL05'],
+                    'visiterExistingPlateNos' => [],
+                    'groupExistingPlateNos' => [],
+                    'overstepPlateNos' => null,
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '0',
+                    'pageData' => [],
                 ],
             ], JSON_THROW_ON_ERROR)),
         ], $history);
@@ -322,6 +373,272 @@ class DssPermitVehicleSyncTest extends TestCase
             'entry_permit_id' => $permit->id,
             'plate_number' => '777SL05',
             'status' => 'already_exists',
+        ]);
+    }
+
+    public function test_dss_permit_vehicle_service_reuses_previous_remote_vehicle_id_for_same_truck_and_yard(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Main yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '187AAB17',
+            'name' => 'Truck 187AAB17',
+        ]);
+
+        $oldPermit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $inactiveStatus->id,
+            'begin_date' => now()->subDays(3),
+            'end_date' => now()->subDays(2),
+        ]);
+
+        DssParkingPermit::create([
+            'entry_permit_id' => $oldPermit->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'plate_number' => '187AAB17',
+            'remote_vehicle_id' => '25',
+            'status' => 'revoked',
+            'person_id' => '1',
+            'parking_lot_ids' => ['2'],
+            'entrance_group_ids' => ['14'],
+            'request_payload' => ['vehicles' => [['id' => '25', 'plateNo' => '187AAB17']]],
+            'response_payload' => ['vehicles' => [['id' => '25', 'plateNo' => '187AAB17']]],
+            'synced_at' => now()->subDays(3),
+            'revoked_at' => now()->subDays(2),
+        ]);
+
+        $newPermit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'vehicles' => [
+                        [
+                            'id' => '25',
+                            'plateNo' => '187AAB17',
+                        ],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->syncPermitVehicle($newPermit);
+
+        $this->assertTrue($result['success']);
+        $payload = json_decode((string) $history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('25', $payload['vehicles'][0]['id']);
+
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $newPermit->id,
+            'remote_vehicle_id' => '25',
+            'status' => 'synced',
+        ]);
+    }
+
+    public function test_dss_permit_vehicle_service_looks_up_remote_vehicle_id_by_plate_when_local_mapping_missing(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Lookup yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '187AAB17',
+            'name' => 'Truck 187AAB17',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '1',
+                    'pageData' => [[
+                        'id' => '549',
+                        'plateNo' => '187AAB17',
+                        'personId' => '',
+                        'personInfo' => ['personId' => ''],
+                        'entranceGroups' => [[
+                            'groupId' => '14',
+                            'parkingLotId' => '2',
+                        ]],
+                    ]],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'vehicles' => [[
+                        'id' => '549',
+                        'plateNo' => '187AAB17',
+                    ]],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->syncPermitVehicle($permit);
+
+        $this->assertTrue($result['success']);
+        $this->assertCount(2, $history);
+        $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
+        $this->assertStringContainsString('plateNo=187AAB17', $history[0]['request']->getUri()->getQuery());
+        $this->assertStringContainsString('orgCode=001', $history[0]['request']->getUri()->getQuery());
+
+        $payload = json_decode((string) $history[1]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('549', $payload['vehicles'][0]['id']);
+
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'remote_vehicle_id' => '549',
+            'status' => 'synced',
+        ]);
+    }
+
+    public function test_dss_permit_vehicle_service_can_backfill_remote_vehicle_ids_for_processed_permits(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Backfill yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '187AAB17',
+            'name' => 'Truck 187AAB17',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+        ]);
+
+        DssParkingPermit::create([
+            'entry_permit_id' => $permit->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'plate_number' => '187AAB17',
+            'remote_vehicle_id' => null,
+            'status' => 'already_exists',
+            'person_id' => '1',
+            'parking_lot_ids' => [],
+            'entrance_group_ids' => [],
+            'request_payload' => ['vehicles' => [['plateNo' => '187AAB17']]],
+            'response_payload' => ['code' => 10004],
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '1',
+                    'pageData' => [[
+                        'id' => '549',
+                        'plateNo' => '187AAB17',
+                        'personId' => '',
+                        'personInfo' => ['personId' => ''],
+                        'entranceGroups' => [[
+                            'groupId' => '14',
+                            'parkingLotId' => '2',
+                        ]],
+                    ]],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->backfillRemoteVehicleIdsForPermits([$permit->id]);
+
+        $this->assertSame(['checked' => 1, 'updated' => 1, 'not_found' => 0, 'failed' => 0], $result);
+        $this->assertCount(1, $history);
+        $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
+
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'remote_vehicle_id' => '549',
+            'person_id' => '1',
         ]);
     }
 
@@ -674,6 +991,10 @@ class DssPermitVehicleSyncTest extends TestCase
             ->once()
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $inactivePermit->id))
             ->andReturn(['success' => true, 'action' => 'revoke', 'status' => 'revoked']);
+        $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
+            ->once()
+            ->with(Mockery::type('array'))
+            ->andReturn(['checked' => 0, 'updated' => 0, 'not_found' => 0, 'failed' => 0]);
 
         app()->instance(DssPermitVehicleService::class, $service);
 
@@ -690,7 +1011,8 @@ class DssPermitVehicleSyncTest extends TestCase
             ->assertJsonPath('summary.synced', 1)
             ->assertJsonPath('summary.revoked', 1)
             ->assertJsonPath('summary.failed', 0)
-            ->assertJsonPath('summary.skipped', 0);
+            ->assertJsonPath('summary.skipped', 0)
+            ->assertJsonPath('remote_vehicle_id_backfill.updated', 0);
     }
 
     public function test_sync_permits_with_dss_deactivates_expired_active_permit_before_dss_revoke(): void
@@ -733,6 +1055,10 @@ class DssPermitVehicleSyncTest extends TestCase
             ->once()
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $expiredPermit->id && (int) $argument->status_id === $inactiveStatus->id))
             ->andReturn(['success' => true, 'action' => 'revoke', 'status' => 'revoked']);
+        $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
+            ->once()
+            ->with(Mockery::type('array'))
+            ->andReturn(['checked' => 1, 'updated' => 1, 'not_found' => 0, 'failed' => 0]);
 
         app()->instance(DssPermitVehicleService::class, $service);
 
@@ -838,6 +1164,10 @@ class DssPermitVehicleSyncTest extends TestCase
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $failedPermit->id))
             ->andReturn(['success' => true, 'action' => 'sync']);
         $service->shouldNotReceive('revokePermitVehicleSafely');
+        $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
+            ->once()
+            ->with(Mockery::type('array'))
+            ->andReturn(['checked' => 1, 'updated' => 0, 'not_found' => 1, 'failed' => 0]);
 
         app()->instance(DssPermitVehicleService::class, $service);
 
@@ -894,6 +1224,10 @@ class DssPermitVehicleSyncTest extends TestCase
             ->twice()
             ->andReturn(['success' => true, 'action' => 'sync']);
         $service->shouldNotReceive('revokePermitVehicleSafely');
+        $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
+            ->once()
+            ->with(Mockery::type('array'))
+            ->andReturn(['checked' => 2, 'updated' => 0, 'not_found' => 2, 'failed' => 0]);
 
         app()->instance(DssPermitVehicleService::class, $service);
 
@@ -952,6 +1286,10 @@ class DssPermitVehicleSyncTest extends TestCase
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $permits[2]->id))
             ->andReturn(['success' => true, 'action' => 'sync']);
         $service->shouldNotReceive('revokePermitVehicleSafely');
+        $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
+            ->once()
+            ->with(Mockery::type('array'))
+            ->andReturn(['checked' => 1, 'updated' => 0, 'not_found' => 1, 'failed' => 0]);
 
         app()->instance(DssPermitVehicleService::class, $service);
 

@@ -67,10 +67,92 @@ class DssPermitVehicleService extends DssBaseService
         return $result;
     }
 
+    public function backfillRemoteVehicleIdsForPermits(array $permitIds): array
+    {
+        $permitIds = array_values(array_filter(array_map('intval', $permitIds), static fn (int $id) => $id > 0));
+        if ($permitIds === []) {
+            return [
+                'checked' => 0,
+                'updated' => 0,
+                'not_found' => 0,
+                'failed' => 0,
+            ];
+        }
+
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return [
+                'checked' => 0,
+                'updated' => 0,
+                'not_found' => 0,
+                'failed' => count($permitIds),
+                'error' => $error['error'] ?? 'DSS settings error',
+            ];
+        }
+
+        $authResult = $this->authService->ensureAuthorized();
+        if (isset($authResult['error'])) {
+            return [
+                'checked' => 0,
+                'updated' => 0,
+                'not_found' => 0,
+                'failed' => count($permitIds),
+                'error' => 'Ошибка авторизации DSS: ' . $authResult['error'],
+            ];
+        }
+
+        $parkingPermits = DssParkingPermit::query()
+            ->whereIn('entry_permit_id', $permitIds)
+            ->where(function ($query) {
+                $query->whereNull('remote_vehicle_id')
+                    ->orWhere('remote_vehicle_id', '');
+            })
+            ->whereNotNull('plate_number')
+            ->orderBy('id')
+            ->get();
+
+        $summary = [
+            'checked' => $parkingPermits->count(),
+            'updated' => 0,
+            'not_found' => 0,
+            'failed' => 0,
+        ];
+
+        foreach ($parkingPermits as $parkingPermit) {
+            $plateNumber = Truck::normalizePlateNumber((string) $parkingPermit->plate_number);
+            if (!$plateNumber) {
+                $summary['failed']++;
+                continue;
+            }
+
+            try {
+                $resolvedVehicle = $this->lookupRemoteVehicleByPlate($plateNumber);
+                if (!$resolvedVehicle) {
+                    $summary['not_found']++;
+                    continue;
+                }
+
+                $updatedParkingPermit = $this->applyLookupVehicleToParkingPermit($parkingPermit, $resolvedVehicle, $plateNumber);
+                $updatedParkingPermit->save();
+                $summary['updated']++;
+            } catch (\Throwable $exception) {
+                Log::warning('DSS remote_vehicle_id backfill failed', [
+                    'entry_permit_id' => $parkingPermit->entry_permit_id,
+                    'plate_number' => $plateNumber,
+                    'message' => $exception->getMessage(),
+                ]);
+
+                $summary['failed']++;
+            }
+        }
+
+        return $summary;
+    }
+
     private function processPermitVehicleAction(EntryPermit $permit, string $action): array
     {
         $permit->loadMissing('truck');
         $parkingPermit = $permit->dssParkingPermit()->first();
+        $fallbackParkingPermit = $this->resolveFallbackParkingPermit($permit, $parkingPermit);
 
         $truck = $permit->truck;
         if (!$truck) {
@@ -115,13 +197,37 @@ class DssPermitVehicleService extends DssBaseService
             ], $plateNumber, action: $action, parkingPermit: $parkingPermit);
         }
 
+        $effectiveParkingPermit = $this->resolveEffectiveParkingPermitContext($plateNumber, $parkingPermit, $fallbackParkingPermit);
+
         $payload = $action === self::ACTION_REVOKE
-            ? $this->buildRevokePayload($permit, $plateNumber, $parkingPermit)
-            : $this->buildSyncPayload($permit, $plateNumber);
+            ? $this->buildRevokePayload($permit, $plateNumber, $effectiveParkingPermit)
+            : $this->buildSyncPayload($permit, $plateNumber, $effectiveParkingPermit);
 
         try {
             $responseData = $this->sendVehicleBatchRequest($payload);
             if ($action === self::ACTION_SYNC && $this->isAlreadyExistsResponse($responseData, $plateNumber)) {
+                if (!$this->resolveStoredRemoteVehicleId($effectiveParkingPermit)) {
+                    $resolvedVehicle = $this->lookupRemoteVehicleByPlate($plateNumber);
+                    if ($resolvedVehicle) {
+                        $effectiveParkingPermit = $this->applyLookupVehicleToParkingPermit($effectiveParkingPermit, $resolvedVehicle, $plateNumber);
+                        $payload = $this->buildSyncPayload($permit, $plateNumber, $effectiveParkingPermit);
+                        $responseData = $this->sendVehicleBatchRequest($payload);
+
+                        if ((int) ($responseData['code'] ?? 0) === 1000) {
+                            $remoteVehicleId = $this->extractRemoteVehicleId($responseData, $plateNumber)
+                                ?? $this->resolveStoredRemoteVehicleId($effectiveParkingPermit, $payload);
+
+                            return $this->storeParkingPermitRecord($permit, [
+                                'success' => true,
+                                'plate_number' => $plateNumber,
+                                'action' => $action,
+                                'remote_vehicle_id' => $remoteVehicleId,
+                                'data' => $responseData['data'] ?? null,
+                            ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
+                        }
+                    }
+                }
+
                 Log::info('DSS permit vehicle already exists', [
                     'permit_id' => $permit->id,
                     'truck_id' => $truck->id,
@@ -135,7 +241,7 @@ class DssPermitVehicleService extends DssBaseService
                     'plate_number' => $plateNumber,
                     'action' => $action,
                     'data' => $responseData['data'] ?? null,
-                ], $plateNumber, $payload, $responseData, $action, $parkingPermit);
+                ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
             }
 
             if ((int) ($responseData['code'] ?? 0) !== 1000) {
@@ -145,11 +251,11 @@ class DssPermitVehicleService extends DssBaseService
                         : 'DSS вернул ошибку при регистрации ТС для парковки',
                     'data' => $responseData,
                     'action' => $action,
-                ], $plateNumber, $payload, null, $action, $parkingPermit);
+                ], $plateNumber, $payload, null, $action, $effectiveParkingPermit);
             }
 
             $remoteVehicleId = $this->extractRemoteVehicleId($responseData, $plateNumber)
-                ?? $this->resolveStoredRemoteVehicleId($parkingPermit, $payload);
+                ?? $this->resolveStoredRemoteVehicleId($effectiveParkingPermit, $payload);
 
             Log::info($action === self::ACTION_REVOKE ? 'DSS permit vehicle revoked' : 'DSS permit vehicle synced', [
                 'permit_id' => $permit->id,
@@ -164,7 +270,7 @@ class DssPermitVehicleService extends DssBaseService
                 'action' => $action,
                 'remote_vehicle_id' => $remoteVehicleId,
                 'data' => $responseData['data'] ?? null,
-            ], $plateNumber, $payload, $responseData, $action, $parkingPermit);
+            ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
         } catch (RequestException $exception) {
             if ($exception->hasResponse()) {
                 $response = $exception->getResponse();
@@ -183,20 +289,21 @@ class DssPermitVehicleService extends DssBaseService
                         : 'Ошибка запроса к DSS при регистрации ТС',
                     'data' => $responseData,
                     'action' => $action,
-                ], $plateNumber, $payload, $responseData, $action, $parkingPermit);
+                ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
             }
 
             return $this->storeParkingPermitRecord($permit, [
                 'error' => 'Ошибка соединения с DSS: ' . $exception->getMessage(),
                 'action' => $action,
-            ], $plateNumber, $payload, null, $action, $parkingPermit);
+            ], $plateNumber, $payload, null, $action, $effectiveParkingPermit);
         }
     }
 
-    private function buildSyncPayload(EntryPermit $permit, string $plateNumber): array
+    private function buildSyncPayload(EntryPermit $permit, string $plateNumber, ?DssParkingPermit $parkingPermit = null): array
     {
         $syncConfig = config('dss.permit_vehicle_sync');
         $accessWindow = $this->resolvePermitAccessWindow($permit);
+        $remoteVehicleId = $this->resolveStoredRemoteVehicleId($parkingPermit);
 
         $entranceGroups = array_map(function (array $group) use ($accessWindow): array {
             return [
@@ -214,11 +321,11 @@ class DssPermitVehicleService extends DssBaseService
             'orgCode' => (string) ($syncConfig['org_code'] ?? '001001'),
             'orgName' => (string) ($syncConfig['org_name'] ?? 'Shin-Line'),
             'person' => [
-                'personId' => (string) ($syncConfig['person_id'] ?? '1'),
+                'personId' => (string) ($parkingPermit?->person_id ?? ($syncConfig['person_id'] ?? '1')),
                 'remark' => (string) ($syncConfig['person_remark'] ?? ''),
             ],
             'vehicles' => [[
-                'id' => '',
+                'id' => (string) ($remoteVehicleId ?? ''),
                 'plateNo' => $plateNumber,
                 'vehicleColor' => (string) ($syncConfig['vehicle_color'] ?? '100'),
                 'vehicleBrand' => (string) ($syncConfig['vehicle_brand'] ?? '-1'),
@@ -228,6 +335,127 @@ class DssPermitVehicleService extends DssBaseService
                 'entranceGroups' => $entranceGroups,
             ]],
         ];
+    }
+
+    private function resolveFallbackParkingPermit(EntryPermit $permit, ?DssParkingPermit $parkingPermit): ?DssParkingPermit
+    {
+        if ($parkingPermit && $this->resolveStoredRemoteVehicleId($parkingPermit)) {
+            return $parkingPermit;
+        }
+
+        if (!$permit->truck_id || !$permit->yard_id) {
+            return $parkingPermit;
+        }
+
+        return DssParkingPermit::query()
+            ->where('truck_id', $permit->truck_id)
+            ->where('yard_id', $permit->yard_id)
+            ->when($permit->id, fn ($query) => $query->where('entry_permit_id', '!=', $permit->id))
+            ->whereNotNull('remote_vehicle_id')
+            ->orderByRaw('CASE WHEN synced_at IS NULL THEN 1 ELSE 0 END')
+            ->orderByDesc('synced_at')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    private function resolveEffectiveParkingPermitContext(
+        string $plateNumber,
+        ?DssParkingPermit $parkingPermit,
+        ?DssParkingPermit $fallbackParkingPermit,
+    ): ?DssParkingPermit {
+        $effectiveParkingPermit = $parkingPermit ?? $fallbackParkingPermit;
+
+        if ($this->resolveStoredRemoteVehicleId($effectiveParkingPermit)) {
+            return $effectiveParkingPermit;
+        }
+
+        $resolvedVehicle = $this->lookupRemoteVehicleByPlate($plateNumber);
+        if (!$resolvedVehicle) {
+            return $effectiveParkingPermit;
+        }
+
+        return $this->applyLookupVehicleToParkingPermit($effectiveParkingPermit, $resolvedVehicle, $plateNumber);
+    }
+
+    private function lookupRemoteVehicleByPlate(string $plateNumber): ?array
+    {
+        $query = [
+            'page' => 1,
+            'pageSize' => max(1, (int) config('dss.permit_vehicle_sync.lookup_page_size', 100)),
+            'orgCode' => (string) config('dss.permit_vehicle_sync.lookup_org_code', '001'),
+            'containChild' => (string) config('dss.permit_vehicle_sync.lookup_contain_child', '0'),
+            'plateNo' => $plateNumber,
+        ];
+
+        try {
+            $response = $this->client->get(
+                rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/page',
+                [
+                    'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                    'query' => $query,
+                ]
+            );
+        } catch (RequestException $exception) {
+            Log::warning('DSS vehicle lookup failed', [
+                'plate_number' => $plateNumber,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        $responseData = json_decode((string) $response->getBody(), true);
+        if ((int) ($responseData['code'] ?? 0) !== 1000) {
+            return null;
+        }
+
+        foreach (($responseData['data']['pageData'] ?? []) as $vehicle) {
+            if (!is_array($vehicle)) {
+                continue;
+            }
+
+            $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
+            if ($candidatePlate === $plateNumber) {
+                return $vehicle;
+            }
+        }
+
+        return null;
+    }
+
+    private function applyLookupVehicleToParkingPermit(
+        ?DssParkingPermit $parkingPermit,
+        array $vehicleData,
+        string $plateNumber,
+    ): DssParkingPermit {
+        $parkingPermit ??= new DssParkingPermit();
+
+        $parkingPermit->plate_number = $parkingPermit->plate_number ?: $plateNumber;
+        $parkingPermit->remote_vehicle_id = (string) ($vehicleData['id'] ?? $parkingPermit->remote_vehicle_id ?? '');
+
+        $resolvedPersonId = $vehicleData['personId']
+            ?? ($vehicleData['personInfo']['personId'] ?? null)
+            ?? $parkingPermit->person_id
+            ?? config('dss.permit_vehicle_sync.person_id', '1');
+
+        if ($resolvedPersonId === null || $resolvedPersonId === '') {
+            $resolvedPersonId = $parkingPermit->person_id ?: config('dss.permit_vehicle_sync.person_id', '1');
+        }
+
+        $parkingLotIds = array_values(array_filter(array_map(
+            static fn (array $group): ?string => isset($group['parkingLotId']) ? (string) $group['parkingLotId'] : null,
+            $vehicleData['entranceGroups'] ?? []
+        )));
+        $entranceGroupIds = array_values(array_filter(array_map(
+            static fn (array $group): ?string => isset($group['groupId']) ? (string) $group['groupId'] : null,
+            $vehicleData['entranceGroups'] ?? []
+        )));
+
+        $parkingPermit->person_id = (string) $resolvedPersonId;
+        $parkingPermit->parking_lot_ids = $parkingLotIds !== [] ? $parkingLotIds : ($parkingPermit->parking_lot_ids ?? []);
+        $parkingPermit->entrance_group_ids = $entranceGroupIds !== [] ? $entranceGroupIds : ($parkingPermit->entrance_group_ids ?? []);
+
+        return $parkingPermit;
     }
 
     private function buildRevokePayload(EntryPermit $permit, string $plateNumber, ?DssParkingPermit $parkingPermit): array
