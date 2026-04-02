@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Services\DssService;
 use App\Services\DssDaemonHeartbeatService;
+use App\Services\DssPermitVehicleService;
 use App\Models\EntryPermit;
 use App\Models\Task;
 use App\Models\Status;
@@ -225,6 +226,7 @@ class DssDaemon extends Command
         $this->info(now()->toDateTimeLocalString() . " Запуск ежедневной очистки просроченных разрешений и задач...");
         
         try {
+            $permitVehicleService = app(DssPermitVehicleService::class);
             $activeStatus = Status::where('key', 'active')->first();
             $inactiveStatus = Status::where('key', 'not_active')->first();
             $newStatus = Status::where('key', 'new')->first();
@@ -232,11 +234,29 @@ class DssDaemon extends Command
             
             // 1. Деактивируем просроченные разовые разрешения
             $expiredPermitsCount = 0;
+            $dssRevokedCount = 0;
+            $dssRevokeFailedCount = 0;
+            $dssRevokeSkippedCount = 0;
             if ($activeStatus && $inactiveStatus) {
-                $expiredPermitsCount = EntryPermit::where('status_id', $activeStatus->id)
+                $expiredPermits = EntryPermit::where('status_id', $activeStatus->id)
                     ->where('one_permission', true)
                     ->where('end_date', '<', now()->startOfDay())
-                    ->update(['status_id' => $inactiveStatus->id]);
+                    ->get();
+
+                foreach ($expiredPermits as $permit) {
+                    $permit->update(['status_id' => $inactiveStatus->id]);
+                    $expiredPermitsCount++;
+
+                    $revokeResult = $permitVehicleService->revokePermitVehicleSafely($permit->fresh());
+
+                    if (!empty($revokeResult['success'])) {
+                        $dssRevokedCount++;
+                    } elseif (isset($revokeResult['error'])) {
+                        $dssRevokeFailedCount++;
+                    } else {
+                        $dssRevokeSkippedCount++;
+                    }
+                }
             }
             
             // 2. Отменяем старые задачи со статусом "новый" (старше 7 дней)
@@ -259,7 +279,7 @@ class DssDaemon extends Command
                     ]);
             }
             
-            $this->info(now()->toDateTimeLocalString() . " Очистка завершена: деактивировано {$expiredPermitsCount} разрешений, отменено {$oldTasksCount} задач.");
+            $this->info(now()->toDateTimeLocalString() . " Очистка завершена: деактивировано {$expiredPermitsCount} разрешений, DSS отзывов {$dssRevokedCount} успешно / {$dssRevokeFailedCount} ошибок / {$dssRevokeSkippedCount} пропущено, отменено {$oldTasksCount} задач.");
             
         } catch (Exception $e) {
             $this->error(now()->toDateTimeLocalString() . " Ошибка при очистке: " . $e->getMessage());

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Services\DssPermitVehicleService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -147,6 +148,8 @@ class CleanupOldTasksAndPermits extends Command
         DB::beginTransaction();
         
         try {
+            $permitVehicleService = app(DssPermitVehicleService::class);
+
             // Обновляем задачи
             $tasksUpdated = 0;
             foreach ($oldTasks as $task) {
@@ -159,15 +162,30 @@ class CleanupOldTasksAndPermits extends Command
             
             // Деактивируем разрешения
             $permitsDeactivated = 0;
+            $dssRevokeSummary = [
+                'success' => 0,
+                'failed' => 0,
+                'skipped' => 0,
+            ];
             if ($inactiveStatus) {
-                $permitsQuery = EntryPermit::where('one_permission', true)
-                    ->where('end_date', '<', now()->startOfDay());
-                
-                if ($activeStatus) {
-                    $permitsQuery->where('status_id', $activeStatus->id);
+                foreach ($expiredPermits as $permit) {
+                    if ($activeStatus && (int) $permit->status_id !== (int) $activeStatus->id) {
+                        continue;
+                    }
+
+                    $permit->update(['status_id' => $inactiveStatus->id]);
+                    $permitsDeactivated++;
+
+                    $revokeResult = $permitVehicleService->revokePermitVehicleSafely($permit->fresh());
+
+                    if (!empty($revokeResult['success'])) {
+                        $dssRevokeSummary['success']++;
+                    } elseif (isset($revokeResult['error'])) {
+                        $dssRevokeSummary['failed']++;
+                    } else {
+                        $dssRevokeSummary['skipped']++;
+                    }
                 }
-                
-                $permitsDeactivated = $permitsQuery->update(['status_id' => $inactiveStatus->id]);
             } else {
                 $this->warn("Статус 'not_active' не найден, разрешения не деактивированы");
             }
@@ -178,12 +196,14 @@ class CleanupOldTasksAndPermits extends Command
             $this->info("=== Результаты ===");
             $this->info("✓ Задач обновлено (статус -> {$targetStatus->name}): {$tasksUpdated}");
             $this->info("✓ Разрешений деактивировано: {$permitsDeactivated}");
+            $this->info("✓ DSS отзывов: {$dssRevokeSummary['success']} успешно, {$dssRevokeSummary['failed']} с ошибкой, {$dssRevokeSummary['skipped']} пропущено");
             
             // Логируем только если были изменения
             if ($tasksUpdated > 0 || $permitsDeactivated > 0) {
                 Log::info('CleanupOldTasksAndPermits выполнено', [
                     'tasks_updated' => $tasksUpdated,
                     'permits_deactivated' => $permitsDeactivated,
+                    'dss_revoke_summary' => $dssRevokeSummary,
                     'cutoff_date' => $cutoffDate->format('Y-m-d'),
                 ]);
             }

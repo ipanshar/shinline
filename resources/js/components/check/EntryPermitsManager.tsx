@@ -1131,20 +1131,20 @@ const EntryPermitsManager: React.FC = () => {
         {/* Кнопки действий */}
         <div className="flex flex-wrap gap-2 pt-3 border-t">
           <div className="min-w-[240px]">
-            <Label className="text-sm mb-1 block">Фильтр по DSS</Label>
+            {/* <Label className="text-sm mb-1 block">Фильтр по DSS</Label> */}
             <Select value={dssSyncScope} onValueChange={(value) => setDssSyncScope(value as DssSyncScope)}>
               <SelectTrigger>
                 <SelectValue placeholder="Выберите фильтр DSS" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все по текущим фильтрам</SelectItem>
+                <SelectItem value="all">Все статусы DSS</SelectItem>
                 <SelectItem value="failed">Только ошибки DSS</SelectItem>
                 <SelectItem value="already_exists">Только уже существующие в DSS</SelectItem>
                 <SelectItem value="no_status">Только без DSS-статуса</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-1">
-              Фильтр применяется к списку разрешений и к кнопке синхронизации с DSS. Синхронизация идёт пакетно с паузами и повторами на 429.
+              Фильтр синхронизации с DSS
             </p>
           </div>
           <Button 
