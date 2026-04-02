@@ -204,7 +204,7 @@ const EntryPermitsManager: React.FC = () => {
 
   // Массовая синхронизация с DSS
   const [syncingDss, setSyncingDss] = useState(false);
-  const [dssSyncScope, setDssSyncScope] = useState<DssSyncScope>("failed");
+  const [dssSyncScope, setDssSyncScope] = useState<DssSyncScope>("all");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Ошибка формы
@@ -229,6 +229,7 @@ const EntryPermitsManager: React.FC = () => {
     if (searchGuest.trim()) params.guest_search = searchGuest.trim();
     if (filterDateFrom) params.date_from = filterDateFrom;
     if (filterDateTo) params.date_to = filterDateTo;
+    if (dssSyncScope !== "all") params.dss_sync_scope = dssSyncScope;
 
     axios
       .post("/security/getpermits", params, { headers })
@@ -245,7 +246,7 @@ const EntryPermitsManager: React.FC = () => {
         toast.error("Ошибка загрузки разрешений");
       })
       .finally(() => setLoading(false));
-  }, [filterYardId, filterStatus, filterPermitType, filterGuestType, searchPlate, searchGuest, filterDateFrom, filterDateTo, currentPage, perPage, sortField, sortDirection]);
+  }, [filterYardId, filterStatus, filterPermitType, filterGuestType, searchPlate, searchGuest, filterDateFrom, filterDateTo, dssSyncScope, currentPage, perPage, sortField, sortDirection]);
 
   const fetchYards = () => {
     axios
@@ -267,7 +268,7 @@ const EntryPermitsManager: React.FC = () => {
   useEffect(() => {
     setCurrentPage(1);
     fetchPermits(1);
-  }, [filterYardId, filterStatus, filterPermitType, filterGuestType, sortField, sortDirection]);
+  }, [filterYardId, filterStatus, filterPermitType, filterGuestType, dssSyncScope, sortField, sortDirection]);
 
   // При изменении страницы загружаем данные
   const handlePageChange = (page: number) => {
@@ -1114,6 +1115,7 @@ const EntryPermitsManager: React.FC = () => {
                 setSearchGuest("");
                 setFilterDateFrom("");
                 setFilterDateTo("");
+                setDssSyncScope("all");
                 setSortField("created_at");
                 setSortDirection("desc");
                 fetchPermits(1);
@@ -1129,20 +1131,20 @@ const EntryPermitsManager: React.FC = () => {
         {/* Кнопки действий */}
         <div className="flex flex-wrap gap-2 pt-3 border-t">
           <div className="min-w-[240px]">
-            <Label className="text-sm mb-1 block">Что синхронизировать в DSS</Label>
+            <Label className="text-sm mb-1 block">Фильтр по DSS</Label>
             <Select value={dssSyncScope} onValueChange={(value) => setDssSyncScope(value as DssSyncScope)}>
               <SelectTrigger>
-                <SelectValue placeholder="Выберите набор для синхронизации" />
+                <SelectValue placeholder="Выберите фильтр DSS" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">Все по текущим фильтрам</SelectItem>
                 <SelectItem value="failed">Только ошибки DSS</SelectItem>
                 <SelectItem value="already_exists">Только уже существующие в DSS</SelectItem>
                 <SelectItem value="no_status">Только без DSS-статуса</SelectItem>
-                <SelectItem value="all">Все по текущим фильтрам</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-1">
-              Синхронизация идёт пакетно с паузами и повторами на 429. За один запуск обрабатывается ограниченное число записей, остальные остаются на следующий прогон.
+              Фильтр применяется к списку разрешений и к кнопке синхронизации с DSS. Синхронизация идёт пакетно с паузами и повторами на 429.
             </p>
           </div>
           <Button 
