@@ -62,6 +62,7 @@ Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePe
 Route::post('/security/getpermits', [VisitorsCotroller::class,'getPermits'])->middleware('auth:sanctum'); //Получить список разрешений с фильтрами
 Route::post('/security/addpermit', [VisitorsCotroller::class,'addPermit'])->middleware('auth:sanctum'); //Создать разрешение
 Route::post('/security/updatepermit', [VisitorsCotroller::class,'updatePermit'])->middleware('auth:sanctum'); //Обновить разрешение
+Route::post('/security/syncpermitsdss', [VisitorsCotroller::class,'syncPermitsWithDss'])->middleware('auth:sanctum'); //Синхронизировать разрешения с DSS
 Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivatePermit'])->middleware('auth:sanctum'); //Деактивировать разрешение
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit'])->middleware('auth:sanctum'); //Удалить разрешение
 Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck'])->middleware('auth:sanctum'); //Получить разрешения для ТС

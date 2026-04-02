@@ -2002,97 +2002,7 @@ class VisitorsCotroller extends Controller
     public function getPermits(Request $request)
     {
         try {
-            $query = EntryPermit::query()
-                ->leftJoin('trucks', 'entry_permits.truck_id', '=', 'trucks.id')
-                ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
-                ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
-                ->leftJoin('dss_parking_permits', 'entry_permits.id', '=', 'dss_parking_permits.entry_permit_id')
-                ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
-                ->leftJoin('users as drivers', 'entry_permits.user_id', '=', 'drivers.id')
-                ->leftJoin('users as granters', 'entry_permits.granted_by_user_id', '=', 'granters.id')
-                ->leftJoin('tasks', 'entry_permits.task_id', '=', 'tasks.id')
-                ->leftJoin('statuses', 'entry_permits.status_id', '=', 'statuses.id')
-                ->select(
-                    'entry_permits.*',
-                    'trucks.plate_number',
-                    'trucks.color as truck_color',
-                    'truck_models.name as truck_model_name',
-                    'truck_brands.name as truck_brand_name',
-                    'yards.name as yard_name',
-                    'yards.strict_mode as yard_strict_mode',
-                    'drivers.name as driver_name',
-                    'drivers.phone as driver_phone',
-                    'granters.name as granted_by_name',
-                    'tasks.name as task_name',
-                    'statuses.name as status_name',
-                    'statuses.key as status_key',
-                    'dss_parking_permits.id as dss_parking_permit_id',
-                    'dss_parking_permits.status as dss_parking_status',
-                    'dss_parking_permits.synced_at as dss_parking_synced_at',
-                    'dss_parking_permits.error_message as dss_parking_error_message'
-                );
-
-            // Фильтр по двору
-            if ($request->has('yard_id') && $request->yard_id) {
-                $query->where('entry_permits.yard_id', $request->yard_id);
-            }
-
-            // Фильтр по статусу
-            if ($request->has('status') && $request->status) {
-                if ($request->status === 'active') {
-                    $query->where('statuses.key', 'active');
-                    // Также фильтруем по дате - показываем только действующие разрешения
-                    $query->where(function ($q) {
-                        $q->whereNull('entry_permits.end_date')
-                          ->orWhere('entry_permits.end_date', '>=', now()->startOfDay());
-                    });
-                } elseif ($request->status === 'inactive') {
-                    $query->where('statuses.key', 'not_active');
-                }
-            }
-
-            // Фильтр по типу разрешения
-            if ($request->has('permit_type') && $request->permit_type !== 'all') {
-                if ($request->permit_type === 'one_time') {
-                    $query->where('entry_permits.one_permission', true);
-                } elseif ($request->permit_type === 'permanent') {
-                    $query->where('entry_permits.one_permission', false);
-                }
-            }
-
-            // Поиск по номеру ТС
-            if ($request->has('plate_number') && $request->plate_number) {
-                $plate = strtolower(str_replace(' ', '', $request->plate_number));
-                $query->whereRaw("LOWER(REPLACE(trucks.plate_number, ' ', '')) LIKE ?", ['%' . $plate . '%']);
-            }
-
-            // Фильтр по гостевым пропускам (guest_type)
-            if ($request->has('guest_type') && $request->guest_type !== 'all') {
-                if ($request->guest_type === 'guest') {
-                    $query->where('entry_permits.is_guest', true);
-                } elseif ($request->guest_type === 'not_guest') {
-                    $query->where('entry_permits.is_guest', false);
-                }
-            }
-
-            // Поиск по имени гостя или компании
-            if ($request->has('guest_search') && $request->guest_search) {
-                $guestSearch = '%' . $request->guest_search . '%';
-                $query->where(function ($q) use ($guestSearch) {
-                    $q->where('entry_permits.guest_name', 'like', $guestSearch)
-                      ->orWhere('entry_permits.guest_company', 'like', $guestSearch);
-                });
-            }
-
-            // Фильтр по дате создания (от)
-            if ($request->has('date_from') && $request->date_from) {
-                $query->whereDate('entry_permits.created_at', '>=', $request->date_from);
-            }
-
-            // Фильтр по дате создания (до)
-            if ($request->has('date_to') && $request->date_to) {
-                $query->whereDate('entry_permits.created_at', '<=', $request->date_to);
-            }
+            $query = $this->buildPermitsQuery($request);
 
             // Сортировка
             $sortField = $request->input('sort_field', 'created_at');
@@ -2139,6 +2049,58 @@ class VisitorsCotroller extends Controller
                 ],
             ], 200);
 
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function syncPermitsWithDss(Request $request)
+    {
+        try {
+            $permits = $this->buildPermitsQuery($request)
+                ->orderBy('entry_permits.created_at', 'desc')
+                ->get();
+
+            $summary = [
+                'processed' => 0,
+                'synced' => 0,
+                'revoked' => 0,
+                'failed' => 0,
+                'skipped' => 0,
+            ];
+
+            foreach ($permits as $permit) {
+                $summary['processed']++;
+
+                $result = $this->isPermitEffectiveActive($permit)
+                    ? $this->permitVehicleService->syncPermitVehicleSafely($permit)
+                    : $this->permitVehicleService->revokePermitVehicleSafely($permit);
+
+                if (!empty($result['success'])) {
+                    if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {
+                        $summary['revoked']++;
+                    } else {
+                        $summary['synced']++;
+                    }
+
+                    continue;
+                }
+
+                if (isset($result['error'])) {
+                    $summary['failed']++;
+                } else {
+                    $summary['skipped']++;
+                }
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Синхронизация разрешений с DSS завершена',
+                'summary' => $summary,
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -2484,5 +2446,102 @@ class VisitorsCotroller extends Controller
                 'message' => 'Error: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function buildPermitsQuery(Request $request)
+    {
+        $query = EntryPermit::query()
+            ->leftJoin('trucks', 'entry_permits.truck_id', '=', 'trucks.id')
+            ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
+            ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+            ->leftJoin('dss_parking_permits', 'entry_permits.id', '=', 'dss_parking_permits.entry_permit_id')
+            ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
+            ->leftJoin('users as drivers', 'entry_permits.user_id', '=', 'drivers.id')
+            ->leftJoin('users as granters', 'entry_permits.granted_by_user_id', '=', 'granters.id')
+            ->leftJoin('tasks', 'entry_permits.task_id', '=', 'tasks.id')
+            ->leftJoin('statuses', 'entry_permits.status_id', '=', 'statuses.id')
+            ->select(
+                'entry_permits.*',
+                'trucks.plate_number',
+                'trucks.color as truck_color',
+                'truck_models.name as truck_model_name',
+                'truck_brands.name as truck_brand_name',
+                'yards.name as yard_name',
+                'yards.strict_mode as yard_strict_mode',
+                'drivers.name as driver_name',
+                'drivers.phone as driver_phone',
+                'granters.name as granted_by_name',
+                'tasks.name as task_name',
+                'statuses.name as status_name',
+                'statuses.key as status_key',
+                'dss_parking_permits.id as dss_parking_permit_id',
+                'dss_parking_permits.status as dss_parking_status',
+                'dss_parking_permits.synced_at as dss_parking_synced_at',
+                'dss_parking_permits.error_message as dss_parking_error_message'
+            );
+
+        if ($request->has('yard_id') && $request->yard_id) {
+            $query->where('entry_permits.yard_id', $request->yard_id);
+        }
+
+        if ($request->has('status') && $request->status) {
+            if ($request->status === 'active') {
+                $query->where('statuses.key', 'active');
+                $query->where(function ($q) {
+                    $q->whereNull('entry_permits.end_date')
+                        ->orWhere('entry_permits.end_date', '>=', now()->startOfDay());
+                });
+            } elseif ($request->status === 'inactive') {
+                $query->where('statuses.key', 'not_active');
+            }
+        }
+
+        if ($request->has('permit_type') && $request->permit_type !== 'all') {
+            if ($request->permit_type === 'one_time') {
+                $query->where('entry_permits.one_permission', true);
+            } elseif ($request->permit_type === 'permanent') {
+                $query->where('entry_permits.one_permission', false);
+            }
+        }
+
+        if ($request->has('plate_number') && $request->plate_number) {
+            $plate = strtolower(str_replace(' ', '', $request->plate_number));
+            $query->whereRaw("LOWER(REPLACE(trucks.plate_number, ' ', '')) LIKE ?", ['%' . $plate . '%']);
+        }
+
+        if ($request->has('guest_type') && $request->guest_type !== 'all') {
+            if ($request->guest_type === 'guest') {
+                $query->where('entry_permits.is_guest', true);
+            } elseif ($request->guest_type === 'not_guest') {
+                $query->where('entry_permits.is_guest', false);
+            }
+        }
+
+        if ($request->has('guest_search') && $request->guest_search) {
+            $guestSearch = '%' . $request->guest_search . '%';
+            $query->where(function ($q) use ($guestSearch) {
+                $q->where('entry_permits.guest_name', 'like', $guestSearch)
+                    ->orWhere('entry_permits.guest_company', 'like', $guestSearch);
+            });
+        }
+
+        if ($request->has('date_from') && $request->date_from) {
+            $query->whereDate('entry_permits.created_at', '>=', $request->date_from);
+        }
+
+        if ($request->has('date_to') && $request->date_to) {
+            $query->whereDate('entry_permits.created_at', '<=', $request->date_to);
+        }
+
+        return $query;
+    }
+
+    private function isPermitEffectiveActive(EntryPermit $permit): bool
+    {
+        if (($permit->status_key ?? null) !== 'active') {
+            return false;
+        }
+
+        return !$permit->end_date || $permit->end_date >= now()->startOfDay();
     }
 }

@@ -147,6 +147,7 @@ Route::post('/security/getshiftreport', [VisitorsCotroller::class,'getShiftRepor
 Route::post('/security/getpermits', [VisitorsCotroller::class,'getPermits']); //Получить список разрешений с фильтрами
 Route::post('/security/addpermit', [VisitorsCotroller::class,'addPermit']); //Создать разрешение
 Route::post('/security/updatepermit', [VisitorsCotroller::class,'updatePermit']); //Обновить разрешение
+Route::post('/security/syncpermitsdss', [VisitorsCotroller::class,'syncPermitsWithDss']); //Синхронизировать разрешения с DSS
 Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivatePermit']); //Деактивировать разрешение
 Route::post('/security/deactivateexpired', [VisitorsCotroller::class,'deactivateExpiredPermits']); //Деактивировать все просроченные
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit']); //Удалить разрешение

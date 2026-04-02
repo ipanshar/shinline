@@ -200,8 +200,8 @@ const EntryPermitsManager: React.FC = () => {
   const [newTruckPlate, setNewTruckPlate] = useState("");
   const [savingTruck, setSavingTruck] = useState(false);
 
-  // Массовая деактивация
-  const [deactivatingExpired, setDeactivatingExpired] = useState(false);
+  // Массовая синхронизация с DSS
+  const [syncingDss, setSyncingDss] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Ошибка формы
@@ -548,25 +548,32 @@ const EntryPermitsManager: React.FC = () => {
     }
   };
 
-  // Массовая деактивация просроченных разовых разрешений
-  const handleDeactivateExpired = async () => {
-    setDeactivatingExpired(true);
+  const handleSyncWithDss = async () => {
+    setSyncingDss(true);
     try {
       const params: any = {};
       if (filterYardId) params.yard_id = filterYardId;
+      if (filterStatus !== "all") params.status = filterStatus;
+      if (filterPermitType !== "all") params.permit_type = filterPermitType;
+      if (filterGuestType !== "all") params.guest_type = filterGuestType;
+      if (searchPlate.trim()) params.plate_number = searchPlate.trim();
+      if (searchGuest.trim()) params.guest_search = searchGuest.trim();
+      if (filterDateFrom) params.date_from = filterDateFrom;
+      if (filterDateTo) params.date_to = filterDateTo;
       
-      const response = await axios.post("/security/deactivateexpired", params, { headers });
+      const response = await axios.post("/security/syncpermitsdss", params, { headers });
       if (response.data.status) {
-        toast.success(response.data.message);
-        if ((response.data?.dss_vehicle_revoke_summary?.failed || 0) > 0) {
-          toast.warning(`DSS не отозвал парковку для ${response.data.dss_vehicle_revoke_summary.failed} разрешений`);
+        const summary = response.data.summary;
+        toast.success(`${response.data.message}: ${summary.processed} обработано, ${summary.synced} добавлено, ${summary.revoked} отозвано`);
+        if ((summary.failed || 0) > 0) {
+          toast.warning(`Синхронизация DSS завершилась с ошибками для ${summary.failed} разрешений`);
         }
         fetchPermits(currentPage);
       }
     } catch (error: any) {
-      toast.error(error.response?.data?.message || "Ошибка деактивации");
+      toast.error(error.response?.data?.message || "Ошибка синхронизации с DSS");
     } finally {
-      setDeactivatingExpired(false);
+      setSyncingDss(false);
     }
   };
 
@@ -1067,16 +1074,16 @@ const EntryPermitsManager: React.FC = () => {
         <div className="flex flex-wrap gap-2 pt-3 border-t">
           <Button 
             variant="outline" 
-            onClick={handleDeactivateExpired}
-            disabled={deactivatingExpired}
-            className="text-orange-600 border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+            onClick={handleSyncWithDss}
+            disabled={syncingDss}
+            className="text-blue-600 border-blue-300 hover:bg-blue-50 hover:text-blue-700"
           >
-            {deactivatingExpired ? (
+            {syncingDss ? (
               <MuiCircularProgress size={16} className="mr-2" />
             ) : (
-              <AlertTriangle className="w-4 h-4 mr-2" />
+              <RefreshCw className="w-4 h-4 mr-2" />
             )}
-            Деактивировать просроченные
+            Синхронизировать с DSS
           </Button>
           <Button variant="outline" onClick={() => fetchPermits(currentPage)}>
             <RefreshCw className="w-4 h-4 mr-2" />

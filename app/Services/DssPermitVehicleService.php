@@ -8,6 +8,7 @@ use App\Models\Status;
 use App\Models\Truck;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 class DssPermitVehicleService extends DssBaseService
@@ -115,8 +116,8 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         $payload = $action === self::ACTION_REVOKE
-            ? $this->buildRevokePayload($plateNumber, $parkingPermit)
-            : $this->buildSyncPayload($plateNumber);
+            ? $this->buildRevokePayload($permit, $plateNumber, $parkingPermit)
+            : $this->buildSyncPayload($permit, $plateNumber);
 
         try {
             $responseData = $this->sendVehicleBatchRequest($payload);
@@ -182,17 +183,18 @@ class DssPermitVehicleService extends DssBaseService
         }
     }
 
-    private function buildSyncPayload(string $plateNumber): array
+    private function buildSyncPayload(EntryPermit $permit, string $plateNumber): array
     {
         $syncConfig = config('dss.permit_vehicle_sync');
+        $accessWindow = $this->resolvePermitAccessWindow($permit);
 
-        $entranceGroups = array_map(static function (array $group): array {
+        $entranceGroups = array_map(function (array $group) use ($accessWindow): array {
             return [
                 'parkingLotId' => (string) $group['parking_lot_id'],
                 'entranceGroupIds' => array_map('strval', $group['entrance_group_ids'] ?? []),
-                'entranceLongTerm' => (string) ($group['entrance_long_term'] ?? '1'),
-                'entranceStartTime' => (string) ($group['entrance_start_time'] ?? '-1'),
-                'entranceEndTime' => (string) ($group['entrance_end_time'] ?? '-1'),
+                'entranceLongTerm' => (string) ($accessWindow['entranceLongTerm'] ?? ($group['entrance_long_term'] ?? '1')),
+                'entranceStartTime' => (string) ($accessWindow['entranceStartTime'] ?? ($group['entrance_start_time'] ?? '-1')),
+                'entranceEndTime' => (string) ($accessWindow['entranceEndTime'] ?? ($group['entrance_end_time'] ?? '-1')),
             ];
         }, $syncConfig['entrance_groups'] ?? []);
 
@@ -210,18 +212,19 @@ class DssPermitVehicleService extends DssBaseService
                 'plateNo' => $plateNumber,
                 'vehicleColor' => (string) ($syncConfig['vehicle_color'] ?? '100'),
                 'vehicleBrand' => (string) ($syncConfig['vehicle_brand'] ?? '-1'),
-                'entranceLongTerm' => (string) ($syncConfig['entrance_long_term'] ?? '1'),
-                'entranceStartTime' => (string) ($syncConfig['entrance_start_time'] ?? '-1'),
-                'entranceEndTime' => (string) ($syncConfig['entrance_end_time'] ?? '-1'),
+                'entranceLongTerm' => (string) ($accessWindow['entranceLongTerm'] ?? ($syncConfig['entrance_long_term'] ?? '1')),
+                'entranceStartTime' => (string) ($accessWindow['entranceStartTime'] ?? ($syncConfig['entrance_start_time'] ?? '-1')),
+                'entranceEndTime' => (string) ($accessWindow['entranceEndTime'] ?? ($syncConfig['entrance_end_time'] ?? '-1')),
                 'entranceGroups' => $entranceGroups,
             ]],
         ];
     }
 
-    private function buildRevokePayload(string $plateNumber, ?DssParkingPermit $parkingPermit): array
+    private function buildRevokePayload(EntryPermit $permit, string $plateNumber, ?DssParkingPermit $parkingPermit): array
     {
         $syncConfig = config('dss.permit_vehicle_sync');
         $parkingLotIds = $this->resolveParkingLotIds($parkingPermit, $syncConfig);
+        $accessWindow = $this->resolvePermitAccessWindow($permit, $parkingPermit);
 
         return [
             'enableSurveyGroup' => (string) ($syncConfig['enable_survey_group'] ?? '0'),
@@ -235,19 +238,58 @@ class DssPermitVehicleService extends DssBaseService
             'vehicles' => [[
                 'id' => (string) ($this->resolveStoredRemoteVehicleId($parkingPermit) ?? ''),
                 'plateNo' => $plateNumber,
-                'entranceLongTerm' => (string) ($syncConfig['entrance_long_term'] ?? '1'),
-                'entranceStartTime' => (string) ($syncConfig['entrance_start_time'] ?? '-1'),
-                'entranceEndTime' => (string) ($syncConfig['entrance_end_time'] ?? '-1'),
-                'entranceGroups' => array_map(static function (string $parkingLotId) use ($syncConfig): array {
+                'entranceLongTerm' => (string) ($accessWindow['entranceLongTerm'] ?? ($syncConfig['entrance_long_term'] ?? '1')),
+                'entranceStartTime' => (string) ($accessWindow['entranceStartTime'] ?? ($syncConfig['entrance_start_time'] ?? '-1')),
+                'entranceEndTime' => (string) ($accessWindow['entranceEndTime'] ?? ($syncConfig['entrance_end_time'] ?? '-1')),
+                'entranceGroups' => array_map(function (string $parkingLotId) use ($syncConfig, $accessWindow): array {
                     return [
                         'parkingLotId' => $parkingLotId,
                         'entranceGroupIds' => [],
-                        'entranceLongTerm' => (string) ($syncConfig['entrance_long_term'] ?? '1'),
-                        'entranceStartTime' => (string) ($syncConfig['entrance_start_time'] ?? '-1'),
-                        'entranceEndTime' => (string) ($syncConfig['entrance_end_time'] ?? '-1'),
+                        'entranceLongTerm' => (string) ($accessWindow['entranceLongTerm'] ?? ($syncConfig['entrance_long_term'] ?? '1')),
+                        'entranceStartTime' => (string) ($accessWindow['entranceStartTime'] ?? ($syncConfig['entrance_start_time'] ?? '-1')),
+                        'entranceEndTime' => (string) ($accessWindow['entranceEndTime'] ?? ($syncConfig['entrance_end_time'] ?? '-1')),
                     ];
                 }, $parkingLotIds),
             ]],
+        ];
+    }
+
+    private function resolvePermitAccessWindow(EntryPermit $permit, ?DssParkingPermit $parkingPermit = null): ?array
+    {
+        $storedVehiclePayload = $parkingPermit?->request_payload['vehicles'][0] ?? null;
+        if (is_array($storedVehiclePayload) && ($storedVehiclePayload['entranceLongTerm'] ?? null) === '0') {
+            return [
+                'entranceLongTerm' => '0',
+                'entranceStartTime' => (string) ($storedVehiclePayload['entranceStartTime'] ?? '-1'),
+                'entranceEndTime' => (string) ($storedVehiclePayload['entranceEndTime'] ?? '-1'),
+            ];
+        }
+
+        if (!$permit->begin_date) {
+            return null;
+        }
+
+        $timezone = config('app.timezone', 'UTC');
+        $startDate = Carbon::parse($permit->begin_date, $timezone)->startOfDay();
+
+        $endSource = $permit->end_date;
+        if (!$endSource && $permit->one_permission) {
+            $endSource = $permit->begin_date;
+        }
+
+        if (!$endSource) {
+            return null;
+        }
+
+        $endDate = Carbon::parse($endSource, $timezone)->endOfDay();
+        if ($endDate->lt($startDate)) {
+            $endDate = $startDate->copy()->endOfDay();
+        }
+
+        return [
+            'entranceLongTerm' => '0',
+            'entranceStartTime' => (string) $startDate->timestamp,
+            'entranceEndTime' => (string) $endDate->timestamp,
         ];
     }
 
