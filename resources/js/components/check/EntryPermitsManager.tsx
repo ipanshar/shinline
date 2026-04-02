@@ -554,28 +554,78 @@ const EntryPermitsManager: React.FC = () => {
   const handleSyncWithDss = async () => {
     setSyncingDss(true);
     try {
-      const params: any = {};
-      if (filterYardId) params.yard_id = filterYardId;
-      if (filterStatus !== "all") params.status = filterStatus;
-      if (filterPermitType !== "all") params.permit_type = filterPermitType;
-      if (filterGuestType !== "all") params.guest_type = filterGuestType;
-      if (searchPlate.trim()) params.plate_number = searchPlate.trim();
-      if (searchGuest.trim()) params.guest_search = searchGuest.trim();
-      if (filterDateFrom) params.date_from = filterDateFrom;
-      if (filterDateTo) params.date_to = filterDateTo;
-      params.dss_sync_scope = dssSyncScope;
+      const buildSyncParams = (excludePermitIds: number[] = []) => {
+        const params: any = {};
+        if (filterYardId) params.yard_id = filterYardId;
+        if (filterStatus !== "all") params.status = filterStatus;
+        if (filterPermitType !== "all") params.permit_type = filterPermitType;
+        if (filterGuestType !== "all") params.guest_type = filterGuestType;
+        if (searchPlate.trim()) params.plate_number = searchPlate.trim();
+        if (searchGuest.trim()) params.guest_search = searchGuest.trim();
+        if (filterDateFrom) params.date_from = filterDateFrom;
+        if (filterDateTo) params.date_to = filterDateTo;
+        params.dss_sync_scope = dssSyncScope;
+        if (excludePermitIds.length > 0) {
+          params.exclude_permit_ids = excludePermitIds;
+        }
+
+        return params;
+      };
+
+      const processedPermitIds = new Set<number>();
+      const totalSummary = {
+        processed: 0,
+        synced: 0,
+        revoked: 0,
+        failed: 0,
+        skipped: 0,
+      };
+      let totalMatching = 0;
+      let lastBatchLimit = 0;
+      let remaining = 0;
+      let rounds = 0;
+      const maxRounds = 100;
 
       toast.info("Синхронизация с DSS выполняется пакетно с паузами, чтобы не упереться в лимиты сервиса. Это может занять время.");
-      
-      const response = await axios.post("/security/syncpermitsdss", params, { headers });
-      if (response.data.status) {
-        const summary = response.data.summary;
-        toast.success(`${response.data.message}: ${summary.processed} обработано, ${summary.synced} добавлено, ${summary.revoked} отозвано`);
-        if ((summary.failed || 0) > 0) {
-          toast.warning(`Синхронизация DSS завершилась с ошибками для ${summary.failed} разрешений`);
+
+      while (rounds < maxRounds) {
+        rounds++;
+
+        const response = await axios.post("/security/syncpermitsdss", buildSyncParams(Array.from(processedPermitIds)), { headers });
+        if (!response.data.status) {
+          break;
         }
-        fetchPermits(currentPage);
+
+        const summary = response.data.summary;
+        totalMatching = Math.max(totalMatching, response.data.matching_total || 0);
+        lastBatchLimit = response.data.batch_limit || summary.processed || lastBatchLimit;
+        remaining = response.data.remaining || 0;
+
+        totalSummary.processed += summary.processed || 0;
+        totalSummary.synced += summary.synced || 0;
+        totalSummary.revoked += summary.revoked || 0;
+        totalSummary.failed += summary.failed || 0;
+        totalSummary.skipped += summary.skipped || 0;
+
+        const currentBatchIds = Array.isArray(response.data.processed_permit_ids)
+          ? response.data.processed_permit_ids.map((id: number) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0)
+          : [];
+
+        currentBatchIds.forEach((id: number) => processedPermitIds.add(id));
+
+        if (summary.processed === 0 || currentBatchIds.length === 0 || remaining <= 0) {
+          break;
+        }
       }
+
+      toast.success(`Синхронизация с DSS завершена: ${totalSummary.processed} обработано из ${totalMatching}, ${totalSummary.synced} добавлено, ${totalSummary.revoked} отозвано`);
+      if (totalSummary.failed > 0) {
+        toast.warning(`Синхронизация DSS завершилась с ошибками для ${totalSummary.failed} разрешений`);
+      }
+      if (remaining > 0) {
+        toast.info(`После ${rounds} батчей осталось ${remaining} записей. Лимит DSS на батч: ${lastBatchLimit}.`);
+      }
+      fetchPermits(currentPage);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Ошибка синхронизации с DSS");
     } finally {
@@ -1092,7 +1142,7 @@ const EntryPermitsManager: React.FC = () => {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-1">
-              Синхронизация идёт пакетно с паузами и повторами на 429, поэтому массовый запуск может выполняться заметно дольше.
+              Синхронизация идёт пакетно с паузами и повторами на 429. За один запуск обрабатывается ограниченное число записей, остальные остаются на следующий прогон.
             </p>
           </div>
           <Button 

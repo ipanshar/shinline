@@ -48,6 +48,7 @@ return [
         'org_name' => env('DSS_PERMIT_ORG_NAME', 'Shin-Line'),
         'person_id' => env('DSS_PERMIT_PERSON_ID', '1'),
         'batch_delay_ms' => (int) env('DSS_PERMIT_BATCH_DELAY_MS', 250),
+        'max_batch_size' => (int) env('DSS_PERMIT_MAX_BATCH_SIZE', 28),
         'retry_attempts' => (int) env('DSS_PERMIT_RETRY_ATTEMPTS', 3),
         'retry_delay_ms' => (int) env('DSS_PERMIT_RETRY_DELAY_MS', 1000),
         'person_remark' => env('DSS_PERMIT_PERSON_REMARK', ''),

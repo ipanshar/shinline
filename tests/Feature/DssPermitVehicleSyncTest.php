@@ -794,6 +794,122 @@ class DssPermitVehicleSyncTest extends TestCase
             ->assertJsonPath('summary.revoked', 0);
     }
 
+    public function test_sync_permits_with_dss_respects_batch_limit(): void
+    {
+        config()->set('dss.permit_vehicle_sync.max_batch_size', 2);
+
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Limited sync yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $permits = collect(range(1, 3))->map(function (int $index) use ($activeStatus, $user, $yard) {
+            $truck = Truck::create([
+                'plate_number' => 'LIM' . $index . 'AA05',
+                'name' => 'Truck LIM' . $index,
+            ]);
+
+            return EntryPermit::create([
+                'truck_id' => $truck->id,
+                'yard_id' => $yard->id,
+                'granted_by_user_id' => $user->id,
+                'one_permission' => true,
+                'status_id' => $activeStatus->id,
+                'begin_date' => now(),
+                'end_date' => now()->addDay(),
+            ]);
+        });
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldReceive('syncPermitVehicleSafely')
+            ->twice()
+            ->andReturn(['success' => true, 'action' => 'sync']);
+        $service->shouldNotReceive('revokePermitVehicleSafely');
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/syncpermitsdss', [
+            'yard_id' => $yard->id,
+            'dss_sync_scope' => 'all',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('summary.processed', 2)
+            ->assertJsonPath('matching_total', 3)
+            ->assertJsonPath('remaining', 1)
+            ->assertJsonPath('batch_limit', 2);
+    }
+
+    public function test_sync_permits_with_dss_can_exclude_already_processed_permits(): void
+    {
+        config()->set('dss.permit_vehicle_sync.max_batch_size', 2);
+
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Excluded sync yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $permits = collect(range(1, 3))->map(function (int $index) use ($activeStatus, $user, $yard) {
+            $truck = Truck::create([
+                'plate_number' => 'EXC' . $index . 'AA05',
+                'name' => 'Truck EXC' . $index,
+            ]);
+
+            return EntryPermit::create([
+                'truck_id' => $truck->id,
+                'yard_id' => $yard->id,
+                'granted_by_user_id' => $user->id,
+                'one_permission' => true,
+                'status_id' => $activeStatus->id,
+                'begin_date' => now(),
+                'end_date' => now()->addDay(),
+            ]);
+        });
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldReceive('syncPermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $permits[2]->id))
+            ->andReturn(['success' => true, 'action' => 'sync']);
+        $service->shouldNotReceive('revokePermitVehicleSafely');
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/syncpermitsdss', [
+            'yard_id' => $yard->id,
+            'dss_sync_scope' => 'all',
+            'exclude_permit_ids' => [$permits[0]->id, $permits[1]->id],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('summary.processed', 1)
+            ->assertJsonPath('matching_total', 1)
+            ->assertJsonPath('remaining', 0)
+            ->assertJsonPath('processed_permit_ids.0', $permits[2]->id);
+    }
+
     public function test_revoke_is_skipped_when_another_active_permit_exists(): void
     {
         $activeStatus = Status::create([

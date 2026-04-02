@@ -2072,8 +2072,15 @@ class VisitorsCotroller extends Controller
     public function syncPermitsWithDss(Request $request)
     {
         try {
-            $permits = $this->buildPermitsQuery($request)
+            $baseQuery = $this->buildPermitsQuery($request)
+                ->orderBy('entry_permits.created_at', 'desc');
+
+            $maxBatchSize = max(1, (int) config('dss.permit_vehicle_sync.max_batch_size', 28));
+            $totalMatching = (clone $baseQuery)->count('entry_permits.id');
+
+            $permits = $baseQuery
                 ->orderBy('entry_permits.created_at', 'desc')
+                ->limit($maxBatchSize)
                 ->get();
 
             $summary = [
@@ -2083,10 +2090,12 @@ class VisitorsCotroller extends Controller
                 'failed' => 0,
                 'skipped' => 0,
             ];
+            $processedPermitIds = [];
             $batchDelayMs = max(0, (int) config('dss.permit_vehicle_sync.batch_delay_ms', 250));
 
             foreach ($permits as $permit) {
                 $summary['processed']++;
+                $processedPermitIds[] = $permit->id;
 
                 try {
                     $result = $this->isPermitEffectiveActive($permit)
@@ -2115,6 +2124,10 @@ class VisitorsCotroller extends Controller
                 'status' => true,
                 'message' => 'Синхронизация разрешений с DSS завершена',
                 'summary' => $summary,
+                'processed_permit_ids' => $processedPermitIds,
+                'batch_limit' => $maxBatchSize,
+                'matching_total' => $totalMatching,
+                'remaining' => max(0, $totalMatching - $summary['processed']),
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -2547,6 +2560,13 @@ class VisitorsCotroller extends Controller
 
         if ($request->has('date_to') && $request->date_to) {
             $query->whereDate('entry_permits.created_at', '<=', $request->date_to);
+        }
+
+        if ($request->has('exclude_permit_ids') && is_array($request->exclude_permit_ids) && !empty($request->exclude_permit_ids)) {
+            $excludePermitIds = array_values(array_filter(array_map('intval', $request->exclude_permit_ids), static fn (int $id) => $id > 0));
+            if ($excludePermitIds !== []) {
+                $query->whereNotIn('entry_permits.id', $excludePermitIds);
+            }
         }
 
         if ($request->has('dss_sync_scope') && $request->dss_sync_scope && $request->dss_sync_scope !== 'all') {
