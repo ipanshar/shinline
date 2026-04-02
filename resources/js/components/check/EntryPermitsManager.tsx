@@ -33,6 +33,7 @@ import {
   Plus, Pencil, Ban, Trash2, Search, RefreshCw, Shield, Clock, CalendarClock, Scale, 
   Truck as TruckIcon, UserRound, MoreVertical, MapPin, Phone, Building2, MessageSquare,
   Calendar, User, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Upload,
+  ShieldOff, ShieldAlert,
   Filter, ArrowUpDown, ArrowUp, ArrowDown, X, SlidersHorizontal
 } from "lucide-react";
 import { format } from "date-fns";
@@ -93,6 +94,10 @@ interface EntryPermit {
   task_name?: string;
   status_name: string;
   status_key: string;
+  dss_parking_permit_id?: number | null;
+  dss_parking_status?: 'synced' | 'already_exists' | 'failed' | 'skipped' | 'pending' | 'revoked' | 'revoke_failed' | 'revoke_skipped' | null;
+  dss_parking_synced_at?: string | null;
+  dss_parking_error_message?: string | null;
 }
 
 interface FormData {
@@ -469,7 +474,7 @@ const EntryPermitsManager: React.FC = () => {
         toast.success("Разрешение обновлено");
       } else {
         // Добавление
-        await axios.post(
+        const response = await axios.post(
           "/security/addpermit",
           {
             truck_id: formData.truck_id,
@@ -492,6 +497,10 @@ const EntryPermitsManager: React.FC = () => {
           { headers }
         );
         toast.success("Разрешение создано");
+
+        if (response.data?.dss_vehicle_sync?.error) {
+          toast.warning(`Разрешение создано, но DSS не принял ТС: ${response.data.dss_vehicle_sync.error}`);
+        }
       }
       setDialogOpen(false);
       fetchPermits(currentPage);
@@ -509,8 +518,11 @@ const EntryPermitsManager: React.FC = () => {
 
     setSaving(true);
     try {
-      await axios.post("/security/deactivatepermit", { id: selectedPermit.id }, { headers });
+      const response = await axios.post("/security/deactivatepermit", { id: selectedPermit.id }, { headers });
       toast.success("Разрешение деактивировано");
+      if (response.data?.dss_vehicle_revoke?.error) {
+        toast.warning(`Разрешение деактивировано, но DSS не отозвал парковку: ${response.data.dss_vehicle_revoke.error}`);
+      }
       setDeactivateDialogOpen(false);
       fetchPermits(currentPage);
     } catch (error: any) {
@@ -546,6 +558,9 @@ const EntryPermitsManager: React.FC = () => {
       const response = await axios.post("/security/deactivateexpired", params, { headers });
       if (response.data.status) {
         toast.success(response.data.message);
+        if ((response.data?.dss_vehicle_revoke_summary?.failed || 0) > 0) {
+          toast.warning(`DSS не отозвал парковку для ${response.data.dss_vehicle_revoke_summary.failed} разрешений`);
+        }
         fetchPermits(currentPage);
       }
     } catch (error: any) {
@@ -568,6 +583,61 @@ const EntryPermitsManager: React.FC = () => {
   const PermitCard: React.FC<{ permit: EntryPermit }> = ({ permit }) => {
     const [expanded, setExpanded] = useState(false);
     const isActive = permit.status_key === "active";
+
+    const dssParkingBadge = (() => {
+      switch (permit.dss_parking_status) {
+        case 'synced':
+          return {
+            label: 'DSS парковка: синхронизировано',
+            className: 'border-emerald-300 text-emerald-700 dark:text-emerald-400',
+            icon: <CheckCircle2 className="w-3 h-3 mr-1" />,
+          };
+        case 'already_exists':
+          return {
+            label: 'DSS парковка: уже есть в DSS',
+            className: 'border-blue-300 text-blue-700 dark:text-blue-400',
+            icon: <CheckCircle2 className="w-3 h-3 mr-1" />,
+          };
+        case 'revoked':
+          return {
+            label: 'DSS парковка: отозвано',
+            className: 'border-slate-400 text-slate-700 dark:text-slate-300',
+            icon: <ShieldOff className="w-3 h-3 mr-1" />,
+          };
+        case 'failed':
+          return {
+            label: 'DSS парковка: ошибка',
+            className: 'border-red-300 text-red-700 dark:text-red-400',
+            icon: <AlertTriangle className="w-3 h-3 mr-1" />,
+          };
+        case 'revoke_failed':
+          return {
+            label: 'DSS парковка: ошибка отзыва',
+            className: 'border-red-300 text-red-700 dark:text-red-400',
+            icon: <ShieldAlert className="w-3 h-3 mr-1" />,
+          };
+        case 'skipped':
+          return {
+            label: 'DSS парковка: пропущено',
+            className: 'border-slate-300 text-slate-700 dark:text-slate-400',
+            icon: <XCircle className="w-3 h-3 mr-1" />,
+          };
+        case 'revoke_skipped':
+          return {
+            label: 'DSS парковка: отзыв пропущен',
+            className: 'border-slate-300 text-slate-700 dark:text-slate-400',
+            icon: <XCircle className="w-3 h-3 mr-1" />,
+          };
+        case 'pending':
+          return {
+            label: 'DSS парковка: в ожидании',
+            className: 'border-amber-300 text-amber-700 dark:text-amber-400',
+            icon: <Clock className="w-3 h-3 mr-1" />,
+          };
+        default:
+          return null;
+      }
+    })();
 
     return (
       <Card className={cn(
@@ -606,6 +676,13 @@ const EntryPermitsManager: React.FC = () => {
               {permit.weighing_required === true && (
                 <Badge variant="outline" className="border-blue-300 text-blue-600 dark:text-blue-400">
                   <Scale className="w-3 h-3 mr-1" /> Взвешивание
+                </Badge>
+              )}
+
+              {dssParkingBadge && (
+                <Badge variant="outline" className={dssParkingBadge.className}>
+                  {dssParkingBadge.icon}
+                  {dssParkingBadge.label}
                 </Badge>
               )}
             </div>
@@ -717,10 +794,16 @@ const EntryPermitsManager: React.FC = () => {
               Выдал: {permit.granted_by_name}
             </span>
           )}
+
+          {permit.dss_parking_synced_at && (
+            <span className="flex items-center gap-1 text-xs">
+              DSS: {formatDate(permit.dss_parking_synced_at)}
+            </span>
+          )}
         </div>
 
         {/* Раскрывающаяся секция с дополнительными данными */}
-        {(permit.comment || permit.guest_purpose || permit.task_name) && (
+        {(permit.comment || permit.guest_purpose || permit.task_name || permit.dss_parking_error_message) && (
           <>
             <button
               onClick={() => setExpanded(!expanded)}
@@ -746,6 +829,12 @@ const EntryPermitsManager: React.FC = () => {
                   <p className="text-muted-foreground flex items-start gap-1">
                     <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0" />
                     {permit.comment}
+                  </p>
+                )}
+                {permit.dss_parking_error_message && (
+                  <p className="text-red-600 dark:text-red-400 flex items-start gap-1">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    <span><span className="font-medium">DSS парковка:</span> {permit.dss_parking_error_message}</span>
                   </p>
                 )}
               </div>

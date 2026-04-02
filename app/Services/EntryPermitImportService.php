@@ -14,6 +14,10 @@ use RuntimeException;
 
 class EntryPermitImportService
 {
+    public function __construct(private DssPermitVehicleService $permitVehicleService)
+    {
+    }
+
     public function import(array $rows, int $yardId, bool $onePermission, ?bool $weighingRequired, ?int $grantedByUserId = null): array
     {
         $activeStatusId = Status::where('key', 'active')->value('id');
@@ -35,7 +39,9 @@ class EntryPermitImportService
 
         foreach ($rows as $index => $row) {
             try {
-                DB::transaction(function () use ($row, $index, $yardId, $onePermission, $weighingRequired, $grantedByUserId, $activeStatusId, &$result) {
+                $createdPermitId = null;
+
+                DB::transaction(function () use ($row, $index, $yardId, $onePermission, $weighingRequired, $grantedByUserId, $activeStatusId, &$result, &$createdPermitId) {
                     $mapped = $this->mapRow($row);
                     $rowLabel = 'Строка ' . ($index + 1);
 
@@ -102,7 +108,7 @@ class EntryPermitImportService
                     if ($existingPermit) {
                         $result['skipped_permits']++;
                     } else {
-                        EntryPermit::create([
+                        $permit = EntryPermit::create([
                             'truck_id' => $truck->id,
                             'yard_id' => $yardId,
                             'granted_by_user_id' => $grantedByUserId,
@@ -112,11 +118,19 @@ class EntryPermitImportService
                             'status_id' => $activeStatusId,
                             'comment' => $this->buildPermitComment($mapped),
                         ]);
+                        $createdPermitId = $permit->id;
                         $result['created_permits']++;
                     }
 
                     $result['processed_rows']++;
                 });
+
+                if ($createdPermitId) {
+                    $permit = EntryPermit::find($createdPermitId);
+                    if ($permit) {
+                        $this->permitVehicleService->syncPermitVehicleSafely($permit);
+                    }
+                }
             } catch (\Throwable $exception) {
                 $result['errors'][] = $exception->getMessage();
             }

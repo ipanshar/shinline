@@ -16,6 +16,7 @@ use App\Models\TruckModel;
 use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
+use App\Services\DssPermitVehicleService;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\DssVisitorFlowService;
 use App\Services\WeighingService;
@@ -25,6 +26,7 @@ use Illuminate\Http\Request;
 class VisitorsCotroller extends Controller
 {
     public function __construct(
+        private DssPermitVehicleService $permitVehicleService,
         private DssVisitorConfirmationService $confirmationService,
         private DssVisitorFlowService $visitorFlowService,
         private WeighingService $weighingService,
@@ -1626,7 +1628,7 @@ class VisitorsCotroller extends Controller
             return null;
         }
 
-        return EntryPermit::create([
+        $permit = EntryPermit::create([
             'truck_id' => $truckId,
             'yard_id' => $yardId,
             'one_permission' => true,
@@ -1634,6 +1636,10 @@ class VisitorsCotroller extends Controller
             'status_id' => $activeStatus->id,
             'granted_by_user_id' => $grantedByUserId,
         ]);
+
+        $this->permitVehicleService->syncPermitVehicleSafely($permit);
+
+        return $permit;
     }
 
     private function getActivePermitForTruck(int $truckId, int $yardId): ?EntryPermit
@@ -2000,6 +2006,7 @@ class VisitorsCotroller extends Controller
                 ->leftJoin('trucks', 'entry_permits.truck_id', '=', 'trucks.id')
                 ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
                 ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
+                ->leftJoin('dss_parking_permits', 'entry_permits.id', '=', 'dss_parking_permits.entry_permit_id')
                 ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
                 ->leftJoin('users as drivers', 'entry_permits.user_id', '=', 'drivers.id')
                 ->leftJoin('users as granters', 'entry_permits.granted_by_user_id', '=', 'granters.id')
@@ -2018,7 +2025,11 @@ class VisitorsCotroller extends Controller
                     'granters.name as granted_by_name',
                     'tasks.name as task_name',
                     'statuses.name as status_name',
-                    'statuses.key as status_key'
+                    'statuses.key as status_key',
+                    'dss_parking_permits.id as dss_parking_permit_id',
+                    'dss_parking_permits.status as dss_parking_status',
+                    'dss_parking_permits.synced_at as dss_parking_synced_at',
+                    'dss_parking_permits.error_message as dss_parking_error_message'
                 );
 
             // Фильтр по двору
@@ -2207,6 +2218,8 @@ class VisitorsCotroller extends Controller
                 'guest_phone' => $validate['guest_phone'] ?? null,
             ]);
 
+            $dssVehicleSync = $this->permitVehicleService->syncPermitVehicleSafely($permit);
+
             // Загружаем связи для ответа
             $permit->load(['truck', 'yard', 'driver', 'grantedBy', 'task']);
 
@@ -2214,6 +2227,7 @@ class VisitorsCotroller extends Controller
                 'status' => true,
                 'message' => 'Разрешение успешно создано',
                 'data' => $permit,
+                'dss_vehicle_sync' => $dssVehicleSync,
             ], 200);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -2311,10 +2325,13 @@ class VisitorsCotroller extends Controller
                 'end_date' => now(),
             ]);
 
+            $dssVehicleRevoke = $this->permitVehicleService->revokePermitVehicleSafely($permit);
+
             return response()->json([
                 'status' => true,
                 'message' => 'Разрешение деактивировано',
                 'data' => $permit->fresh(),
+                'dss_vehicle_revoke' => $dssVehicleRevoke,
             ], 200);
 
         } catch (\Exception $e) {
@@ -2352,17 +2369,35 @@ class VisitorsCotroller extends Controller
                 $query->where('yard_id', $yardId);
             }
 
-            $expiredCount = $query->count();
+            $expiredPermits = $query->get();
+            $expiredCount = $expiredPermits->count();
+            $revokeSummary = [
+                'success' => 0,
+                'failed' => 0,
+                'skipped' => 0,
+            ];
 
-            // Деактивируем
-            $query->update([
-                'status_id' => $inactiveStatus->id,
-            ]);
+            foreach ($expiredPermits as $permit) {
+                $permit->update([
+                    'status_id' => $inactiveStatus->id,
+                ]);
+
+                $revokeResult = $this->permitVehicleService->revokePermitVehicleSafely($permit);
+
+                if (!empty($revokeResult['success'])) {
+                    $revokeSummary['success']++;
+                } elseif (isset($revokeResult['error'])) {
+                    $revokeSummary['failed']++;
+                } else {
+                    $revokeSummary['skipped']++;
+                }
+            }
 
             return response()->json([
                 'status' => true,
                 'message' => "Деактивировано {$expiredCount} просроченных разрешений",
                 'deactivated_count' => $expiredCount,
+                'dss_vehicle_revoke_summary' => $revokeSummary,
             ], 200);
 
         } catch (\Exception $e) {

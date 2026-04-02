@@ -40,4 +40,27 @@ return [
         'alert_cooldown_minutes' => (int) env('DSS_ALERT_COOLDOWN_MINUTES', 15),
         'telegram_min_severity' => env('DSS_TELEGRAM_MIN_SEVERITY', 'critical'),
     ],
+
+    'permit_vehicle_sync' => [
+        'enable_survey_group' => env('DSS_PERMIT_ENABLE_SURVEY_GROUP', '0'),
+        'enable_entrance_group' => env('DSS_PERMIT_ENABLE_ENTRANCE_GROUP', '1'),
+        'org_code' => env('DSS_PERMIT_ORG_CODE', '001001'),
+        'org_name' => env('DSS_PERMIT_ORG_NAME', 'Shin-Line'),
+        'person_id' => env('DSS_PERMIT_PERSON_ID', '1'),
+        'person_remark' => env('DSS_PERMIT_PERSON_REMARK', ''),
+        'vehicle_color' => env('DSS_PERMIT_VEHICLE_COLOR', '100'),
+        'vehicle_brand' => env('DSS_PERMIT_VEHICLE_BRAND', '-1'),
+        'entrance_long_term' => env('DSS_PERMIT_ENTRANCE_LONG_TERM', '1'),
+        'entrance_start_time' => env('DSS_PERMIT_ENTRANCE_START_TIME', '-1'),
+        'entrance_end_time' => env('DSS_PERMIT_ENTRANCE_END_TIME', '-1'),
+        'entrance_groups' => [
+            [
+                'parking_lot_id' => env('DSS_PERMIT_PARKING_LOT_ID', '2'),
+                'entrance_group_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('DSS_PERMIT_ENTRANCE_GROUP_IDS', '14'))))),
+                'entrance_long_term' => env('DSS_PERMIT_GROUP_ENTRANCE_LONG_TERM', '1'),
+                'entrance_start_time' => env('DSS_PERMIT_GROUP_ENTRANCE_START_TIME', '-1'),
+                'entrance_end_time' => env('DSS_PERMIT_GROUP_ENTRANCE_END_TIME', '-1'),
+            ],
+        ],
+    ],
 ];

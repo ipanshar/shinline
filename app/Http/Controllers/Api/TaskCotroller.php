@@ -24,6 +24,7 @@ use App\Http\Controllers\TelegramController;
 use App\Models\EntryPermit;
 use App\Models\Visitor;
 use App\Models\WeighingRequirement;
+use App\Services\DssPermitVehicleService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,6 +32,11 @@ use Telegram\Bot\Laravel\Facades\Telegram;
 
 class TaskCotroller extends Controller
 {
+    public function __construct(
+        private DssPermitVehicleService $permitVehicleService,
+    ) {
+    }
+
     public function getTasks(Request $request)
     {
         try {
@@ -1543,6 +1549,7 @@ class TaskCotroller extends Controller
 
         if (!$permit) {
             $permit = EntryPermit::create($data);
+            $this->permitVehicleService->syncPermitVehicleSafely($permit);
         }
 
         return $permit;

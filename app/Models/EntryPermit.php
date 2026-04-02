@@ -70,4 +70,9 @@ class EntryPermit extends Model
     {
         return $this->belongsTo(Status::class);
     }
+
+    public function dssParkingPermit()
+    {
+        return $this->hasOne(DssParkingPermit::class);
+    }
 }
