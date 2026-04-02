@@ -127,6 +127,8 @@ interface Pagination {
   to: number | null;
 }
 
+type DssSyncScope = "all" | "failed" | "already_exists" | "no_status";
+
 const EntryPermitsManager: React.FC = () => {
   const [permits, setPermits] = useState<EntryPermit[]>([]);
   const [yards, setYards] = useState<Yard[]>([]);
@@ -202,6 +204,7 @@ const EntryPermitsManager: React.FC = () => {
 
   // Массовая синхронизация с DSS
   const [syncingDss, setSyncingDss] = useState(false);
+  const [dssSyncScope, setDssSyncScope] = useState<DssSyncScope>("failed");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Ошибка формы
@@ -560,6 +563,9 @@ const EntryPermitsManager: React.FC = () => {
       if (searchGuest.trim()) params.guest_search = searchGuest.trim();
       if (filterDateFrom) params.date_from = filterDateFrom;
       if (filterDateTo) params.date_to = filterDateTo;
+      params.dss_sync_scope = dssSyncScope;
+
+      toast.info("Синхронизация с DSS выполняется пакетно с паузами, чтобы не упереться в лимиты сервиса. Это может занять время.");
       
       const response = await axios.post("/security/syncpermitsdss", params, { headers });
       if (response.data.status) {
@@ -1072,6 +1078,23 @@ const EntryPermitsManager: React.FC = () => {
 
         {/* Кнопки действий */}
         <div className="flex flex-wrap gap-2 pt-3 border-t">
+          <div className="min-w-[240px]">
+            <Label className="text-sm mb-1 block">Что синхронизировать в DSS</Label>
+            <Select value={dssSyncScope} onValueChange={(value) => setDssSyncScope(value as DssSyncScope)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Выберите набор для синхронизации" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="failed">Только ошибки DSS</SelectItem>
+                <SelectItem value="already_exists">Только уже существующие в DSS</SelectItem>
+                <SelectItem value="no_status">Только без DSS-статуса</SelectItem>
+                <SelectItem value="all">Все по текущим фильтрам</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Синхронизация идёт пакетно с паузами и повторами на 429, поэтому массовый запуск может выполняться заметно дольше.
+            </p>
+          </div>
           <Button 
             variant="outline" 
             onClick={handleSyncWithDss}

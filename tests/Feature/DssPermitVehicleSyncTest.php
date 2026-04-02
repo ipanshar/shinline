@@ -325,6 +325,77 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
+    public function test_dss_permit_vehicle_service_retries_on_rate_limit(): void
+    {
+        config()->set('dss.permit_vehicle_sync.retry_attempts', 2);
+        config()->set('dss.permit_vehicle_sync.retry_delay_ms', 0);
+
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Main yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '701AA05',
+            'name' => 'Truck 701AA05',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Exception\ClientException(
+                '429 Too Many Requests',
+                new \GuzzleHttp\Psr7\Request('POST', 'http://10.210.0.250/ipms/api/v1.1/vehicle/save/batch'),
+                new \GuzzleHttp\Psr7\Response(429, ['Content-Type' => 'text/html'], '<html><body>429 Too Many Requests</body></html>')
+            ),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'vehicles' => [
+                        [
+                            'id' => '77',
+                            'plateNo' => '701AA05',
+                        ],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->syncPermitVehicle($permit);
+
+        $this->assertTrue($result['success']);
+        $this->assertCount(2, $history);
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'status' => 'synced',
+            'remote_vehicle_id' => '77',
+        ]);
+    }
+
     public function test_add_permit_triggers_dss_vehicle_sync(): void
     {
         Status::create([
@@ -620,6 +691,107 @@ class DssPermitVehicleSyncTest extends TestCase
             ->assertJsonPath('summary.revoked', 1)
             ->assertJsonPath('summary.failed', 0)
             ->assertJsonPath('summary.skipped', 0);
+    }
+
+    public function test_sync_permits_with_dss_can_filter_only_failed_records(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Sync yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $failedTruck = Truck::create([
+            'plate_number' => 'F111AA05',
+            'name' => 'Truck F111AA05',
+        ]);
+
+        $alreadyExistsTruck = Truck::create([
+            'plate_number' => 'E111AA05',
+            'name' => 'Truck E111AA05',
+        ]);
+
+        $noStatusTruck = Truck::create([
+            'plate_number' => 'N111AA05',
+            'name' => 'Truck N111AA05',
+        ]);
+
+        $failedPermit = EntryPermit::create([
+            'truck_id' => $failedTruck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+            'end_date' => now()->addDay(),
+        ]);
+
+        $alreadyExistsPermit = EntryPermit::create([
+            'truck_id' => $alreadyExistsTruck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+            'end_date' => now()->addDay(),
+        ]);
+
+        $noStatusPermit = EntryPermit::create([
+            'truck_id' => $noStatusTruck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+            'end_date' => now()->addDay(),
+        ]);
+
+        DssParkingPermit::create([
+            'entry_permit_id' => $failedPermit->id,
+            'truck_id' => $failedTruck->id,
+            'yard_id' => $yard->id,
+            'plate_number' => 'F111AA05',
+            'status' => 'failed',
+            'person_id' => '1',
+        ]);
+
+        DssParkingPermit::create([
+            'entry_permit_id' => $alreadyExistsPermit->id,
+            'truck_id' => $alreadyExistsTruck->id,
+            'yard_id' => $yard->id,
+            'plate_number' => 'E111AA05',
+            'status' => 'already_exists',
+            'person_id' => '1',
+        ]);
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldReceive('syncPermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $failedPermit->id))
+            ->andReturn(['success' => true, 'action' => 'sync']);
+        $service->shouldNotReceive('revokePermitVehicleSafely');
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/syncpermitsdss', [
+            'yard_id' => $yard->id,
+            'dss_sync_scope' => 'failed',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('summary.processed', 1)
+            ->assertJsonPath('summary.synced', 1)
+            ->assertJsonPath('summary.revoked', 0);
     }
 
     public function test_revoke_is_skipped_when_another_active_permit_exists(): void

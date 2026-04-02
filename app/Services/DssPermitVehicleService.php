@@ -305,15 +305,35 @@ class DssPermitVehicleService extends DssBaseService
 
     private function sendVehicleBatchRequest(array $payload): array
     {
-        $response = $this->client->post(
-            rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/save/batch',
-            [
-                'headers' => $this->getJsonHeaders($this->dssSettings->token),
-                'json' => $payload,
-            ]
-        );
+        $attempts = max(1, (int) config('dss.permit_vehicle_sync.retry_attempts', 3));
+        $retryDelayMs = max(0, (int) config('dss.permit_vehicle_sync.retry_delay_ms', 1000));
 
-        return json_decode($response->getBody(), true);
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $response = $this->client->post(
+                    rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/save/batch',
+                    [
+                        'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                        'json' => $payload,
+                    ]
+                );
+
+                return json_decode($response->getBody(), true);
+            } catch (RequestException $exception) {
+                $statusCode = $exception->hasResponse() ? $exception->getResponse()->getStatusCode() : null;
+                $shouldRetry = $statusCode === 429 && $attempt < $attempts;
+
+                if (!$shouldRetry) {
+                    throw $exception;
+                }
+
+                if ($retryDelayMs > 0) {
+                    usleep($retryDelayMs * 1000 * $attempt);
+                }
+            }
+        }
+
+        throw new \RuntimeException('DSS vehicle batch retry loop terminated unexpectedly');
     }
 
     private function resolveParkingLotIds(?DssParkingPermit $parkingPermit, array $syncConfig): array

@@ -2083,28 +2083,31 @@ class VisitorsCotroller extends Controller
                 'failed' => 0,
                 'skipped' => 0,
             ];
+            $batchDelayMs = max(0, (int) config('dss.permit_vehicle_sync.batch_delay_ms', 250));
 
             foreach ($permits as $permit) {
                 $summary['processed']++;
 
-                $result = $this->isPermitEffectiveActive($permit)
-                    ? $this->permitVehicleService->syncPermitVehicleSafely($permit)
-                    : $this->permitVehicleService->revokePermitVehicleSafely($permit);
+                try {
+                    $result = $this->isPermitEffectiveActive($permit)
+                        ? $this->permitVehicleService->syncPermitVehicleSafely($permit)
+                        : $this->permitVehicleService->revokePermitVehicleSafely($permit);
 
-                if (!empty($result['success'])) {
-                    if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {
-                        $summary['revoked']++;
+                    if (!empty($result['success'])) {
+                        if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {
+                            $summary['revoked']++;
+                        } else {
+                            $summary['synced']++;
+                        }
+                    } elseif (isset($result['error'])) {
+                        $summary['failed']++;
                     } else {
-                        $summary['synced']++;
+                        $summary['skipped']++;
                     }
-
-                    continue;
-                }
-
-                if (isset($result['error'])) {
-                    $summary['failed']++;
-                } else {
-                    $summary['skipped']++;
+                } finally {
+                    if ($batchDelayMs > 0) {
+                        usleep($batchDelayMs * 1000);
+                    }
                 }
             }
 
@@ -2544,6 +2547,16 @@ class VisitorsCotroller extends Controller
 
         if ($request->has('date_to') && $request->date_to) {
             $query->whereDate('entry_permits.created_at', '<=', $request->date_to);
+        }
+
+        if ($request->has('dss_sync_scope') && $request->dss_sync_scope && $request->dss_sync_scope !== 'all') {
+            if ($request->dss_sync_scope === 'failed') {
+                $query->whereIn('dss_parking_permits.status', ['failed', 'revoke_failed']);
+            } elseif ($request->dss_sync_scope === 'already_exists') {
+                $query->where('dss_parking_permits.status', 'already_exists');
+            } elseif ($request->dss_sync_scope === 'no_status') {
+                $query->whereNull('dss_parking_permits.id');
+            }
         }
 
         return $query;
