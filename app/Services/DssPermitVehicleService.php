@@ -167,13 +167,23 @@ class DssPermitVehicleService extends DssBaseService
             ], $plateNumber, $payload, $responseData, $action, $parkingPermit);
         } catch (RequestException $exception) {
             if ($exception->hasResponse()) {
+                $response = $exception->getResponse();
+                $responseBody = (string) $response->getBody();
+                $decodedResponse = json_decode($responseBody, true);
+                $responseData = is_array($decodedResponse)
+                    ? $decodedResponse
+                    : [
+                        'http_status' => $response->getStatusCode(),
+                        'raw_body' => $responseBody,
+                    ];
+
                 return $this->storeParkingPermitRecord($permit, [
                     'error' => $action === self::ACTION_REVOKE
                         ? 'Ошибка запроса к DSS при отзыве парковочного доступа'
                         : 'Ошибка запроса к DSS при регистрации ТС',
-                    'data' => json_decode($exception->getResponse()->getBody(), true),
+                    'data' => $responseData,
                     'action' => $action,
-                ], $plateNumber, $payload, null, $action, $parkingPermit);
+                ], $plateNumber, $payload, $responseData, $action, $parkingPermit);
             }
 
             return $this->storeParkingPermitRecord($permit, [
