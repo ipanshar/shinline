@@ -370,6 +370,74 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
+    public function test_add_permit_replaces_existing_active_permit(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'North yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+        $truck = Truck::create([
+            'plate_number' => 'A123BC77',
+            'name' => 'Truck A123BC77',
+        ]);
+
+        $oldPermit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now()->subDay(),
+        ]);
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldReceive('revokePermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $oldPermit->id))
+            ->andReturn(['success' => true, 'action' => 'revoke']);
+        $service->shouldReceive('syncPermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id !== $oldPermit->id))
+            ->andReturn(['success' => true, 'action' => 'sync']);
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/addpermit', [
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => false,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('replaced_permits_count', 1)
+            ->assertJsonPath('data.truck_id', $truck->id)
+            ->assertJsonPath('data.status_id', $activeStatus->id);
+
+        $this->assertDatabaseHas('entry_permits', [
+            'id' => $oldPermit->id,
+            'status_id' => $inactiveStatus->id,
+        ]);
+
+        $this->assertSame(2, EntryPermit::count());
+    }
+
     public function test_get_permits_returns_dss_parking_sync_fields(): void
     {
         $activeStatus = Status::create([

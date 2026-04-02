@@ -14,7 +14,10 @@ use RuntimeException;
 
 class EntryPermitImportService
 {
-    public function __construct(private DssPermitVehicleService $permitVehicleService)
+    public function __construct(
+        private DssPermitVehicleService $permitVehicleService,
+        private EntryPermitReplacementService $permitReplacementService,
+    )
     {
     }
 
@@ -32,6 +35,7 @@ class EntryPermitImportService
             'created_counterparties' => 0,
             'linked_counterparties' => 0,
             'created_permits' => 0,
+            'replaced_permits' => 0,
             'skipped_permits' => 0,
             'processed_rows' => 0,
             'errors' => [],
@@ -40,8 +44,9 @@ class EntryPermitImportService
         foreach ($rows as $index => $row) {
             try {
                 $createdPermitId = null;
+                $replacedPermitIds = [];
 
-                DB::transaction(function () use ($row, $index, $yardId, $onePermission, $weighingRequired, $grantedByUserId, $activeStatusId, &$result, &$createdPermitId) {
+                DB::transaction(function () use ($row, $index, $yardId, $onePermission, $weighingRequired, $grantedByUserId, $activeStatusId, &$result, &$createdPermitId, &$replacedPermitIds) {
                     $mapped = $this->mapRow($row);
                     $rowLabel = 'Строка ' . ($index + 1);
 
@@ -94,36 +99,32 @@ class EntryPermitImportService
                         $result['linked_counterparties']++;
                     }
 
-                    $existingPermit = EntryPermit::query()
-                        ->where('truck_id', $truck->id)
-                        ->where('yard_id', $yardId)
-                        ->where('status_id', $activeStatusId)
-                        ->where(function ($query) {
-                            $query->whereNull('end_date')
-                                ->orWhere('end_date', '>=', now()->startOfDay());
-                        })
-                        ->latest('created_at')
-                        ->first();
+                    $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits($truck->id, $yardId);
+                    $replacedPermitIds = $replacedPermits->pluck('id')->all();
+                    $result['replaced_permits'] += count($replacedPermitIds);
 
-                    if ($existingPermit) {
-                        $result['skipped_permits']++;
-                    } else {
-                        $permit = EntryPermit::create([
-                            'truck_id' => $truck->id,
-                            'yard_id' => $yardId,
-                            'granted_by_user_id' => $grantedByUserId,
-                            'one_permission' => $onePermission,
-                            'weighing_required' => $weighingRequired,
-                            'begin_date' => now(),
-                            'status_id' => $activeStatusId,
-                            'comment' => $this->buildPermitComment($mapped),
-                        ]);
-                        $createdPermitId = $permit->id;
-                        $result['created_permits']++;
-                    }
+                    $permit = EntryPermit::create([
+                        'truck_id' => $truck->id,
+                        'yard_id' => $yardId,
+                        'granted_by_user_id' => $grantedByUserId,
+                        'one_permission' => $onePermission,
+                        'weighing_required' => $weighingRequired,
+                        'begin_date' => now(),
+                        'status_id' => $activeStatusId,
+                        'comment' => $this->buildPermitComment($mapped),
+                    ]);
+                    $createdPermitId = $permit->id;
+                    $result['created_permits']++;
 
                     $result['processed_rows']++;
                 });
+
+                foreach ($replacedPermitIds as $replacedPermitId) {
+                    $replacedPermit = EntryPermit::find($replacedPermitId);
+                    if ($replacedPermit) {
+                        $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
+                    }
+                }
 
                 if ($createdPermitId) {
                     $permit = EntryPermit::find($createdPermitId);

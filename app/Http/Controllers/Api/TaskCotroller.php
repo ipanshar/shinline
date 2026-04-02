@@ -25,6 +25,7 @@ use App\Models\EntryPermit;
 use App\Models\Visitor;
 use App\Models\WeighingRequirement;
 use App\Services\DssPermitVehicleService;
+use App\Services\EntryPermitReplacementService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,6 +35,7 @@ class TaskCotroller extends Controller
 {
     public function __construct(
         private DssPermitVehicleService $permitVehicleService,
+        private EntryPermitReplacementService $permitReplacementService,
     ) {
     }
 
@@ -1548,7 +1550,17 @@ class TaskCotroller extends Controller
         $permit = $query->first();
 
         if (!$permit) {
-            $permit = EntryPermit::create($data);
+            [$permit, $replacedPermits] = DB::transaction(function () use ($truck_id, $yard_id, $data) {
+                $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits($truck_id, $yard_id);
+                $permit = EntryPermit::create($data);
+
+                return [$permit, $replacedPermits];
+            });
+
+            foreach ($replacedPermits as $replacedPermit) {
+                $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
+            }
+
             $this->permitVehicleService->syncPermitVehicleSafely($permit);
         }
 

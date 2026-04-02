@@ -19,6 +19,7 @@ use App\Models\Yard;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\DssVisitorFlowService;
+use App\Services\EntryPermitReplacementService;
 use App\Services\WeighingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
@@ -27,6 +28,7 @@ class VisitorsCotroller extends Controller
 {
     public function __construct(
         private DssPermitVehicleService $permitVehicleService,
+        private EntryPermitReplacementService $permitReplacementService,
         private DssVisitorConfirmationService $confirmationService,
         private DssVisitorFlowService $visitorFlowService,
         private WeighingService $weighingService,
@@ -1628,14 +1630,24 @@ class VisitorsCotroller extends Controller
             return null;
         }
 
-        $permit = EntryPermit::create([
-            'truck_id' => $truckId,
-            'yard_id' => $yardId,
-            'one_permission' => true,
-            'weighing_required' => $weighingRequired,
-            'status_id' => $activeStatus->id,
-            'granted_by_user_id' => $grantedByUserId,
-        ]);
+        [$permit, $replacedPermits] = DB::transaction(function () use ($truckId, $yardId, $weighingRequired, $activeStatus, $grantedByUserId) {
+            $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits($truckId, $yardId);
+
+            $permit = EntryPermit::create([
+                'truck_id' => $truckId,
+                'yard_id' => $yardId,
+                'one_permission' => true,
+                'weighing_required' => $weighingRequired,
+                'status_id' => $activeStatus->id,
+                'granted_by_user_id' => $grantedByUserId,
+            ]);
+
+            return [$permit, $replacedPermits];
+        });
+
+        foreach ($replacedPermits as $replacedPermit) {
+            $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
+        }
 
         $this->permitVehicleService->syncPermitVehicleSafely($permit);
 
@@ -2144,41 +2156,40 @@ class VisitorsCotroller extends Controller
                 ], 500);
             }
 
-            // Проверяем, нет ли уже активного разрешения для этого ТС и двора
-            $existingPermit = EntryPermit::where('truck_id', $validate['truck_id'])
-                ->where('yard_id', $validate['yard_id'])
-                ->where('status_id', $activeStatus->id)
-                ->orderBy('created_at', 'desc')
-                ->first();
+            [$permit, $replacedPermits] = DB::transaction(function () use ($validate, $activeStatus) {
+                $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits(
+                    $validate['truck_id'],
+                    $validate['yard_id']
+                );
 
-            if ($existingPermit) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Для этого ТС уже есть активное разрешение на данный двор',
-                    'existing_permit' => $existingPermit,
-                ], 409);
+                $permit = EntryPermit::create([
+                    'truck_id' => $validate['truck_id'],
+                    'yard_id' => $validate['yard_id'],
+                    'user_id' => $validate['user_id'] ?? null,
+                    'granted_by_user_id' => $validate['granted_by_user_id'] ?? null,
+                    'task_id' => $validate['task_id'] ?? null,
+                    'one_permission' => $validate['one_permission'],
+                    'weighing_required' => $validate['weighing_required'] ?? null,
+                    'begin_date' => $validate['begin_date'] ?? now(),
+                    'end_date' => $validate['end_date'] ?? null,
+                    'status_id' => $activeStatus->id,
+                    'comment' => $validate['comment'] ?? null,
+                    'is_guest' => $validate['is_guest'] ?? false,
+                    'guest_name' => $validate['guest_name'] ?? null,
+                    'guest_company' => $validate['guest_company'] ?? null,
+                    'guest_destination' => $validate['guest_destination'] ?? null,
+                    'guest_purpose' => $validate['guest_purpose'] ?? null,
+                    'guest_phone' => $validate['guest_phone'] ?? null,
+                ]);
+
+                return [$permit, $replacedPermits];
+            });
+
+            $dssReplacedPermits = [];
+
+            foreach ($replacedPermits as $replacedPermit) {
+                $dssReplacedPermits[] = $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
             }
-
-            $permit = EntryPermit::create([
-                'truck_id' => $validate['truck_id'],
-                'yard_id' => $validate['yard_id'],
-                'user_id' => $validate['user_id'] ?? null,
-                'granted_by_user_id' => $validate['granted_by_user_id'] ?? null,
-                'task_id' => $validate['task_id'] ?? null,
-                'one_permission' => $validate['one_permission'],
-                'weighing_required' => $validate['weighing_required'] ?? null,
-                'begin_date' => $validate['begin_date'] ?? now(),
-                'end_date' => $validate['end_date'] ?? null,
-                'status_id' => $activeStatus->id,
-                'comment' => $validate['comment'] ?? null,
-                // Гостевые поля
-                'is_guest' => $validate['is_guest'] ?? false,
-                'guest_name' => $validate['guest_name'] ?? null,
-                'guest_company' => $validate['guest_company'] ?? null,
-                'guest_destination' => $validate['guest_destination'] ?? null,
-                'guest_purpose' => $validate['guest_purpose'] ?? null,
-                'guest_phone' => $validate['guest_phone'] ?? null,
-            ]);
 
             $dssVehicleSync = $this->permitVehicleService->syncPermitVehicleSafely($permit);
 
@@ -2189,6 +2200,8 @@ class VisitorsCotroller extends Controller
                 'status' => true,
                 'message' => 'Разрешение успешно создано',
                 'data' => $permit,
+                'replaced_permits_count' => $replacedPermits->count(),
+                'dss_replaced_permits' => $dssReplacedPermits,
                 'dss_vehicle_sync' => $dssVehicleSync,
             ], 200);
 
