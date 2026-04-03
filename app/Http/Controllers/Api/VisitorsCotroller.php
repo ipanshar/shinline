@@ -17,6 +17,7 @@ use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
 use App\Services\DssPermitVehicleService;
+use App\Services\DssParkingService;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\DssVisitorFlowService;
 use App\Services\EntryPermitReplacementService;
@@ -28,6 +29,7 @@ class VisitorsCotroller extends Controller
 {
     public function __construct(
         private DssPermitVehicleService $permitVehicleService,
+        private DssParkingService $dssParkingService,
         private EntryPermitReplacementService $permitReplacementService,
         private DssVisitorConfirmationService $confirmationService,
         private DssVisitorFlowService $visitorFlowService,
@@ -851,7 +853,8 @@ class VisitorsCotroller extends Controller
                     'trucks.plate_number as matched_plate_number',
                     'tasks.name as task_name',
                     'devaices.channelName as device_name',
-                    'devaices.checkpoint_id as device_checkpoint_id'
+                    'devaices.checkpoint_id as device_checkpoint_id',
+                    'devaices.barrier_channel_id as device_barrier_channel_id'
                 )
                 ->orderBy('visitors.entry_date', 'desc')
                 ->limit($limit)
@@ -905,6 +908,7 @@ class VisitorsCotroller extends Controller
                     'yard_strict_mode' => (bool) $visitor->yard_strict_mode,
                     'checkpoint_id' => $visitor->device_checkpoint_id,
                     'device_name' => $visitor->device_name,
+                    'can_open_barrier' => filled($visitor->device_barrier_channel_id),
                     'matched_truck_id' => $visitor->truck_id,
                     'matched_plate_number' => $visitor->matched_plate_number,
                     'task_id' => $visitor->task_id,
@@ -1383,6 +1387,7 @@ class VisitorsCotroller extends Controller
                 'comment' => 'nullable|string|max:500',
                 'create_permit' => 'nullable|boolean',
                 'create_weighing' => 'nullable|boolean',
+                'open_barrier' => 'nullable|boolean',
             ]);
 
             $visitor = Visitor::find($validate['visitor_id']);
@@ -1400,6 +1405,7 @@ class VisitorsCotroller extends Controller
                 ?? ($validate['corrected_plate_number'] ?? $visitor->plate_number);
             $shouldCreatePermit = !empty($validate['create_permit']);
             $shouldCreateWeighing = !empty($validate['create_weighing']);
+            $shouldOpenBarrier = !empty($validate['open_barrier']);
 
             // Если передан truck_id - используем его
             if (!empty($validate['truck_id'])) {
@@ -1484,10 +1490,20 @@ class VisitorsCotroller extends Controller
             // это нужно для создания требования на взвешивание по разрешению или политике двора.
             $this->processConfirmedVisitor($visitor, $task, $visitor->yard_id);
 
+            $barrierOpenResult = null;
+            if ($shouldOpenBarrier) {
+                $barrierOpenResult = $this->dssParkingService->openBarrierForDevice($visitor->entrance_device_id);
+            }
+
+            $responseVisitor = $visitor->fresh();
+            $responseVisitor->setAttribute('barrier_open_requested', $shouldOpenBarrier);
+            $responseVisitor->setAttribute('barrier_opened', isset($barrierOpenResult['success']) && $barrierOpenResult['success'] === true);
+            $responseVisitor->setAttribute('barrier_open_error', $barrierOpenResult['error'] ?? null);
+
             return response()->json([
                 'status' => true,
                 'message' => 'Visitor confirmed successfully',
-                'data' => $visitor->fresh(),
+                'data' => $responseVisitor,
             ], 200);
 
         } catch (\Exception $e) {

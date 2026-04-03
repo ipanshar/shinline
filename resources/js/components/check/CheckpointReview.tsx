@@ -52,6 +52,7 @@ type CheckpointQueueItem = {
   yard_strict_mode: boolean;
   checkpoint_id: number;
   device_name?: string | null;
+  can_open_barrier?: boolean;
   matched_truck_id?: number | null;
   matched_plate_number?: string | null;
   task_id?: number | null;
@@ -168,6 +169,7 @@ const CheckpointReview: React.FC = () => {
     selectedTaskId: number | null;
     createPermit: boolean;
     createWeighing: boolean;
+    openBarrier: boolean;
     comment: string;
   }>({
     open: false,
@@ -177,6 +179,7 @@ const CheckpointReview: React.FC = () => {
     selectedTaskId: null,
     createPermit: false,
     createWeighing: false,
+    openBarrier: false,
     comment: '',
   });
   const [searchResults, setSearchResults] = useState<SimilarPlate[]>([]);
@@ -429,6 +432,7 @@ const CheckpointReview: React.FC = () => {
       selectedTaskId: item.task_id ?? null,
       createPermit: false,
       createWeighing: false,
+      openBarrier: false,
       comment: '',
     });
     setSearchResults([]);
@@ -444,6 +448,7 @@ const CheckpointReview: React.FC = () => {
       selectedTaskId: null,
       createPermit: false,
       createWeighing: false,
+      openBarrier: false,
       comment: '',
     });
     setSearchResults([]);
@@ -561,6 +566,7 @@ const CheckpointReview: React.FC = () => {
 
     const hasPermit = resolvedConfirmTruck.hasPermit;
     const willCreatePermit = confirmDialog.createPermit && !hasPermit;
+    const shouldOpenBarrier = confirmDialog.openBarrier && !!item.can_open_barrier;
 
     if (item.yard_strict_mode && !hasPermit && !willCreatePermit) {
       toast.error('🚫 Въезд запрещён: строгий режим активен, требуется разрешение на въезд');
@@ -578,6 +584,7 @@ const CheckpointReview: React.FC = () => {
         comment: confirmDialog.comment.trim() || undefined,
         create_permit: willCreatePermit,
         create_weighing: confirmDialog.createWeighing,
+        open_barrier: shouldOpenBarrier,
       }, {
         headers: getAuthHeaders(),
       });
@@ -601,7 +608,17 @@ const CheckpointReview: React.FC = () => {
           }
         }
 
-        toast.success(willCreatePermit ? 'Въезд подтверждён, разовый пропуск создан' : 'Въезд подтверждён');
+        const successMessage = willCreatePermit ? 'Въезд подтверждён, разовый пропуск создан' : 'Въезд подтверждён';
+        toast.success(successMessage);
+
+        if (shouldOpenBarrier) {
+          if (response.data?.data?.barrier_opened) {
+            toast.success('Шлагбаум открыт');
+          } else {
+            toast.error(response.data?.data?.barrier_open_error || 'Въезд подтверждён, но шлагбаум не открылся');
+          }
+        }
+
         closeConfirmDialog();
         await loadQueue();
         await loadExitQueueCount();
@@ -1098,7 +1115,7 @@ const CheckpointReview: React.FC = () => {
                   </Badge>
                 </div>
 
-                {(!confirmDialog.item.has_permit || !confirmDialog.item.has_weighing_task) && (
+                {(!confirmDialog.item.has_permit || !confirmDialog.item.has_weighing_task || confirmDialog.item.can_open_barrier) && (
                   <div className="space-y-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/20">
                     <div className="text-sm font-medium text-blue-800 dark:text-blue-300">Дополнительные действия</div>
 
@@ -1133,6 +1150,20 @@ const CheckpointReview: React.FC = () => {
                         <div className="space-y-0.5">
                           <div className="text-sm font-medium">Назначить взвешивание</div>
                           <div className="text-xs text-muted-foreground">Будет создано задание на взвешивание (въезд + выезд)</div>
+                        </div>
+                      </label>
+                    )}
+
+                    {confirmDialog.item.can_open_barrier && (
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <Checkbox
+                          checked={confirmDialog.openBarrier}
+                          onCheckedChange={(checked) => setConfirmDialog((prev) => ({ ...prev, openBarrier: !!checked }))}
+                          className="mt-0.5"
+                        />
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-medium">Открыть шлагбаум</div>
+                          <div className="text-xs text-muted-foreground">После подтверждения будет отправлена команда DSS на прямое открытие шлагбаума</div>
                         </div>
                       </label>
                     )}

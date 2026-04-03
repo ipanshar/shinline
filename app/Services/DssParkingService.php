@@ -69,6 +69,77 @@ class DssParkingService extends DssBaseService
         ];
     }
 
+    public function openBarrierForDevice(?int $deviceId): array
+    {
+        if (!$deviceId) {
+            return ['error' => 'Устройство для открытия шлагбаума не указано'];
+        }
+
+        $device = Devaice::find($deviceId);
+        if (!$device) {
+            return ['error' => 'Устройство для открытия шлагбаума не найдено'];
+        }
+
+        $barrierChannelId = trim((string) $device->barrier_channel_id);
+        if ($barrierChannelId === '') {
+            return ['error' => 'Для устройства не настроен barrier_channel_id'];
+        }
+
+        return $this->openBarrierByChannelId($barrierChannelId);
+    }
+
+    public function openBarrierByChannelId(string $barrierChannelId): array
+    {
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
+
+        $authResult = $this->authService->ensureAuthorized();
+        if (isset($authResult['error'])) {
+            return ['error' => 'Ошибка авторизации DSS: ' . $authResult['error']];
+        }
+
+        try {
+            $response = $this->client->put(
+                rtrim($this->baseUrl, '/') . '/ipms/api/v1.0/entrance/channel/remote-open-sluice/' . $barrierChannelId,
+                [
+                    'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                    'json' => [
+                        'correctCarNo' => '',
+                        'correctTime' => '0',
+                        'forceRecapture' => '0',
+                        'parkingSpaceStatisticsType' => '1',
+                        'saveRecord' => '0',
+                    ],
+                ]
+            );
+
+            $responseData = json_decode($response->getBody(), true);
+
+            if ((int) ($responseData['code'] ?? 0) !== 1000) {
+                return [
+                    'error' => $responseData['desc'] ?? 'DSS не подтвердил открытие шлагбаума',
+                    'data' => $responseData,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'message' => $responseData['desc'] ?? 'Success',
+                'data' => $responseData['data'] ?? null,
+            ];
+        } catch (RequestException $exception) {
+            if ($exception->hasResponse()) {
+                return [
+                    'error' => 'Ошибка запроса к DSS при открытии шлагбаума',
+                    'details' => json_decode($exception->getResponse()->getBody(), true),
+                ];
+            }
+
+            return ['error' => 'Ошибка соединения с DSS: ' . $exception->getMessage()];
+        }
+    }
+
     private function fetchParkingLots(): array
     {
         try {
