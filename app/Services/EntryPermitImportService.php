@@ -99,8 +99,8 @@ class EntryPermitImportService
                         $result['linked_counterparties']++;
                     }
 
-                    $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits($truck->id, $yardId);
-                    $replacedPermitIds = $replacedPermits->pluck('id')->all();
+                    $replacementResult = $this->permitReplacementService->deactivateExistingActivePermits($truck->id, $yardId);
+                    $replacedPermitIds = $replacementResult['permits']->pluck('id')->all();
                     $result['replaced_permits'] += count($replacedPermitIds);
 
                     $permit = EntryPermit::create([
@@ -118,13 +118,6 @@ class EntryPermitImportService
 
                     $result['processed_rows']++;
                 });
-
-                foreach ($replacedPermitIds as $replacedPermitId) {
-                    $replacedPermit = EntryPermit::find($replacedPermitId);
-                    if ($replacedPermit) {
-                        $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
-                    }
-                }
 
                 if ($createdPermitId) {
                     $permit = EntryPermit::find($createdPermitId);

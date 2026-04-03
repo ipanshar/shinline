@@ -1550,16 +1550,12 @@ class TaskCotroller extends Controller
         $permit = $query->first();
 
         if (!$permit) {
-            [$permit, $replacedPermits] = DB::transaction(function () use ($truck_id, $yard_id, $data) {
-                $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits($truck_id, $yard_id);
+            [$permit, $replacementResult] = DB::transaction(function () use ($truck_id, $yard_id, $data) {
+                $replacementResult = $this->permitReplacementService->deactivateExistingActivePermits($truck_id, $yard_id);
                 $permit = EntryPermit::create($data);
 
-                return [$permit, $replacedPermits];
+                return [$permit, $replacementResult];
             });
-
-            foreach ($replacedPermits as $replacedPermit) {
-                $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
-            }
 
             $this->permitVehicleService->syncPermitVehicleSafely($permit);
         }

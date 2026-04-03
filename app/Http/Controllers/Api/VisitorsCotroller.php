@@ -1630,24 +1630,25 @@ class VisitorsCotroller extends Controller
             return null;
         }
 
-        [$permit, $replacedPermits] = DB::transaction(function () use ($truckId, $yardId, $weighingRequired, $activeStatus, $grantedByUserId) {
-            $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits($truckId, $yardId);
+        [$permit, $replacementResult] = DB::transaction(function () use ($truckId, $yardId, $weighingRequired, $activeStatus, $grantedByUserId) {
+            $replacementResult = $this->permitReplacementService->deactivateExistingActivePermits($truckId, $yardId);
+
+            $permitStart = now()->startOfDay();
+            $permitEnd = now()->endOfDay();
 
             $permit = EntryPermit::create([
                 'truck_id' => $truckId,
                 'yard_id' => $yardId,
                 'one_permission' => true,
                 'weighing_required' => $weighingRequired,
+                'begin_date' => $permitStart,
+                'end_date' => $permitEnd,
                 'status_id' => $activeStatus->id,
                 'granted_by_user_id' => $grantedByUserId,
             ]);
 
-            return [$permit, $replacedPermits];
+            return [$permit, $replacementResult];
         });
-
-        foreach ($replacedPermits as $replacedPermit) {
-            $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
-        }
 
         $this->permitVehicleService->syncPermitVehicleSafely($permit);
 
@@ -2187,8 +2188,8 @@ class VisitorsCotroller extends Controller
                 ], 500);
             }
 
-            [$permit, $replacedPermits] = DB::transaction(function () use ($validate, $activeStatus) {
-                $replacedPermits = $this->permitReplacementService->deactivateExistingActivePermits(
+            [$permit, $replacementResult] = DB::transaction(function () use ($validate, $activeStatus) {
+                $replacementResult = $this->permitReplacementService->deactivateExistingActivePermits(
                     $validate['truck_id'],
                     $validate['yard_id']
                 );
@@ -2213,14 +2214,11 @@ class VisitorsCotroller extends Controller
                     'guest_phone' => $validate['guest_phone'] ?? null,
                 ]);
 
-                return [$permit, $replacedPermits];
+                return [$permit, $replacementResult];
             });
 
-            $dssReplacedPermits = [];
-
-            foreach ($replacedPermits as $replacedPermit) {
-                $dssReplacedPermits[] = $this->permitVehicleService->revokePermitVehicleSafely($replacedPermit);
-            }
+            $replacedPermits = $replacementResult['permits'];
+            $dssReplacedPermits = $replacementResult['dss_results']->values()->all();
 
             $dssVehicleSync = $this->permitVehicleService->syncPermitVehicleSafely($permit);
 
@@ -2434,11 +2432,21 @@ class VisitorsCotroller extends Controller
                 ], 400);
             }
 
+            $dssVehicleSync = $this->permitVehicleService->smartSyncPermitVehicleSafely($permit);
+            if (isset($dssVehicleSync['error'])) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Не удалось синхронизировать удаление разрешения с DSS. Удаление отменено.',
+                    'dss_vehicle_sync' => $dssVehicleSync,
+                ], 422);
+            }
+
             $permit->delete();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Разрешение удалено',
+                'dss_vehicle_sync' => $dssVehicleSync,
             ], 200);
 
         } catch (\Exception $e) {

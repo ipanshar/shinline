@@ -25,6 +25,7 @@ class DssVisitorFlowService
         private DssStatusCacheService $statusCache,
         private DssStructuredLogger $structuredLogger,
         private WeighingService $weighingService,
+        private DssPermitVehicleService $permitVehicleService,
     )
     {
     }
@@ -107,6 +108,8 @@ class DssVisitorFlowService
                 $permit->status_id = $inactiveStatus->id;
                 $permit->end_date = $exitTime ?? now();
                 $permit->save();
+
+                $this->permitVehicleService->revokePermitVehicleSafely($permit->fresh());
             }
         }
 
@@ -122,6 +125,10 @@ class DssVisitorFlowService
                 $oneTimePermit->status_id = $inactiveStatus->id;
                 $oneTimePermit->end_date = $exitTime ?? now();
                 $oneTimePermit->save();
+
+                if ((int) $oneTimePermit->id !== (int) $visitor->entry_permit_id) {
+                    $this->permitVehicleService->revokePermitVehicleSafely($oneTimePermit->fresh());
+                }
             }
         }
     }

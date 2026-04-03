@@ -10,7 +10,9 @@ use App\Models\User;
 use App\Models\Yard;
 use App\Services\DssAuthService;
 use App\Services\DssPermitVehicleService;
+use App\Services\EntryPermitReplacementService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
@@ -27,6 +29,62 @@ class DssPermitVehicleSyncTest extends TestCase
         Mockery::close();
 
         parent::tearDown();
+    }
+
+    public function test_entry_permit_replacement_service_deactivates_and_revokes_existing_permits(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Main yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '111AA01',
+            'name' => 'Truck 111AA01',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now()->subDay(),
+        ]);
+
+        $dssService = Mockery::mock(DssPermitVehicleService::class);
+        $dssService->shouldReceive('revokePermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $permit->id))
+            ->andReturn(['success' => true, 'action' => 'revoke']);
+
+        app()->instance(DssPermitVehicleService::class, $dssService);
+
+        $replacementService = app(EntryPermitReplacementService::class);
+
+        $result = DB::transaction(fn () => $replacementService->deactivateExistingActivePermits($truck->id, $yard->id));
+
+        $this->assertCount(1, $result['permits']);
+        $this->assertSame($permit->id, $result['permits']->first()->id);
+        $this->assertSame([
+            'success' => true,
+            'action' => 'revoke',
+        ], $result['dss_results']->all()[0]);
+
+        $this->assertDatabaseHas('entry_permits', [
+            'id' => $permit->id,
+            'status_id' => $inactiveStatus->id,
+        ]);
     }
 
     public function test_dss_permit_vehicle_service_sends_expected_payload(): void
@@ -1294,6 +1352,120 @@ class DssPermitVehicleSyncTest extends TestCase
             ->assertJsonPath('status', true)
             ->assertJsonPath('data.status_id', $inactiveStatus->id)
             ->assertJsonPath('dss_vehicle_revoke.success', true);
+    }
+
+    public function test_delete_inactive_permit_runs_dss_smart_sync_before_deletion(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Delete yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+        $truck = Truck::create([
+            'plate_number' => 'DEL70001',
+            'name' => 'Truck DEL70001',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $inactiveStatus->id,
+            'begin_date' => now()->subDay(),
+            'end_date' => now()->subHour(),
+        ]);
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $permit->id))
+            ->andReturn(['success' => false, 'skipped' => true, 'reason' => 'dss_permission_not_active', 'action' => 'revoke']);
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/deletepermit', [
+            'id' => $permit->id,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('dss_vehicle_sync.reason', 'dss_permission_not_active');
+
+        $this->assertDatabaseMissing('entry_permits', [
+            'id' => $permit->id,
+        ]);
+    }
+
+    public function test_delete_inactive_permit_is_cancelled_when_dss_sync_fails(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Delete fail yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+        $truck = Truck::create([
+            'plate_number' => 'DEL70002',
+            'name' => 'Truck DEL70002',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => true,
+            'status_id' => $inactiveStatus->id,
+            'begin_date' => now()->subDay(),
+            'end_date' => now()->subHour(),
+        ]);
+
+        $service = Mockery::mock(DssPermitVehicleService::class);
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
+            ->once()
+            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $permit->id))
+            ->andReturn(['error' => 'DSS unavailable', 'action' => 'revoke']);
+
+        app()->instance(DssPermitVehicleService::class, $service);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/deletepermit', [
+            'id' => $permit->id,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('status', false)
+            ->assertJsonPath('dss_vehicle_sync.error', 'DSS unavailable');
+
+        $this->assertDatabaseHas('entry_permits', [
+            'id' => $permit->id,
+        ]);
     }
 
     public function test_sync_permits_with_dss_processes_active_and_inactive_permits(): void
