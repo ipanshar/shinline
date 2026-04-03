@@ -379,45 +379,62 @@ class DssPermitVehicleService extends DssBaseService
 
     private function lookupRemoteVehicleByPlate(string $plateNumber): ?array
     {
-        $query = [
-            'page' => 1,
-            'pageSize' => max(1, (int) config('dss.permit_vehicle_sync.lookup_page_size', 100)),
-            'orgCode' => (string) config('dss.permit_vehicle_sync.lookup_org_code', '001'),
-            'containChild' => (string) config('dss.permit_vehicle_sync.lookup_contain_child', '0'),
-            'plateNo' => $plateNumber,
-        ];
+        $pageSize = min(1000, max(1, (int) config('dss.permit_vehicle_sync.lookup_page_size', 1000)));
+        $orgCode = (string) config('dss.permit_vehicle_sync.lookup_org_code', '001');
+        $containChild = (string) config('dss.permit_vehicle_sync.lookup_contain_child', '0');
+        $page = 1;
+        $totalPages = 1;
 
-        try {
-            $response = $this->client->get(
-                rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/page',
-                [
-                    'headers' => $this->getJsonHeaders($this->dssSettings->token),
-                    'query' => $query,
-                ]
-            );
-        } catch (RequestException $exception) {
-            Log::warning('DSS vehicle lookup failed', [
-                'plate_number' => $plateNumber,
-                'message' => $exception->getMessage(),
-            ]);
+        while ($page <= $totalPages) {
+            try {
+                $response = $this->client->get(
+                    rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/page',
+                    [
+                        'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                        'query' => [
+                            'page' => $page,
+                            'pageSize' => $pageSize,
+                            'orgCode' => $orgCode,
+                            'containChild' => $containChild,
+                            'plateNo' => $plateNumber,
+                        ],
+                    ]
+                );
+            } catch (RequestException $exception) {
+                Log::warning('DSS vehicle lookup failed', [
+                    'plate_number' => $plateNumber,
+                    'page' => $page,
+                    'message' => $exception->getMessage(),
+                ]);
 
-            return null;
-        }
-
-        $responseData = json_decode((string) $response->getBody(), true);
-        if ((int) ($responseData['code'] ?? 0) !== 1000) {
-            return null;
-        }
-
-        foreach (($responseData['data']['pageData'] ?? []) as $vehicle) {
-            if (!is_array($vehicle)) {
-                continue;
+                return null;
             }
 
-            $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
-            if ($candidatePlate === $plateNumber) {
-                return $vehicle;
+            $responseData = json_decode((string) $response->getBody(), true);
+            if ((int) ($responseData['code'] ?? 0) !== 1000) {
+                return null;
             }
+
+            $pageData = $responseData['data']['pageData'] ?? [];
+            foreach ($pageData as $vehicle) {
+                if (!is_array($vehicle)) {
+                    continue;
+                }
+
+                $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
+                if ($candidatePlate === $plateNumber) {
+                    return $vehicle;
+                }
+            }
+
+            $totalCount = (int) ($responseData['data']['totalCount'] ?? count($pageData));
+            $totalPages = max(1, (int) ceil($totalCount / $pageSize));
+
+            if ($pageData === []) {
+                break;
+            }
+
+            $page++;
         }
 
         return null;

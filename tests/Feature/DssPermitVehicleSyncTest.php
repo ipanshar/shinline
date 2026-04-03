@@ -642,6 +642,108 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
+    public function test_dss_permit_vehicle_service_lookup_can_scan_multiple_pages(): void
+    {
+        config()->set('dss.permit_vehicle_sync.lookup_page_size', 2);
+
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Paged lookup yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '555TT05',
+            'name' => 'Truck 555TT05',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+        ]);
+
+        DssParkingPermit::create([
+            'entry_permit_id' => $permit->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'plate_number' => '555TT05',
+            'remote_vehicle_id' => null,
+            'status' => 'already_exists',
+            'person_id' => '1',
+            'parking_lot_ids' => [],
+            'entrance_group_ids' => [],
+            'request_payload' => ['vehicles' => [['plateNo' => '555TT05']]],
+            'response_payload' => ['code' => 10004],
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '5',
+                    'pageData' => [
+                        ['id' => '1', 'plateNo' => '111AA01'],
+                        ['id' => '2', 'plateNo' => '222BB02'],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '5',
+                    'pageData' => [
+                        ['id' => '3', 'plateNo' => '333CC03'],
+                        ['id' => '4', 'plateNo' => '444DD04'],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '5',
+                    'pageData' => [
+                        ['id' => '549', 'plateNo' => '555TT05'],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->backfillRemoteVehicleIdsForPermits([$permit->id]);
+
+        $this->assertSame(['checked' => 1, 'updated' => 1, 'not_found' => 0, 'failed' => 0], $result);
+        $this->assertCount(3, $history);
+        $this->assertStringContainsString('page=1', $history[0]['request']->getUri()->getQuery());
+        $this->assertStringContainsString('page=2', $history[1]['request']->getUri()->getQuery());
+        $this->assertStringContainsString('page=3', $history[2]['request']->getUri()->getQuery());
+
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'remote_vehicle_id' => '549',
+        ]);
+    }
+
     public function test_dss_permit_vehicle_service_retries_on_rate_limit(): void
     {
         config()->set('dss.permit_vehicle_sync.retry_attempts', 2);
