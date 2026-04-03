@@ -286,6 +286,7 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         $vehicleData = $this->lookupRemoteVehicleByPlate($plateNumber);
+        $this->persistLookedUpVehicleForPermit($permit, $vehicleData);
         $dssHasActivePermission = $this->hasEffectiveDssParkingPermission($vehicleData);
 
         if ($this->isPermitEffectiveActive($permit)) {
@@ -742,65 +743,73 @@ class DssPermitVehicleService extends DssBaseService
             return $this->vehicleLookupCache[$cacheKey];
         }
 
-        $pageSize = min(1000, max(1, (int) config('dss.permit_vehicle_sync.lookup_page_size', 1000)));
-        $orgCode = (string) config('dss.permit_vehicle_sync.lookup_org_code', '001');
-        $containChild = (string) config('dss.permit_vehicle_sync.lookup_contain_child', '0');
-        $page = 1;
-        $totalPages = 1;
+        return $this->vehicleLookupCache[$cacheKey] = $this->fetchRemoteVehicleByPlateNumber($plateNumber);
+    }
 
-        while ($page <= $totalPages) {
-            try {
-                $response = $this->client->get(
-                    rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/page',
-                    [
-                        'headers' => $this->getJsonHeaders($this->dssSettings->token),
-                        'query' => [
-                            'page' => $page,
-                            'pageSize' => $pageSize,
-                            'orgCode' => $orgCode,
-                            'containChild' => $containChild,
-                            'plateNo' => $plateNumber,
-                        ],
-                    ]
-                );
-            } catch (RequestException $exception) {
-                Log::warning('DSS vehicle lookup failed', [
-                    'plate_number' => $plateNumber,
-                    'page' => $page,
-                    'message' => $exception->getMessage(),
-                ]);
+    private function fetchRemoteVehicleByPlateNumber(string $plateNumber): ?array
+    {
+        $filterAuthorityOrg = (string) config('dss.permit_vehicle_sync.lookup_filter_authority_org', '0');
 
-                return null;
-            }
+        try {
+            $response = $this->client->post(
+                rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/fetch-by-plate-no',
+                [
+                    'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                    'json' => [
+                        'plateNo' => $plateNumber,
+                        'filterAuthorityOrg' => $filterAuthorityOrg,
+                    ],
+                ]
+            );
+        } catch (RequestException $exception) {
+            Log::warning('DSS vehicle fetch-by-plate lookup failed', [
+                'plate_number' => $plateNumber,
+                'message' => $exception->getMessage(),
+            ]);
 
-            $responseData = json_decode((string) $response->getBody(), true);
-            if ((int) ($responseData['code'] ?? 0) !== 1000) {
-                return null;
-            }
-
-            $pageData = $responseData['data']['pageData'] ?? [];
-            foreach ($pageData as $vehicle) {
-                if (!is_array($vehicle)) {
-                    continue;
-                }
-
-                $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
-                if ($candidatePlate === $plateNumber) {
-                    return $this->vehicleLookupCache[$cacheKey] = $vehicle;
-                }
-            }
-
-            $totalCount = (int) ($responseData['data']['totalCount'] ?? count($pageData));
-            $totalPages = max(1, (int) ceil($totalCount / $pageSize));
-
-            if ($pageData === []) {
-                break;
-            }
-
-            $page++;
+            return null;
         }
 
-        return $this->vehicleLookupCache[$cacheKey] = null;
+        $responseData = json_decode((string) $response->getBody(), true);
+        if ((int) ($responseData['code'] ?? 0) !== 1000) {
+            return null;
+        }
+
+        $vehicle = $responseData['data'] ?? null;
+        if (!is_array($vehicle)) {
+            return null;
+        }
+
+        $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
+        if ($candidatePlate !== $plateNumber) {
+            return null;
+        }
+
+        return $vehicle;
+    }
+
+    private function persistLookedUpVehicleForPermit(EntryPermit $permit, ?array $vehicleData): void
+    {
+        if (!$vehicleData || empty($vehicleData['id'])) {
+            return;
+        }
+
+        $parkingPermit = $permit->dssParkingPermit()->first();
+        if (!$parkingPermit) {
+            return;
+        }
+
+        if (!empty($parkingPermit->remote_vehicle_id)) {
+            return;
+        }
+
+        $updatedParkingPermit = $this->applyLookupVehicleToParkingPermit(
+            $parkingPermit,
+            $vehicleData,
+            Truck::normalizePlateNumber((string) $parkingPermit->plate_number) ?: Truck::normalizePlateNumber((string) $permit->truck?->plate_number)
+        );
+
+        $updatedParkingPermit->save();
     }
 
     private function hasEffectiveDssParkingPermission(?array $vehicleData): bool

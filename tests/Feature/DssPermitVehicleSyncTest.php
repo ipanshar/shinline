@@ -66,8 +66,8 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '25',
+                    'plateNo' => '777SL05',
                 ],
             ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
@@ -94,7 +94,7 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $this->assertTrue($result['success']);
     $this->assertCount(2, $history);
-    $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
+    $this->assertSame('/ipms/api/v1.1/vehicle/fetch-by-plate-no', $history[0]['request']->getUri()->getPath());
     $this->assertSame('/ipms/api/v1.1/vehicle/save/batch', $history[1]['request']->getUri()->getPath());
         $this->assertSame('live-token', $history[0]['request']->getHeaderLine('X-Subject-Token'));
 
@@ -170,16 +170,16 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '251',
+                    'plateNo' => 'BAT11105',
                 ],
             ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '252',
+                    'plateNo' => 'BAT22205',
                 ],
             ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
@@ -210,8 +210,8 @@ class DssPermitVehicleSyncTest extends TestCase
         $this->assertTrue($results[$firstPermit->id]['success']);
         $this->assertTrue($results[$secondPermit->id]['success']);
         $this->assertCount(3, $history);
-        $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
-        $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[1]['request']->getUri()->getPath());
+        $this->assertSame('/ipms/api/v1.1/vehicle/fetch-by-plate-no', $history[0]['request']->getUri()->getPath());
+        $this->assertSame('/ipms/api/v1.1/vehicle/fetch-by-plate-no', $history[1]['request']->getUri()->getPath());
         $this->assertSame('/ipms/api/v1.1/vehicle/save/batch', $history[2]['request']->getUri()->getPath());
 
         $payload = json_decode((string) $history[2]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
@@ -285,8 +285,8 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '25',
+                    'plateNo' => '777SL05',
                 ],
             ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
@@ -365,8 +365,8 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '25',
+                    'plateNo' => '777SL05',
                 ],
             ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
@@ -439,8 +439,9 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '13',
+                    'plateNo' => '777SL05',
+                    'entranceEffectiveStatus' => '1',
                 ],
             ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
@@ -451,24 +452,6 @@ class DssPermitVehicleSyncTest extends TestCase
                     'visiterExistingPlateNos' => [],
                     'groupExistingPlateNos' => [],
                     'overstepPlateNos' => null,
-                ],
-            ], JSON_THROW_ON_ERROR)),
-            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
-                'code' => 10004,
-                'desc' => 'The car num is already exists or repeat.',
-                'data' => [
-                    'repeatPlateNos' => ['777SL05'],
-                    'visiterExistingPlateNos' => [],
-                    'groupExistingPlateNos' => [],
-                    'overstepPlateNos' => null,
-                ],
-            ], JSON_THROW_ON_ERROR)),
-            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
-                'code' => 1000,
-                'desc' => 'Success',
-                'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
                 ],
             ], JSON_THROW_ON_ERROR)),
         ], $history);
@@ -625,16 +608,13 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '1',
-                    'pageData' => [[
-                        'id' => '549',
-                        'plateNo' => '187AAB17',
-                        'personId' => '',
-                        'personInfo' => ['personId' => ''],
-                        'entranceGroups' => [[
-                            'groupId' => '14',
-                            'parkingLotId' => '2',
-                        ]],
+                    'id' => '549',
+                    'plateNo' => '187AAB17',
+                    'personId' => '',
+                    'personInfo' => ['personId' => ''],
+                    'entranceGroups' => [[
+                        'groupId' => '14',
+                        'parkingLotId' => '2',
                     ]],
                 ],
             ], JSON_THROW_ON_ERROR)),
@@ -659,9 +639,10 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertCount(2, $history);
-        $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
-        $this->assertStringContainsString('plateNo=187AAB17', $history[0]['request']->getUri()->getQuery());
-        $this->assertStringContainsString('orgCode=001', $history[0]['request']->getUri()->getQuery());
+        $this->assertSame('/ipms/api/v1.1/vehicle/fetch-by-plate-no', $history[0]['request']->getUri()->getPath());
+        $lookupPayload = json_decode((string) $history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('187AAB17', $lookupPayload['plateNo']);
+        $this->assertSame('0', $lookupPayload['filterAuthorityOrg']);
 
         $payload = json_decode((string) $history[1]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame('549', $payload['vehicles'][0]['id']);
@@ -724,16 +705,13 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '1',
-                    'pageData' => [[
-                        'id' => '549',
-                        'plateNo' => '187AAB17',
-                        'personId' => '',
-                        'personInfo' => ['personId' => ''],
-                        'entranceGroups' => [[
-                            'groupId' => '14',
-                            'parkingLotId' => '2',
-                        ]],
+                    'id' => '549',
+                    'plateNo' => '187AAB17',
+                    'personId' => '',
+                    'personInfo' => ['personId' => ''],
+                    'entranceGroups' => [[
+                        'groupId' => '14',
+                        'parkingLotId' => '2',
                     ]],
                 ],
             ], JSON_THROW_ON_ERROR)),
@@ -748,7 +726,7 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $this->assertSame(['checked' => 1, 'updated' => 1, 'not_found' => 0, 'failed' => 0], $result);
         $this->assertCount(1, $history);
-        $this->assertSame('/ipms/api/v1.1/vehicle/page', $history[0]['request']->getUri()->getPath());
+        $this->assertSame('/ipms/api/v1.1/vehicle/fetch-by-plate-no', $history[0]['request']->getUri()->getPath());
 
         $this->assertDatabaseHas('dss_parking_permits', [
             'entry_permit_id' => $permit->id,
@@ -784,6 +762,18 @@ class DssPermitVehicleSyncTest extends TestCase
             'end_date' => now()->addDay(),
         ]);
 
+        DssParkingPermit::create([
+            'entry_permit_id' => $permit->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'plate_number' => '555TT05',
+            'remote_vehicle_id' => null,
+            'status' => 'synced',
+            'person_id' => '1',
+            'parking_lot_ids' => ['2'],
+            'entrance_group_ids' => ['14'],
+        ]);
+
         $this->createDssSettings([
             'base_url' => 'http://10.210.0.250',
             'token' => 'live-token',
@@ -795,17 +785,14 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '1',
-                    'pageData' => [[
-                        'id' => '549',
-                        'plateNo' => '555TT05',
-                        'entranceEffectiveStatus' => '1',
+                    'id' => '549',
+                    'plateNo' => '555TT05',
+                    'entranceEffectiveStatus' => '1',
+                    'entranceLongTerm' => '1',
+                    'entranceGroups' => [[
+                        'groupId' => '14',
+                        'parkingLotId' => '2',
                         'entranceLongTerm' => '1',
-                        'entranceGroups' => [[
-                            'groupId' => '14',
-                            'parkingLotId' => '2',
-                            'entranceLongTerm' => '1',
-                        ]],
                     ]],
                 ],
             ], JSON_THROW_ON_ERROR)),
@@ -822,6 +809,11 @@ class DssPermitVehicleSyncTest extends TestCase
         $this->assertTrue($result['skipped']);
         $this->assertSame('dss_permission_already_active', $result['reason']);
         $this->assertCount(1, $history);
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'remote_vehicle_id' => '549',
+            'status' => 'synced',
+        ]);
     }
 
     public function test_dss_permit_vehicle_service_smart_sync_skips_when_inactive_permit_absent_in_dss(): void
@@ -862,8 +854,8 @@ class DssPermitVehicleSyncTest extends TestCase
                 'code' => 1000,
                 'desc' => 'Success',
                 'data' => [
-                    'totalCount' => '0',
-                    'pageData' => [],
+                    'id' => '701',
+                    'plateNo' => '666TT06',
                 ],
             ], JSON_THROW_ON_ERROR)),
         ], $history);
@@ -879,108 +871,6 @@ class DssPermitVehicleSyncTest extends TestCase
         $this->assertTrue($result['skipped']);
         $this->assertSame('dss_permission_not_active', $result['reason']);
         $this->assertCount(1, $history);
-    }
-
-    public function test_dss_permit_vehicle_service_lookup_can_scan_multiple_pages(): void
-    {
-        config()->set('dss.permit_vehicle_sync.lookup_page_size', 2);
-
-        $activeStatus = Status::create([
-            'key' => 'active',
-            'name' => 'Активный',
-        ]);
-
-        $yard = Yard::create([
-            'name' => 'Paged lookup yard',
-            'strict_mode' => false,
-            'weighing_required' => false,
-        ]);
-
-        $truck = Truck::create([
-            'plate_number' => '555TT05',
-            'name' => 'Truck 555TT05',
-        ]);
-
-        $permit = EntryPermit::create([
-            'truck_id' => $truck->id,
-            'yard_id' => $yard->id,
-            'one_permission' => true,
-            'status_id' => $activeStatus->id,
-            'begin_date' => now(),
-        ]);
-
-        DssParkingPermit::create([
-            'entry_permit_id' => $permit->id,
-            'truck_id' => $truck->id,
-            'yard_id' => $yard->id,
-            'plate_number' => '555TT05',
-            'remote_vehicle_id' => null,
-            'status' => 'already_exists',
-            'person_id' => '1',
-            'parking_lot_ids' => [],
-            'entrance_group_ids' => [],
-            'request_payload' => ['vehicles' => [['plateNo' => '555TT05']]],
-            'response_payload' => ['code' => 10004],
-        ]);
-
-        $this->createDssSettings([
-            'base_url' => 'http://10.210.0.250',
-            'token' => 'live-token',
-        ]);
-
-        $history = [];
-        $client = $this->makeHistoryMockClient([
-            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
-                'code' => 1000,
-                'desc' => 'Success',
-                'data' => [
-                    'totalCount' => '5',
-                    'pageData' => [
-                        ['id' => '1', 'plateNo' => '111AA01'],
-                        ['id' => '2', 'plateNo' => '222BB02'],
-                    ],
-                ],
-            ], JSON_THROW_ON_ERROR)),
-            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
-                'code' => 1000,
-                'desc' => 'Success',
-                'data' => [
-                    'totalCount' => '5',
-                    'pageData' => [
-                        ['id' => '3', 'plateNo' => '333CC03'],
-                        ['id' => '4', 'plateNo' => '444DD04'],
-                    ],
-                ],
-            ], JSON_THROW_ON_ERROR)),
-            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
-                'code' => 1000,
-                'desc' => 'Success',
-                'data' => [
-                    'totalCount' => '5',
-                    'pageData' => [
-                        ['id' => '549', 'plateNo' => '555TT05'],
-                    ],
-                ],
-            ], JSON_THROW_ON_ERROR)),
-        ], $history);
-
-        $authService = Mockery::mock(DssAuthService::class);
-        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
-
-        $service = new DssPermitVehicleService($authService, $client);
-
-        $result = $service->backfillRemoteVehicleIdsForPermits([$permit->id]);
-
-        $this->assertSame(['checked' => 1, 'updated' => 1, 'not_found' => 0, 'failed' => 0], $result);
-        $this->assertCount(3, $history);
-        $this->assertStringContainsString('page=1', $history[0]['request']->getUri()->getQuery());
-        $this->assertStringContainsString('page=2', $history[1]['request']->getUri()->getQuery());
-        $this->assertStringContainsString('page=3', $history[2]['request']->getUri()->getQuery());
-
-        $this->assertDatabaseHas('dss_parking_permits', [
-            'entry_permit_id' => $permit->id,
-            'remote_vehicle_id' => '549',
-        ]);
     }
 
     public function test_dss_permit_vehicle_service_retries_on_rate_limit(): void
@@ -1019,6 +909,14 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $history = [];
         $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'id' => '77',
+                    'plateNo' => '701AA05',
+                ],
+            ], JSON_THROW_ON_ERROR)),
             new \GuzzleHttp\Exception\ClientException(
                 '429 Too Many Requests',
                 new \GuzzleHttp\Psr7\Request('POST', 'http://10.210.0.250/ipms/api/v1.1/vehicle/save/batch'),
@@ -1046,7 +944,7 @@ class DssPermitVehicleSyncTest extends TestCase
         $result = $service->syncPermitVehicle($permit);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $history);
+        $this->assertCount(3, $history);
         $this->assertDatabaseHas('dss_parking_permits', [
             'entry_permit_id' => $permit->id,
             'status' => 'synced',
