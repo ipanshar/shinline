@@ -581,6 +581,12 @@ const EntryPermitsManager: React.FC = () => {
         failed: 0,
         skipped: 0,
       };
+      const totalBackfill = {
+        checked: 0,
+        updated: 0,
+        not_found: 0,
+        failed: 0,
+      };
       let totalMatching = 0;
       let lastBatchLimit = 0;
       let remaining = 0;
@@ -608,6 +614,12 @@ const EntryPermitsManager: React.FC = () => {
         totalSummary.failed += summary.failed || 0;
         totalSummary.skipped += summary.skipped || 0;
 
+        const backfill = response.data.remote_vehicle_id_backfill || {};
+        totalBackfill.checked += Number(backfill.checked || 0);
+        totalBackfill.updated += Number(backfill.updated || 0);
+        totalBackfill.not_found += Number(backfill.not_found || 0);
+        totalBackfill.failed += Number(backfill.failed || 0);
+
         const currentBatchIds = Array.isArray(response.data.processed_permit_ids)
           ? response.data.processed_permit_ids.map((id: number) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0)
           : [];
@@ -622,6 +634,9 @@ const EntryPermitsManager: React.FC = () => {
       toast.success(`Синхронизация с DSS завершена: ${totalSummary.processed} обработано из ${totalMatching}, ${totalSummary.synced} добавлено, ${totalSummary.revoked} отозвано`);
       if (totalSummary.failed > 0) {
         toast.warning(`Синхронизация DSS завершилась с ошибками для ${totalSummary.failed} разрешений`);
+      }
+      if (totalBackfill.checked > 0) {
+        toast.info(`DSS ID: проверено ${totalBackfill.checked}, подтянуто ${totalBackfill.updated}, не найдено ${totalBackfill.not_found}, ошибок ${totalBackfill.failed}`);
       }
       if (remaining > 0) {
         toast.info(`После ${rounds} батчей осталось ${remaining} записей. Лимит DSS на батч: ${lastBatchLimit}.`);
