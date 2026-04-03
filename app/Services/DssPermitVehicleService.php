@@ -16,6 +16,9 @@ class DssPermitVehicleService extends DssBaseService
     private const ACTION_SYNC = 'sync';
     private const ACTION_REVOKE = 'revoke';
     private array $vehicleLookupCache = [];
+    private bool $vehicleBatchReadyChecked = false;
+    private ?array $vehicleBatchReadyError = null;
+    private ?float $lastVehicleBatchRequestAtMs = null;
 
     public function __construct(
         private DssAuthService $authService,
@@ -83,6 +86,63 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         return $result;
+    }
+
+    public function smartSyncPermitsBatchSafely(iterable $permits): array
+    {
+        $results = [];
+        $preparedOperations = [];
+
+        foreach ($permits as $permit) {
+            if (!$permit instanceof EntryPermit) {
+                continue;
+            }
+
+            $prepared = $this->prepareSmartSyncOperation($permit);
+            if (isset($prepared['result'])) {
+                $results[$permit->id] = $prepared['result'];
+
+                if (isset($prepared['result']['error'])) {
+                    Log::warning('DSS permit smart sync failed', [
+                        'permit_id' => $permit->id,
+                        'truck_id' => $permit->truck_id,
+                        'yard_id' => $permit->yard_id,
+                        'error' => $prepared['result']['error'],
+                        'details' => $prepared['result']['data'] ?? null,
+                    ]);
+                }
+
+                continue;
+            }
+
+            $preparedOperations[] = $prepared['operation'];
+        }
+
+        if ($preparedOperations === []) {
+            return $results;
+        }
+
+        foreach ($this->groupPreparedOperations($preparedOperations) as $operationsGroup) {
+            $groupResults = $this->executePreparedOperationsBatch($operationsGroup);
+
+            foreach ($groupResults as $permitId => $result) {
+                $results[$permitId] = $result;
+
+                if (isset($result['error'])) {
+                    $operation = $this->findPreparedOperationByPermitId($operationsGroup, $permitId);
+
+                    Log::warning('DSS permit smart sync failed', [
+                        'permit_id' => $permitId,
+                        'truck_id' => $operation['permit']->truck_id ?? null,
+                        'yard_id' => $operation['permit']->yard_id ?? null,
+                        'error' => $result['error'],
+                        'details' => $result['data'] ?? null,
+                    ]);
+                }
+            }
+        }
+
+        return $results;
     }
 
     public function backfillRemoteVehicleIdsForPermits(array $permitIds): array
@@ -168,40 +228,60 @@ class DssPermitVehicleService extends DssBaseService
 
     public function smartSyncPermitVehicle(EntryPermit $permit): array
     {
-        $permit->loadMissing('truck', 'dssParkingPermit');
+        $prepared = $this->prepareSmartSyncOperation($permit);
+
+        if (isset($prepared['result'])) {
+            return $prepared['result'];
+        }
+
+        return $this->executePreparedOperation($prepared['operation']);
+    }
+
+    private function processPermitVehicleAction(EntryPermit $permit, string $action): array
+    {
+        $prepared = $this->preparePermitVehicleOperation($permit, $action);
+        if (isset($prepared['result'])) {
+            return $prepared['result'];
+        }
+
+        return $this->executePreparedOperation($prepared['operation']);
+    }
+
+    private function prepareSmartSyncOperation(EntryPermit $permit): array
+    {
+        $permit->loadMissing('truck');
+        $permit->loadMissing('dssParkingPermit');
 
         $truck = $permit->truck;
         if (!$truck) {
             return [
-                'success' => false,
-                'skipped' => true,
-                'reason' => 'permit_has_no_truck',
-                'action' => self::ACTION_SYNC,
+                'result' => [
+                    'success' => false,
+                    'skipped' => true,
+                    'reason' => 'permit_has_no_truck',
+                    'action' => self::ACTION_SYNC,
+                ],
             ];
         }
 
         $plateNumber = Truck::normalizePlateNumber($truck->plate_number);
         if (!$plateNumber) {
             return [
-                'success' => false,
-                'skipped' => true,
-                'reason' => 'truck_has_no_plate',
-                'action' => self::ACTION_SYNC,
+                'result' => [
+                    'success' => false,
+                    'skipped' => true,
+                    'reason' => 'truck_has_no_plate',
+                    'action' => self::ACTION_SYNC,
+                ],
             ];
         }
 
-        if ($error = $this->ensureSettings(['base_url'])) {
+        if ($error = $this->ensureVehicleBatchReady()) {
             return [
-                'error' => $error['error'] ?? 'DSS setting error',
-                'action' => self::ACTION_SYNC,
-            ];
-        }
-
-        $authResult = $this->authService->ensureAuthorized();
-        if (isset($authResult['error'])) {
-            return [
-                'error' => 'Ошибка авторизации DSS: ' . $authResult['error'],
-                'action' => self::ACTION_SYNC,
+                'result' => [
+                    'error' => $error['error'] ?? 'DSS setting error',
+                    'action' => $this->isPermitEffectiveActive($permit) ? self::ACTION_SYNC : self::ACTION_REVOKE,
+                ],
             ];
         }
 
@@ -211,31 +291,35 @@ class DssPermitVehicleService extends DssBaseService
         if ($this->isPermitEffectiveActive($permit)) {
             if ($dssHasActivePermission) {
                 return [
-                    'success' => false,
-                    'skipped' => true,
-                    'reason' => 'dss_permission_already_active',
-                    'action' => self::ACTION_SYNC,
-                    'data' => $vehicleData,
+                    'result' => [
+                        'success' => false,
+                        'skipped' => true,
+                        'reason' => 'dss_permission_already_active',
+                        'action' => self::ACTION_SYNC,
+                        'data' => $vehicleData,
+                    ],
                 ];
             }
 
-            return $this->syncPermitVehicle($permit);
+            return $this->preparePermitVehicleOperation($permit, self::ACTION_SYNC);
         }
 
         if ($dssHasActivePermission) {
-            return $this->revokePermitVehicle($permit);
+            return $this->preparePermitVehicleOperation($permit, self::ACTION_REVOKE);
         }
 
         return [
-            'success' => false,
-            'skipped' => true,
-            'reason' => 'dss_permission_not_active',
-            'action' => self::ACTION_REVOKE,
-            'data' => $vehicleData,
+            'result' => [
+                'success' => false,
+                'skipped' => true,
+                'reason' => 'dss_permission_not_active',
+                'action' => self::ACTION_REVOKE,
+                'data' => $vehicleData,
+            ],
         ];
     }
 
-    private function processPermitVehicleAction(EntryPermit $permit, string $action): array
+    private function preparePermitVehicleOperation(EntryPermit $permit, string $action): array
     {
         $permit->loadMissing('truck');
         $parkingPermit = $permit->dssParkingPermit()->first();
@@ -262,26 +346,22 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         if ($action === self::ACTION_REVOKE && $this->hasOtherActivePermit($permit)) {
-            return $this->storeParkingPermitRecord($permit, [
-                'success' => false,
-                'skipped' => true,
-                'reason' => 'another_active_permit_exists',
-                'action' => $action,
-            ], $plateNumber, action: $action, parkingPermit: $parkingPermit);
+            return [
+                'result' => $this->storeParkingPermitRecord($permit, [
+                    'success' => false,
+                    'skipped' => true,
+                    'reason' => 'another_active_permit_exists',
+                    'action' => $action,
+                ], $plateNumber, action: $action, parkingPermit: $parkingPermit),
+            ];
         }
 
-        if ($error = $this->ensureSettings(['base_url'])) {
+        if ($error = $this->ensureVehicleBatchReady()) {
             $error['action'] = $action;
 
-            return $this->storeParkingPermitRecord($permit, $error, $plateNumber, action: $action, parkingPermit: $parkingPermit);
-        }
-
-        $authResult = $this->authService->ensureAuthorized();
-        if (isset($authResult['error'])) {
-            return $this->storeParkingPermitRecord($permit, [
-                'error' => 'Ошибка авторизации DSS: ' . $authResult['error'],
-                'action' => $action,
-            ], $plateNumber, action: $action, parkingPermit: $parkingPermit);
+            return [
+                'result' => $this->storeParkingPermitRecord($permit, $error, $plateNumber, action: $action, parkingPermit: $parkingPermit),
+            ];
         }
 
         $effectiveParkingPermit = $this->resolveEffectiveParkingPermitContext($plateNumber, $parkingPermit, $fallbackParkingPermit);
@@ -289,6 +369,26 @@ class DssPermitVehicleService extends DssBaseService
         $payload = $action === self::ACTION_REVOKE
             ? $this->buildRevokePayload($permit, $plateNumber, $effectiveParkingPermit)
             : $this->buildSyncPayload($permit, $plateNumber, $effectiveParkingPermit);
+
+        return [
+            'operation' => [
+                'permit' => $permit,
+                'action' => $action,
+                'plate_number' => $plateNumber,
+                'parking_permit' => $effectiveParkingPermit,
+                'payload' => $payload,
+                'batch_key' => $this->buildPreparedOperationBatchKey($action, $payload),
+            ],
+        ];
+    }
+
+    private function executePreparedOperation(array $operation): array
+    {
+        $permit = $operation['permit'];
+        $action = $operation['action'];
+        $plateNumber = $operation['plate_number'];
+        $payload = $operation['payload'];
+        $effectiveParkingPermit = $operation['parking_permit'];
 
         try {
             $responseData = $this->sendVehicleBatchRequest($payload);
@@ -317,7 +417,7 @@ class DssPermitVehicleService extends DssBaseService
 
                 Log::info('DSS permit vehicle already exists', [
                     'permit_id' => $permit->id,
-                    'truck_id' => $truck->id,
+                    'truck_id' => $permit->truck_id,
                     'plate_number' => $plateNumber,
                 ]);
 
@@ -346,7 +446,7 @@ class DssPermitVehicleService extends DssBaseService
 
             Log::info($action === self::ACTION_REVOKE ? 'DSS permit vehicle revoked' : 'DSS permit vehicle synced', [
                 'permit_id' => $permit->id,
-                'truck_id' => $truck->id,
+                'truck_id' => $permit->truck_id,
                 'plate_number' => $plateNumber,
                 'remote_vehicle_id' => $remoteVehicleId,
             ]);
@@ -384,6 +484,177 @@ class DssPermitVehicleService extends DssBaseService
                 'action' => $action,
             ], $plateNumber, $payload, null, $action, $effectiveParkingPermit);
         }
+    }
+
+    private function executePreparedOperationsBatch(array $operations): array
+    {
+        $results = [];
+        $chunkSize = max(1, (int) config('dss.permit_vehicle_sync.max_batch_size', 28));
+
+        foreach (array_chunk($operations, $chunkSize) as $operationsChunk) {
+            $results += $this->executePreparedOperationsChunk($operationsChunk);
+        }
+
+        return $results;
+    }
+
+    private function executePreparedOperationsChunk(array $operations): array
+    {
+        if ($operations === []) {
+            return [];
+        }
+
+        if (count($operations) === 1) {
+            $operation = $operations[0];
+
+            return [
+                $operation['permit']->id => $this->executePreparedOperation($operation),
+            ];
+        }
+
+        $payload = $this->buildBatchPayloadFromPreparedOperations($operations);
+
+        try {
+            $responseData = $this->sendVehicleBatchRequest($payload);
+        } catch (RequestException) {
+            return $this->executePreparedOperationsIndividually($operations);
+        }
+
+        if ((int) ($responseData['code'] ?? 0) !== 1000) {
+            return $this->executePreparedOperationsIndividually($operations);
+        }
+
+        $results = [];
+
+        foreach ($operations as $operation) {
+            $permit = $operation['permit'];
+            $plateNumber = $operation['plate_number'];
+            $action = $operation['action'];
+            $singlePayload = $operation['payload'];
+            $parkingPermit = $operation['parking_permit'];
+            $singleResponse = $this->extractPerPermitBatchResponse($responseData, $plateNumber);
+            $remoteVehicleId = $this->extractRemoteVehicleId($singleResponse, $plateNumber)
+                ?? $this->extractRemoteVehicleId($responseData, $plateNumber)
+                ?? $this->resolveStoredRemoteVehicleId($parkingPermit, $singlePayload);
+
+            $results[$permit->id] = $this->storeParkingPermitRecord($permit, [
+                'success' => true,
+                'plate_number' => $plateNumber,
+                'action' => $action,
+                'remote_vehicle_id' => $remoteVehicleId,
+                'data' => $singleResponse['data'] ?? null,
+            ], $plateNumber, $singlePayload, $singleResponse, $action, $parkingPermit);
+        }
+
+        return $results;
+    }
+
+    private function executePreparedOperationsIndividually(array $operations): array
+    {
+        $results = [];
+
+        foreach ($operations as $operation) {
+            $results[$operation['permit']->id] = $this->executePreparedOperation($operation);
+        }
+
+        return $results;
+    }
+
+    private function buildBatchPayloadFromPreparedOperations(array $operations): array
+    {
+        $firstPayload = $operations[0]['payload'];
+        $batchPayload = $firstPayload;
+        $batchPayload['vehicles'] = array_values(array_map(
+            static fn (array $operation): array => $operation['payload']['vehicles'][0],
+            $operations
+        ));
+
+        return $batchPayload;
+    }
+
+    private function buildPreparedOperationBatchKey(string $action, array $payload): string
+    {
+        return implode('|', [
+            $action,
+            (string) ($payload['enableSurveyGroup'] ?? ''),
+            (string) ($payload['enableEntranceGroup'] ?? ''),
+            (string) ($payload['orgCode'] ?? ''),
+            (string) ($payload['orgName'] ?? ''),
+            (string) ($payload['person']['personId'] ?? ''),
+            (string) ($payload['person']['remark'] ?? ''),
+        ]);
+    }
+
+    private function groupPreparedOperations(array $operations): array
+    {
+        $grouped = [];
+
+        foreach ($operations as $operation) {
+            $grouped[$operation['batch_key']][] = $operation;
+        }
+
+        return array_values($grouped);
+    }
+
+    private function findPreparedOperationByPermitId(array $operations, int $permitId): ?array
+    {
+        foreach ($operations as $operation) {
+            if ((int) $operation['permit']->id === $permitId) {
+                return $operation;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractPerPermitBatchResponse(array $responseData, string $plateNumber): array
+    {
+        $matchedVehicle = null;
+        $vehicles = $responseData['data']['vehicles'] ?? $responseData['vehicles'] ?? [];
+
+        if (is_array($vehicles)) {
+            foreach ($vehicles as $vehicle) {
+                if (!is_array($vehicle)) {
+                    continue;
+                }
+
+                $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
+                if ($candidatePlate === $plateNumber) {
+                    $matchedVehicle = $vehicle;
+                    break;
+                }
+            }
+        }
+
+        return [
+            'code' => $responseData['code'] ?? null,
+            'desc' => $responseData['desc'] ?? null,
+            'data' => [
+                'vehicles' => $matchedVehicle ? [$matchedVehicle] : [],
+            ],
+        ];
+    }
+
+    private function ensureVehicleBatchReady(): ?array
+    {
+        if ($this->vehicleBatchReadyChecked) {
+            return $this->vehicleBatchReadyError;
+        }
+
+        $this->vehicleBatchReadyChecked = true;
+
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $this->vehicleBatchReadyError = $error;
+        }
+
+        $authResult = $this->authService->ensureAuthorized();
+        if (isset($authResult['error'])) {
+            return $this->vehicleBatchReadyError = [
+                'error' => 'Ошибка авторизации DSS: ' . $authResult['error'],
+            ];
+        }
+
+        return $this->vehicleBatchReadyError = null;
     }
 
     private function buildSyncPayload(EntryPermit $permit, string $plateNumber, ?DssParkingPermit $parkingPermit = null): array
@@ -712,6 +983,8 @@ class DssPermitVehicleService extends DssBaseService
         $retryDelayMs = max(0, (int) config('dss.permit_vehicle_sync.retry_delay_ms', 1000));
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $this->throttleVehicleBatchRequest();
+
             try {
                 $response = $this->client->post(
                     rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle/save/batch',
@@ -721,8 +994,12 @@ class DssPermitVehicleService extends DssBaseService
                     ]
                 );
 
+                $this->markVehicleBatchRequestSent();
+
                 return json_decode($response->getBody(), true);
             } catch (RequestException $exception) {
+                $this->markVehicleBatchRequestSent();
+
                 $statusCode = $exception->hasResponse() ? $exception->getResponse()->getStatusCode() : null;
                 $shouldRetry = $statusCode === 429 && $attempt < $attempts;
 
@@ -737,6 +1014,25 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         throw new \RuntimeException('DSS vehicle batch retry loop terminated unexpectedly');
+    }
+
+    private function throttleVehicleBatchRequest(): void
+    {
+        $delayMs = max(0, (int) config('dss.permit_vehicle_sync.batch_delay_ms', 8000));
+        if ($delayMs <= 0 || $this->lastVehicleBatchRequestAtMs === null) {
+            return;
+        }
+
+        $elapsedMs = (microtime(true) * 1000) - $this->lastVehicleBatchRequestAtMs;
+        $remainingMs = $delayMs - $elapsedMs;
+        if ($remainingMs > 0) {
+            usleep((int) round($remainingMs * 1000));
+        }
+    }
+
+    private function markVehicleBatchRequestSent(): void
+    {
+        $this->lastVehicleBatchRequestAtMs = microtime(true) * 1000;
     }
 
     private function resolveParkingLotIds(?DssParkingPermit $parkingPermit, array $syncConfig): array

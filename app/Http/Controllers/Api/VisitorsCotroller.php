@@ -2092,36 +2092,35 @@ class VisitorsCotroller extends Controller
                 'skipped' => 0,
             ];
             $processedPermitIds = [];
-            $batchDelayMs = max(0, (int) config('dss.permit_vehicle_sync.batch_delay_ms', 8000));
 
             foreach ($permits as $permit) {
                 $summary['processed']++;
                 $processedPermitIds[] = $permit->id;
 
-                try {
-                    if (!$this->isPermitEffectiveActive($permit) && ($permit->status_key ?? null) === 'active' && $inactiveStatusId) {
-                        $permit->status_id = $inactiveStatusId;
-                        $permit->save();
-                        $permit->status_key = 'not_active';
-                    }
+                if (!$this->isPermitEffectiveActive($permit) && ($permit->status_key ?? null) === 'active' && $inactiveStatusId) {
+                    $permit->status_id = $inactiveStatusId;
+                    $permit->save();
+                    $permit->status_key = 'not_active';
+                }
+            }
 
-                    $result = $this->permitVehicleService->smartSyncPermitVehicleSafely($permit);
+            $results = $this->permitVehicleService->smartSyncPermitsBatchSafely($permits->all());
 
-                    if (!empty($result['success'])) {
-                        if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {
-                            $summary['revoked']++;
-                        } else {
-                            $summary['synced']++;
-                        }
-                    } elseif (isset($result['error'])) {
-                        $summary['failed']++;
+            foreach ($permits as $permit) {
+                $result = $results[$permit->id] ?? [
+                    'error' => 'DSS batch result missing for permit',
+                ];
+
+                if (!empty($result['success'])) {
+                    if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {
+                        $summary['revoked']++;
                     } else {
-                        $summary['skipped']++;
+                        $summary['synced']++;
                     }
-                } finally {
-                    if ($batchDelayMs > 0) {
-                        usleep($batchDelayMs * 1000);
-                    }
+                } elseif (isset($result['error'])) {
+                    $summary['failed']++;
+                } else {
+                    $summary['skipped']++;
                 }
             }
 
