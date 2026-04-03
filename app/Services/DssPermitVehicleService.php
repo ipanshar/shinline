@@ -8,6 +8,7 @@ use App\Models\Status;
 use App\Models\Truck;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use Psr\Http\Message\ResponseInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
@@ -460,30 +461,29 @@ class DssPermitVehicleService extends DssBaseService
                 'data' => $responseData['data'] ?? null,
             ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
         } catch (RequestException $exception) {
-            if ($exception->hasResponse()) {
-                $response = $exception->getResponse();
-                $responseBody = (string) $response->getBody();
-                $decodedResponse = json_decode($responseBody, true);
-                $responseData = is_array($decodedResponse)
-                    ? $decodedResponse
-                    : [
-                        'http_status' => $response->getStatusCode(),
-                        'raw_body' => $responseBody,
-                    ];
-
-                return $this->storeParkingPermitRecord($permit, [
-                    'error' => $action === self::ACTION_REVOKE
-                        ? 'Ошибка запроса к DSS при отзыве парковочного доступа'
-                        : 'Ошибка запроса к DSS при регистрации ТС',
-                    'data' => $responseData,
-                    'action' => $action,
-                ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
-            }
+            $responseData = $this->buildRequestExceptionResponseData($exception);
 
             return $this->storeParkingPermitRecord($permit, [
-                'error' => 'Ошибка соединения с DSS: ' . $exception->getMessage(),
+                'error' => $exception->hasResponse()
+                    ? ($action === self::ACTION_REVOKE
+                        ? 'Ошибка запроса к DSS при отзыве парковочного доступа'
+                        : 'Ошибка запроса к DSS при регистрации ТС')
+                    : 'Ошибка соединения с DSS: ' . $exception->getMessage(),
+                'data' => $responseData,
                 'action' => $action,
-            ], $plateNumber, $payload, null, $action, $effectiveParkingPermit);
+            ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
+        } catch (\Throwable $exception) {
+            return $this->storeParkingPermitRecord($permit, [
+                'error' => $action === self::ACTION_REVOKE
+                    ? 'DSS вернул некорректный ответ при отзыве парковочного доступа'
+                    : 'DSS вернул некорректный ответ при регистрации ТС для парковки',
+                'data' => [
+                    'message' => $exception->getMessage(),
+                ],
+                'action' => $action,
+            ], $plateNumber, $payload, [
+                'message' => $exception->getMessage(),
+            ], $action, $effectiveParkingPermit);
         }
     }
 
@@ -517,7 +517,7 @@ class DssPermitVehicleService extends DssBaseService
 
         try {
             $responseData = $this->sendVehicleBatchRequest($payload);
-        } catch (RequestException) {
+        } catch (\Throwable) {
             return $this->executePreparedOperationsIndividually($operations);
         }
 
@@ -770,7 +770,16 @@ class DssPermitVehicleService extends DssBaseService
             return null;
         }
 
-        $responseData = json_decode((string) $response->getBody(), true);
+        $responseData = $this->decodeDssJsonResponse(
+            $response,
+            'DSS vehicle fetch-by-plate returned invalid response',
+            ['plate_number' => $plateNumber]
+        );
+
+        if (!is_array($responseData)) {
+            return null;
+        }
+
         if ((int) ($responseData['code'] ?? 0) !== 1000) {
             return null;
         }
@@ -1005,7 +1014,22 @@ class DssPermitVehicleService extends DssBaseService
 
                 $this->markVehicleBatchRequestSent();
 
-                return json_decode($response->getBody(), true);
+                $responseData = $this->decodeDssJsonResponse(
+                    $response,
+                    'DSS vehicle batch returned invalid response',
+                    [
+                        'plate_numbers' => array_values(array_filter(array_map(
+                            static fn (array $vehicle): ?string => isset($vehicle['plateNo']) ? (string) $vehicle['plateNo'] : null,
+                            $payload['vehicles'] ?? []
+                        ))),
+                    ]
+                );
+
+                if (!is_array($responseData)) {
+                    throw new \RuntimeException('DSS vehicle batch returned invalid JSON response');
+                }
+
+                return $responseData;
             } catch (RequestException $exception) {
                 $this->markVehicleBatchRequestSent();
 
@@ -1023,6 +1047,48 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         throw new \RuntimeException('DSS vehicle batch retry loop terminated unexpectedly');
+    }
+
+    private function decodeDssJsonResponse(
+        ResponseInterface $response,
+        string $logMessage,
+        array $context = [],
+    ): ?array {
+        $body = (string) $response->getBody();
+        $decoded = json_decode($body, true);
+
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        Log::warning($logMessage, $context + [
+            'http_status' => $response->getStatusCode(),
+            'content_type' => $response->getHeaderLine('Content-Type'),
+            'body_preview' => mb_substr(trim($body), 0, 500),
+        ]);
+
+        return null;
+    }
+
+    private function buildRequestExceptionResponseData(RequestException $exception): ?array
+    {
+        if (!$exception->hasResponse()) {
+            return null;
+        }
+
+        $response = $exception->getResponse();
+        $responseBody = (string) $response->getBody();
+        $decodedResponse = json_decode($responseBody, true);
+
+        if (is_array($decodedResponse)) {
+            return $decodedResponse;
+        }
+
+        return [
+            'http_status' => $response->getStatusCode(),
+            'content_type' => $response->getHeaderLine('Content-Type'),
+            'raw_body' => mb_substr($responseBody, 0, 1000),
+        ];
     }
 
     private function throttleVehicleBatchRequest(): void

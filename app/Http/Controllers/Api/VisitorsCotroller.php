@@ -2072,6 +2072,14 @@ class VisitorsCotroller extends Controller
     public function syncPermitsWithDss(Request $request)
     {
         try {
+            // Mass DSS sync may legitimately run longer than the default PHP request timeout
+            // because DSS requires paced requests with multi-second gaps.
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(0);
+            }
+
+            @ini_set('max_execution_time', '0');
+
             $baseQuery = $this->buildPermitsQuery($request)
                 ->orderBy('entry_permits.created_at', 'desc');
 

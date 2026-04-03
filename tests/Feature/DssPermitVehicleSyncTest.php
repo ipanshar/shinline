@@ -474,6 +474,130 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
+    public function test_dss_permit_vehicle_service_ignores_html_lookup_response_without_failing_sync(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'HTML lookup yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => 'HTM11105',
+            'name' => 'Truck HTM11105',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'text/html; charset=windows-1251'], '<html><body>500 - Internal server error.</body></html>'),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'vehicles' => [
+                        [
+                            'id' => '88',
+                            'plateNo' => 'HTM11105',
+                        ],
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->syncPermitVehicle($permit);
+
+        $this->assertTrue($result['success']);
+        $this->assertCount(2, $history);
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'status' => 'synced',
+            'remote_vehicle_id' => '88',
+        ]);
+    }
+
+    public function test_dss_permit_vehicle_service_handles_html_batch_response_as_sync_failure(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'HTML batch yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => 'HTM22205',
+            'name' => 'Truck HTM22205',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'id' => '89',
+                    'plateNo' => 'HTM22205',
+                ],
+            ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'text/html; charset=windows-1251'], '<html><body>500 - Internal server error.</body></html>'),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->syncPermitVehicle($permit);
+
+        $this->assertFalse($result['success'] ?? false);
+        $this->assertStringContainsString('DSS вернул некорректный ответ при регистрации ТС для парковки', $result['error']);
+        $this->assertCount(2, $history);
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'status' => 'failed',
+        ]);
+    }
+
     public function test_dss_permit_vehicle_service_reuses_previous_remote_vehicle_id_for_same_truck_and_yard(): void
     {
         $activeStatus = Status::create([
