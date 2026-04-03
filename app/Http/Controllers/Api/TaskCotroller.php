@@ -491,6 +491,7 @@ class TaskCotroller extends Controller
                 : true;
 
             $needsWeighing = (bool) $validate['weighing'] || $onePermission;
+            $integrationIssuerId = $this->getIntegrationIssuerId();
 
 
             //Добавление или обновление грузовика и его модели
@@ -604,6 +605,7 @@ class TaskCotroller extends Controller
                     $onePermission,
                     $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
                     $endDate,
+                    $integrationIssuerId,
                 );
             }
             //--
@@ -714,6 +716,7 @@ class TaskCotroller extends Controller
                         $onePermission,
                         $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
                         $warehouseEndDate,
+                        $integrationIssuerId,
                     );
                 }
                 // Проверяем или создаем склад
@@ -1533,7 +1536,7 @@ class TaskCotroller extends Controller
         return $task;
     }
 
-    private function getPermitById($truck_id, $yard_id, $user_id = null, $task_id = null, $one_permission = true, $begin_date = null, $end_date = null)
+    private function getPermitById($truck_id, $yard_id, $user_id = null, $task_id = null, $one_permission = true, $begin_date = null, $end_date = null, $granted_by_user_id = null)
     {
         $status_id = Status::where('key', 'active')->first()->id;
         $onePermission = (bool) $one_permission;
@@ -1541,6 +1544,7 @@ class TaskCotroller extends Controller
             'truck_id' => $truck_id,
             'yard_id' => $yard_id,
             'user_id' => $user_id,
+            'granted_by_user_id' => $granted_by_user_id,
             'task_id' => $task_id,
             'one_permission' => $onePermission,
             'begin_date' => $begin_date,
@@ -1550,11 +1554,18 @@ class TaskCotroller extends Controller
 
         $query = EntryPermit::where('truck_id', $truck_id)->where('yard_id', $yard_id)->where('status_id', $status_id);
 
+
         if ($task_id !== null) {
             $query->where('task_id', $task_id);
         }
 
         $permit = $query->first();
+
+        if ($permit && $granted_by_user_id && !$permit->granted_by_user_id) {
+            $permit->update([
+                'granted_by_user_id' => $granted_by_user_id,
+            ]);
+        }
 
         if (!$permit) {
             [$permit, $replacementResult] = DB::transaction(function () use ($truck_id, $yard_id, $data) {
@@ -1581,6 +1592,17 @@ class TaskCotroller extends Controller
         }
 
         return $permit;
+    }
+
+    private function getIntegrationIssuerId(): ?int
+    {
+        return User::query()->firstOrCreate(
+            ['login' => 'integration'],
+            [
+                'name' => 'Интеграция',
+                'password' => bcrypt('Aa1234'),
+            ]
+        )->id;
     }
 
     /**
