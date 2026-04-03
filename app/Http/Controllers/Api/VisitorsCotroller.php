@@ -2167,8 +2167,8 @@ class VisitorsCotroller extends Controller
                 'task_id' => 'nullable|integer|exists:tasks,id',
                 'one_permission' => 'required|boolean', // true = разовое
                 'weighing_required' => 'nullable|boolean', // Требуется ли взвешивание
-                'begin_date' => 'nullable|date',
-                'end_date' => 'nullable|date',
+                'begin_date' => 'required|date',
+                'end_date' => 'required|date|after_or_equal:begin_date',
                 'comment' => 'nullable|string|max:500',
                 // Гостевые поля
                 'is_guest' => 'nullable|boolean',
@@ -2202,8 +2202,8 @@ class VisitorsCotroller extends Controller
                     'task_id' => $validate['task_id'] ?? null,
                     'one_permission' => $validate['one_permission'],
                     'weighing_required' => $validate['weighing_required'] ?? null,
-                    'begin_date' => $validate['begin_date'] ?? now(),
-                    'end_date' => $validate['end_date'] ?? null,
+                    'begin_date' => $validate['begin_date'],
+                    'end_date' => $validate['end_date'],
                     'status_id' => $activeStatus->id,
                     'comment' => $validate['comment'] ?? null,
                     'is_guest' => $validate['is_guest'] ?? false,
@@ -2259,8 +2259,8 @@ class VisitorsCotroller extends Controller
                 'user_id' => 'nullable|integer|exists:users,id',
                 'one_permission' => 'nullable|boolean',
                 'weighing_required' => 'nullable|boolean',
-                'begin_date' => 'nullable|date',
-                'end_date' => 'nullable|date',
+                'begin_date' => 'required|date',
+                'end_date' => 'required|date|after_or_equal:begin_date',
                 'comment' => 'nullable|string|max:500',
                 // Гостевые поля
                 'is_guest' => 'nullable|boolean',

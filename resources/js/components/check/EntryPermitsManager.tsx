@@ -441,6 +441,18 @@ const EntryPermitsManager: React.FC = () => {
       setFormError("Выберите двор");
       return;
     }
+    if (!formData.begin_date) {
+      setFormError("Укажите дату начала действия пропуска");
+      return;
+    }
+    if (!formData.end_date) {
+      setFormError("Укажите дату окончания действия пропуска");
+      return;
+    }
+    if (formData.end_date < formData.begin_date) {
+      setFormError("Дата окончания не может быть раньше даты начала");
+      return;
+    }
 
     // Валидация гостевых полей
     if (formData.is_guest && !formData.guest_name.trim()) {
@@ -462,8 +474,8 @@ const EntryPermitsManager: React.FC = () => {
             user_id: formData.user_id,
             one_permission: formData.one_permission,
             weighing_required: formData.weighing_required,
-            begin_date: formData.begin_date || null,
-            end_date: formData.end_date || null,
+            begin_date: formData.begin_date,
+            end_date: formData.end_date,
             comment: formData.comment || null,
             // Гостевые поля
             is_guest: formData.is_guest,
@@ -487,8 +499,8 @@ const EntryPermitsManager: React.FC = () => {
             granted_by_user_id: currentUser?.id || null,
             one_permission: formData.one_permission,
             weighing_required: formData.weighing_required,
-            begin_date: formData.begin_date || null,
-            end_date: formData.end_date || null,
+            begin_date: formData.begin_date,
+            end_date: formData.end_date,
             comment: formData.comment || null,
             // Гостевые поля
             is_guest: formData.is_guest,
@@ -1546,22 +1558,28 @@ const EntryPermitsManager: React.FC = () => {
             {/* Даты */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Дата начала</Label>
+                <Label>Дата начала *</Label>
                 <Input
                   type="date"
                   value={formData.begin_date}
                   onChange={(e) => setFormData((prev) => ({ ...prev, begin_date: e.target.value }))}
+                  required
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Дата окончания</Label>
+                <Label>Дата окончания *</Label>
                 <Input
                   type="date"
                   value={formData.end_date}
                   onChange={(e) => setFormData((prev) => ({ ...prev, end_date: e.target.value }))}
+                  min={formData.begin_date || undefined}
+                  required
                 />
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Для каждого пропуска обязательно нужно указать период действия. Без даты начала и даты окончания сохранить форму нельзя.
+            </p>
 
             {/* Гостевой пропуск */}
             <div className="border rounded-lg p-4 space-y-4 bg-purple-50 dark:bg-purple-900/20">

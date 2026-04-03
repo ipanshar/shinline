@@ -1166,6 +1166,8 @@ class DssPermitVehicleSyncTest extends TestCase
             'yard_id' => $yard->id,
             'granted_by_user_id' => $user->id,
             'one_permission' => true,
+            'begin_date' => now()->toDateString(),
+            'end_date' => now()->addDay()->toDateString(),
         ]);
 
         $response
@@ -1230,6 +1232,8 @@ class DssPermitVehicleSyncTest extends TestCase
             'yard_id' => $yard->id,
             'granted_by_user_id' => $user->id,
             'one_permission' => false,
+            'begin_date' => now()->toDateString(),
+            'end_date' => now()->addDay()->toDateString(),
         ]);
 
         $response
@@ -1299,6 +1303,45 @@ class DssPermitVehicleSyncTest extends TestCase
             ->assertJsonPath('data.0.id', $permit->id)
             ->assertJsonPath('data.0.dss_parking_status', 'failed')
             ->assertJsonPath('data.0.dss_parking_error_message', 'DSS temporary error');
+    }
+
+    public function test_add_permit_requires_begin_and_end_dates(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $user = User::factory()->create();
+        $yard = Yard::create([
+            'name' => 'Dates yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+        $truck = Truck::create([
+            'plate_number' => 'C789DE02',
+            'name' => 'Truck C789DE02',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/security/addpermit', [
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'granted_by_user_id' => $user->id,
+            'one_permission' => false,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('status', false)
+            ->assertJsonValidationErrors(['begin_date', 'end_date']);
+
+        $this->assertDatabaseMissing('entry_permits', [
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'status_id' => $activeStatus->id,
+        ]);
     }
 
     public function test_deactivate_permit_triggers_dss_vehicle_revoke(): void
