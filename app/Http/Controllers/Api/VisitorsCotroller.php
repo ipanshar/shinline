@@ -2092,7 +2092,7 @@ class VisitorsCotroller extends Controller
                 'skipped' => 0,
             ];
             $processedPermitIds = [];
-            $batchDelayMs = max(0, (int) config('dss.permit_vehicle_sync.batch_delay_ms', 250));
+            $batchDelayMs = max(0, (int) config('dss.permit_vehicle_sync.batch_delay_ms', 8000));
 
             foreach ($permits as $permit) {
                 $summary['processed']++;

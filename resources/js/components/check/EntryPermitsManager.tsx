@@ -592,7 +592,7 @@ const EntryPermitsManager: React.FC = () => {
       let rounds = 0;
       const maxRounds = 100;
 
-      toast.info("Синхронизация с DSS выполняется пакетно с паузами, чтобы не упереться в лимиты сервиса. Это может занять время.");
+      toast.info("Синхронизация с DSS выполняется пакетами до 28 ТС с паузой 8 секунд между DSS-запросами. Это может занять время.");
 
       while (rounds < maxRounds) {
         rounds++;
