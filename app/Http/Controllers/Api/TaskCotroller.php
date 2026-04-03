@@ -486,6 +486,12 @@ class TaskCotroller extends Controller
                 'warehouse.*.departure_at' => 'nullable|date_format:Y-m-d H:i:s',
             ]);
 
+            $onePermission = $request->has('one_permission')
+                ? (bool) $request->one_permission
+                : true;
+
+            $needsWeighing = (bool) $validate['weighing'] || $onePermission;
+
 
             //Добавление или обновление грузовика и его модели
             $normalizedPlateNumber = Truck::normalizePlateNumber($validate['plate_number'] ?? null);
@@ -595,7 +601,7 @@ class TaskCotroller extends Controller
                     $yard->id,
                     $request->has('create_user_id') ? $request->create_user_id : null,
                     $task->id,
-                    $request->has('one_permission') ? $request->one_permission : true,
+                    $onePermission,
                     $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
                     $endDate,
                 );
@@ -668,7 +674,7 @@ class TaskCotroller extends Controller
             $weighing = 0;
             $weighing = $this->createUpdateTaskWeighing(
                 $task->id, 
-                $validate['weighing'], 
+                $needsWeighing,
                 $yard ? $yard->id : 1, 
                 count($deduplicatedWarehouses), // Используем количество уникальных складов
                 $truck ? $truck->id : null,
@@ -705,7 +711,7 @@ class TaskCotroller extends Controller
                         $yardId->id,
                         $request->has('create_user_id') ? $request->create_user_id : null,
                         $task->id,
-                        $request->has('one_permission') ? $request->one_permission : true,
+                        $onePermission,
                         $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
                         $warehouseEndDate,
                     );
@@ -1530,12 +1536,13 @@ class TaskCotroller extends Controller
     private function getPermitById($truck_id, $yard_id, $user_id = null, $task_id = null, $one_permission = true, $begin_date = null, $end_date = null)
     {
         $status_id = Status::where('key', 'active')->first()->id;
+        $onePermission = (bool) $one_permission;
         $data = [
             'truck_id' => $truck_id,
             'yard_id' => $yard_id,
             'user_id' => $user_id,
             'task_id' => $task_id,
-            'one_permission' => $one_permission,
+            'one_permission' => $onePermission,
             'begin_date' => $begin_date,
             'end_date' => $end_date,
             'status_id' => $status_id,
@@ -1558,6 +1565,19 @@ class TaskCotroller extends Controller
             });
 
             $this->permitVehicleService->syncPermitVehicleSafely($permit);
+
+            if ($onePermission && $task_id !== null) {
+                $truck = Truck::find($truck_id);
+
+                $this->createUpdateTaskWeighing(
+                    $task_id,
+                    true,
+                    $yard_id,
+                    1,
+                    $truck_id,
+                    $truck?->plate_number
+                );
+            }
         }
 
         return $permit;
