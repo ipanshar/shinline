@@ -15,6 +15,7 @@ class DssPermitVehicleService extends DssBaseService
 {
     private const ACTION_SYNC = 'sync';
     private const ACTION_REVOKE = 'revoke';
+    private array $vehicleLookupCache = [];
 
     public function __construct(
         private DssAuthService $authService,
@@ -56,6 +57,23 @@ class DssPermitVehicleService extends DssBaseService
 
         if (isset($result['error'])) {
             Log::warning('DSS permit vehicle revoke failed', [
+                'permit_id' => $permit->id,
+                'truck_id' => $permit->truck_id,
+                'yard_id' => $permit->yard_id,
+                'error' => $result['error'],
+                'details' => $result['data'] ?? null,
+            ]);
+        }
+
+        return $result;
+    }
+
+    public function smartSyncPermitVehicleSafely(EntryPermit $permit): array
+    {
+        $result = $this->smartSyncPermitVehicle($permit);
+
+        if (isset($result['error'])) {
+            Log::warning('DSS permit smart sync failed', [
                 'permit_id' => $permit->id,
                 'truck_id' => $permit->truck_id,
                 'yard_id' => $permit->yard_id,
@@ -146,6 +164,75 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         return $summary;
+    }
+
+    public function smartSyncPermitVehicle(EntryPermit $permit): array
+    {
+        $permit->loadMissing('truck', 'dssParkingPermit');
+
+        $truck = $permit->truck;
+        if (!$truck) {
+            return [
+                'success' => false,
+                'skipped' => true,
+                'reason' => 'permit_has_no_truck',
+                'action' => self::ACTION_SYNC,
+            ];
+        }
+
+        $plateNumber = Truck::normalizePlateNumber($truck->plate_number);
+        if (!$plateNumber) {
+            return [
+                'success' => false,
+                'skipped' => true,
+                'reason' => 'truck_has_no_plate',
+                'action' => self::ACTION_SYNC,
+            ];
+        }
+
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return [
+                'error' => $error['error'] ?? 'DSS setting error',
+                'action' => self::ACTION_SYNC,
+            ];
+        }
+
+        $authResult = $this->authService->ensureAuthorized();
+        if (isset($authResult['error'])) {
+            return [
+                'error' => 'Ошибка авторизации DSS: ' . $authResult['error'],
+                'action' => self::ACTION_SYNC,
+            ];
+        }
+
+        $vehicleData = $this->lookupRemoteVehicleByPlate($plateNumber);
+        $dssHasActivePermission = $this->hasEffectiveDssParkingPermission($vehicleData);
+
+        if ($this->isPermitEffectiveActive($permit)) {
+            if ($dssHasActivePermission) {
+                return [
+                    'success' => false,
+                    'skipped' => true,
+                    'reason' => 'dss_permission_already_active',
+                    'action' => self::ACTION_SYNC,
+                    'data' => $vehicleData,
+                ];
+            }
+
+            return $this->syncPermitVehicle($permit);
+        }
+
+        if ($dssHasActivePermission) {
+            return $this->revokePermitVehicle($permit);
+        }
+
+        return [
+            'success' => false,
+            'skipped' => true,
+            'reason' => 'dss_permission_not_active',
+            'action' => self::ACTION_REVOKE,
+            'data' => $vehicleData,
+        ];
     }
 
     private function processPermitVehicleAction(EntryPermit $permit, string $action): array
@@ -379,6 +466,11 @@ class DssPermitVehicleService extends DssBaseService
 
     private function lookupRemoteVehicleByPlate(string $plateNumber): ?array
     {
+        $cacheKey = $plateNumber;
+        if (array_key_exists($cacheKey, $this->vehicleLookupCache)) {
+            return $this->vehicleLookupCache[$cacheKey];
+        }
+
         $pageSize = min(1000, max(1, (int) config('dss.permit_vehicle_sync.lookup_page_size', 1000)));
         $orgCode = (string) config('dss.permit_vehicle_sync.lookup_org_code', '001');
         $containChild = (string) config('dss.permit_vehicle_sync.lookup_contain_child', '0');
@@ -423,7 +515,7 @@ class DssPermitVehicleService extends DssBaseService
 
                 $candidatePlate = Truck::normalizePlateNumber((string) ($vehicle['plateNo'] ?? ''));
                 if ($candidatePlate === $plateNumber) {
-                    return $vehicle;
+                    return $this->vehicleLookupCache[$cacheKey] = $vehicle;
                 }
             }
 
@@ -437,7 +529,73 @@ class DssPermitVehicleService extends DssBaseService
             $page++;
         }
 
-        return null;
+        return $this->vehicleLookupCache[$cacheKey] = null;
+    }
+
+    private function hasEffectiveDssParkingPermission(?array $vehicleData): bool
+    {
+        if (!$vehicleData) {
+            return false;
+        }
+
+        if ((string) ($vehicleData['entranceEffectiveStatus'] ?? '') === '1') {
+            return true;
+        }
+
+        if ($this->isDssAccessWindowEffective(
+            $vehicleData['entranceLongTerm'] ?? null,
+            $vehicleData['entranceStartTime'] ?? null,
+            $vehicleData['entranceEndTime'] ?? null,
+        )) {
+            return true;
+        }
+
+        foreach (($vehicleData['entranceGroups'] ?? []) as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            if ($this->isDssAccessWindowEffective(
+                $group['entranceLongTerm'] ?? null,
+                $group['entranceStartTime'] ?? null,
+                $group['entranceEndTime'] ?? null,
+            )) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isDssAccessWindowEffective(mixed $longTerm, mixed $startTime, mixed $endTime): bool
+    {
+        if ((string) $longTerm === '1') {
+            return true;
+        }
+
+        $now = now()->timestamp;
+        $normalizedStart = is_numeric($startTime) ? (int) $startTime : -1;
+        $normalizedEnd = is_numeric($endTime) ? (int) $endTime : -1;
+
+        if ($normalizedEnd > 0 && $normalizedEnd < $now) {
+            return false;
+        }
+
+        if ($normalizedStart > 0 && $normalizedStart > $now) {
+            return false;
+        }
+
+        return $normalizedStart > 0 || $normalizedEnd > 0;
+    }
+
+    private function isPermitEffectiveActive(EntryPermit $permit): bool
+    {
+        $activeStatusId = Status::where('key', 'active')->value('id');
+        if (!$activeStatusId || (int) $permit->status_id !== (int) $activeStatusId) {
+            return false;
+        }
+
+        return !$permit->end_date || Carbon::parse($permit->end_date)->greaterThanOrEqualTo(now()->startOfDay());
     }
 
     private function applyLookupVehicleToParkingPermit(

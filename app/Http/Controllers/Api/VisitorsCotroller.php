@@ -2099,19 +2099,13 @@ class VisitorsCotroller extends Controller
                 $processedPermitIds[] = $permit->id;
 
                 try {
-                    $isEffectiveActive = $this->isPermitEffectiveActive($permit);
-
-                    if ($isEffectiveActive) {
-                        $result = $this->permitVehicleService->syncPermitVehicleSafely($permit);
-                    } else {
-                        if (($permit->status_key ?? null) === 'active' && $inactiveStatusId) {
-                            $permit->status_id = $inactiveStatusId;
-                            $permit->save();
-                            $permit->status_key = 'not_active';
-                        }
-
-                        $result = $this->permitVehicleService->revokePermitVehicleSafely($permit);
+                    if (!$this->isPermitEffectiveActive($permit) && ($permit->status_key ?? null) === 'active' && $inactiveStatusId) {
+                        $permit->status_id = $inactiveStatusId;
+                        $permit->save();
+                        $permit->status_key = 'not_active';
                     }
+
+                    $result = $this->permitVehicleService->smartSyncPermitVehicleSafely($permit);
 
                     if (!empty($result['success'])) {
                         if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {

@@ -642,6 +642,130 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
+    public function test_dss_permit_vehicle_service_smart_sync_skips_when_active_permit_already_exists_in_dss(): void
+    {
+        $activeStatus = Status::create([
+            'key' => 'active',
+            'name' => 'Активный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Smart sync yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '555TT05',
+            'name' => 'Truck 555TT05',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $activeStatus->id,
+            'begin_date' => now(),
+            'end_date' => now()->addDay(),
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '1',
+                    'pageData' => [[
+                        'id' => '549',
+                        'plateNo' => '555TT05',
+                        'entranceEffectiveStatus' => '1',
+                        'entranceLongTerm' => '1',
+                        'entranceGroups' => [[
+                            'groupId' => '14',
+                            'parkingLotId' => '2',
+                            'entranceLongTerm' => '1',
+                        ]],
+                    ]],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->smartSyncPermitVehicle($permit);
+
+        $this->assertFalse($result['success']);
+        $this->assertTrue($result['skipped']);
+        $this->assertSame('dss_permission_already_active', $result['reason']);
+        $this->assertCount(1, $history);
+    }
+
+    public function test_dss_permit_vehicle_service_smart_sync_skips_when_inactive_permit_absent_in_dss(): void
+    {
+        $inactiveStatus = Status::create([
+            'key' => 'not_active',
+            'name' => 'Неактивный',
+        ]);
+
+        $yard = Yard::create([
+            'name' => 'Smart revoke yard',
+            'strict_mode' => false,
+            'weighing_required' => false,
+        ]);
+
+        $truck = Truck::create([
+            'plate_number' => '666TT06',
+            'name' => 'Truck 666TT06',
+        ]);
+
+        $permit = EntryPermit::create([
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'one_permission' => true,
+            'status_id' => $inactiveStatus->id,
+            'begin_date' => now()->subDays(2),
+            'end_date' => now()->subDay(),
+        ]);
+
+        $this->createDssSettings([
+            'base_url' => 'http://10.210.0.250',
+            'token' => 'live-token',
+        ]);
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'totalCount' => '0',
+                    'pageData' => [],
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $authService = Mockery::mock(DssAuthService::class);
+        $authService->shouldReceive('ensureAuthorized')->once()->andReturn(['success' => true, 'token' => 'live-token']);
+
+        $service = new DssPermitVehicleService($authService, $client);
+
+        $result = $service->smartSyncPermitVehicle($permit);
+
+        $this->assertFalse($result['success']);
+        $this->assertTrue($result['skipped']);
+        $this->assertSame('dss_permission_not_active', $result['reason']);
+        $this->assertCount(1, $history);
+    }
+
     public function test_dss_permit_vehicle_service_lookup_can_scan_multiple_pages(): void
     {
         config()->set('dss.permit_vehicle_sync.lookup_page_size', 2);
@@ -1085,14 +1209,12 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
 
         $service = Mockery::mock(DssPermitVehicleService::class);
-        $service->shouldReceive('syncPermitVehicleSafely')
-            ->once()
-            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $activePermit->id))
-            ->andReturn(['success' => true, 'action' => 'sync']);
-        $service->shouldReceive('revokePermitVehicleSafely')
-            ->once()
-            ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $inactivePermit->id))
-            ->andReturn(['success' => true, 'action' => 'revoke', 'status' => 'revoked']);
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
+            ->twice()
+            ->andReturn(
+                ['success' => true, 'action' => 'sync'],
+                ['success' => true, 'action' => 'revoke', 'status' => 'revoked'],
+            );
         $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
             ->once()
             ->with(Mockery::type('array'))
@@ -1152,8 +1274,7 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
 
         $service = Mockery::mock(DssPermitVehicleService::class);
-        $service->shouldNotReceive('syncPermitVehicleSafely');
-        $service->shouldReceive('revokePermitVehicleSafely')
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
             ->once()
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $expiredPermit->id && (int) $argument->status_id === $inactiveStatus->id))
             ->andReturn(['success' => true, 'action' => 'revoke', 'status' => 'revoked']);
@@ -1261,11 +1382,10 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
 
         $service = Mockery::mock(DssPermitVehicleService::class);
-        $service->shouldReceive('syncPermitVehicleSafely')
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
             ->once()
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $failedPermit->id))
             ->andReturn(['success' => true, 'action' => 'sync']);
-        $service->shouldNotReceive('revokePermitVehicleSafely');
         $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
             ->once()
             ->with(Mockery::type('array'))
@@ -1322,10 +1442,9 @@ class DssPermitVehicleSyncTest extends TestCase
         });
 
         $service = Mockery::mock(DssPermitVehicleService::class);
-        $service->shouldReceive('syncPermitVehicleSafely')
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
             ->twice()
             ->andReturn(['success' => true, 'action' => 'sync']);
-        $service->shouldNotReceive('revokePermitVehicleSafely');
         $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
             ->once()
             ->with(Mockery::type('array'))
@@ -1383,11 +1502,10 @@ class DssPermitVehicleSyncTest extends TestCase
         });
 
         $service = Mockery::mock(DssPermitVehicleService::class);
-        $service->shouldReceive('syncPermitVehicleSafely')
+        $service->shouldReceive('smartSyncPermitVehicleSafely')
             ->once()
             ->with(Mockery::on(fn (EntryPermit $argument) => $argument->id === $permits[2]->id))
             ->andReturn(['success' => true, 'action' => 'sync']);
-        $service->shouldNotReceive('revokePermitVehicleSafely');
         $service->shouldReceive('backfillRemoteVehicleIdsForPermits')
             ->once()
             ->with(Mockery::type('array'))

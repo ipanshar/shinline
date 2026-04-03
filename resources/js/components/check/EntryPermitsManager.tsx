@@ -565,7 +565,6 @@ const EntryPermitsManager: React.FC = () => {
         if (searchGuest.trim()) params.guest_search = searchGuest.trim();
         if (filterDateFrom) params.date_from = filterDateFrom;
         if (filterDateTo) params.date_to = filterDateTo;
-        params.dss_sync_scope = dssSyncScope;
         if (excludePermitIds.length > 0) {
           params.exclude_permit_ids = excludePermitIds;
         }
