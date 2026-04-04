@@ -26,6 +26,23 @@ return [
         'notifications' => env('DSS_QUEUE_NOTIFICATIONS', 'dss-notifications'),
     ],
 
+    'mqtt' => [
+        'topic_pattern' => env('DSS_MQTT_TOPIC_PATTERN', 'mq.event.msg.topic.%s'),
+        'topic_user_id' => env('DSS_MQTT_TOPIC_USER_ID'),
+        'client_id_prefix' => env('DSS_MQTT_CLIENT_ID_PREFIX', 'shinline-dss-'),
+        'qos' => (int) env('DSS_MQTT_QOS', 0),
+        'connect_timeout' => (int) env('DSS_MQTT_CONNECT_TIMEOUT', 10),
+        'socket_timeout' => (int) env('DSS_MQTT_SOCKET_TIMEOUT', 5),
+        'keep_alive_interval' => (int) env('DSS_MQTT_KEEP_ALIVE_INTERVAL', 10),
+        'reconnect_automatically' => filter_var(env('DSS_MQTT_RECONNECT_AUTOMATICALLY', true), FILTER_VALIDATE_BOOL),
+        'max_reconnect_attempts' => (int) env('DSS_MQTT_MAX_RECONNECT_ATTEMPTS', 10),
+        'delay_between_reconnect_attempts_ms' => (int) env('DSS_MQTT_DELAY_BETWEEN_RECONNECT_ATTEMPTS_MS', 1000),
+        'tls_verify_peer' => filter_var(env('DSS_MQTT_TLS_VERIFY_PEER', false), FILTER_VALIDATE_BOOL),
+        'tls_verify_peer_name' => filter_var(env('DSS_MQTT_TLS_VERIFY_PEER_NAME', false), FILTER_VALIDATE_BOOL),
+        'tls_allow_self_signed' => filter_var(env('DSS_MQTT_TLS_ALLOW_SELF_SIGNED', true), FILTER_VALIDATE_BOOL),
+        'listen_event_name' => env('DSS_MQTT_LISTEN_EVENT_NAME', 'ipms.entrance.notifyVehicleCaptureInfo'),
+    ],
+
     'retention' => [
         'archive_disk' => env('DSS_ARCHIVE_DISK', 'local'),
         'vehicle_captures_days' => (int) env('DSS_VEHICLE_CAPTURES_RETENTION_DAYS', 90),

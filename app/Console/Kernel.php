@@ -10,6 +10,7 @@ class Kernel extends ConsoleKernel
     
     protected $commands = [
         \App\Console\Commands\DssDaemon::class,
+        \App\Console\Commands\DssMqttListen::class,
         \App\Console\Commands\DssArchiveData::class,
         \App\Console\Commands\DssHealthCheck::class,
         \App\Console\Commands\DssMonitorAlerts::class,

@@ -74,6 +74,8 @@ class DssAuthServiceSignatureTest extends TestCase
             $this->jsonResponse([
                 'token' => 'token-123',
                 'credential' => 'credential-123',
+                'userId' => '1',
+                'userGroupId' => '7',
             ]),
         ], $history);
 
@@ -87,6 +89,8 @@ class DssAuthServiceSignatureTest extends TestCase
 
         $this->assertSame('token-123', $settings->token);
         $this->assertSame('credential-123', $settings->credential);
+        $this->assertSame('1', $settings->user_id);
+        $this->assertSame('7', $settings->user_group_id);
         $this->assertNotNull($settings->secret_key);
         $this->assertNotNull($settings->secret_vector);
         $this->assertNotNull($settings->terminal_public_key);
@@ -94,6 +98,8 @@ class DssAuthServiceSignatureTest extends TestCase
         $this->assertNotNull($settings->platform_public_key);
         $this->assertSame(32, strlen($settings->secret_key));
         $this->assertSame(16, strlen($settings->secret_vector));
+        $this->assertSame('1', $response['user_id']);
+        $this->assertSame('7', $response['user_group_id']);
     }
 
     public function test_authorize_persists_response_secret_values_when_dss_returns_them(): void
@@ -111,6 +117,8 @@ class DssAuthServiceSignatureTest extends TestCase
             $this->jsonResponse([
                 'token' => 'token-999',
                 'credential' => 'credential-999',
+                'userId' => '5',
+                'userGroupId' => '9',
             ]),
         ], $history);
 
@@ -132,6 +140,8 @@ class DssAuthServiceSignatureTest extends TestCase
             $this->decryptPayloadValue($payload['secretVector'], $platformKeys['private_key']),
             $settings->secret_vector,
         );
+        $this->assertSame('5', $settings->user_id);
+        $this->assertSame('9', $settings->user_group_id);
     }
 
     private function jsonResponse(array $payload): \GuzzleHttp\Psr7\Response

@@ -7,6 +7,7 @@ class DssService
     public function __construct(
         private DssAuthService $authService,
         private DssCaptureService $captureService,
+        private DssMqConfigService $mqConfigService,
         private DssPersonService $personService,
         private DssMediaService $mediaService,
         private DssRetentionService $retentionService,
@@ -31,6 +32,11 @@ class DssService
     public function dssVehicleCapture(): array
     {
         return $this->captureService->dssVehicleCapture();
+    }
+
+    public function dssMqConfig(): array
+    {
+        return $this->mqConfigService->getMqConfig();
     }
 
     public function dssAddPerson(array $personData): array

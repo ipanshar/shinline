@@ -176,6 +176,7 @@ Route::middleware(['auth:sanctum', 'permission:integrations.dss'])->group(functi
     Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete']); //Удалить настройки DSS
     Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
     Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
+    Route::post('/dss/mq-config', [DssController::class, 'dssMqConfig']); //Получить и расшифровать MQTT config DSS
     Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS
     Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
     Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS

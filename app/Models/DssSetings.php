@@ -10,6 +10,8 @@ class DssSetings extends Model
         'base_url',
         'user_name',
         'password',
+        'user_id',
+        'user_group_id',
         'token',
         'credential',
         'secret_key',

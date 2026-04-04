@@ -113,7 +113,41 @@
   - `confidence?: number`
   - `plateScore?: number`
 
-## 5. AddPerson
+## 5. GetMqConfig
+
+- Внутренний метод: `DssService::dssMqConfig`
+- Конфигурация API: `api_name = GetMqConfig`
+- HTTP method: `POST`
+- Заголовки:
+  - `X-Subject-Token: string`
+- Тело запроса:
+  - пустой JSON-объект `{}`
+- Ожидаемые поля ответа:
+  - `code: number`
+  - `data.addr: string`
+  - `data.mqtt: string`
+  - `data.userName: string`
+  - `data.password: string` (hex ciphertext)
+  - `data.enableTls: string`
+- Локальный backend дополнительно расшифровывает `data.password` через `AES-256-CBC` с сохранёнными `secret_key` и `secret_vector` и возвращает `data.password_plain`.
+
+## 6. MQTT Listen
+
+- Локальная команда: `php artisan dss:mqtt-listen --user-id=<id>`
+- Topic pattern по умолчанию: `mq.event.msg.topic.{userId}`
+- Источник параметров подключения:
+  - `DssMqConfigService::getMqConfig()`
+  - broker: `data.mqtt`
+  - username: `data.userName`
+  - password: `data.password_plain`
+- Обрабатываемое событие:
+  - `ipms.entrance.notifyVehicleCaptureInfo`
+- Поведение:
+  - listener декодирует JSON MQTT-сообщения
+  - извлекает capture payload'ы по наличию `channelId`, `plateNo`, `captureTime`
+  - передаёт их в `DssCaptureService::ingestRealtimeCaptureItems()`
+
+## 7. AddPerson
 
 - Внутренний метод: `DssService::dssAddPerson`
 - Конфигурация API: `api_name = AddPerson`

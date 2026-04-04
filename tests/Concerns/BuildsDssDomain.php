@@ -153,6 +153,7 @@ trait BuildsDssDomain
             'Authorize' => '/authorize',
             'KeepAlive' => '/keepalive',
             'UpdateToken' => '/update-token',
+            'GetMqConfig' => '/mq-config',
             'Unauthorize' => '/logout',
             'VehicleCapture' => '/captures',
         ] as $name => $url) {
@@ -174,6 +175,8 @@ trait BuildsDssDomain
             'base_url' => 'https://dss.example.test',
             'user_name' => 'operator',
             'password' => 'secret',
+            'user_id' => null,
+            'user_group_id' => null,
             'token' => null,
             'credential' => null,
             'secret_key' => null,

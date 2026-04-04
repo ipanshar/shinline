@@ -73,6 +73,7 @@ Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate'])
 Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete'])->middleware('permission:integrations.dss');
 Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive'])->middleware('permission:integrations.dss');
 Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken'])->middleware('permission:integrations.dss');
+Route::post('/dss/mq-config', [DssController::class, 'dssMqConfig'])->middleware('permission:integrations.dss');
 Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize'])->middleware('permission:integrations.dss');
 Route::post('/dss/dssdevices', [DssController::class, 'dssDevices'])->middleware('permission:integrations.dss');
 Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate'])->middleware('permission:integrations.dss');

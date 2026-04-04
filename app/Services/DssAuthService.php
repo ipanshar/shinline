@@ -156,6 +156,10 @@ class DssAuthService extends DssBaseService
 
             $this->dssSettings->token = $token;
             $this->dssSettings->credential = $this->extractResponseValue($secondLogin, 'credential');
+            $this->dssSettings->user_id = $this->extractFirstAvailableResponseValue($secondLogin, ['userId', 'user_id'])
+                ?? $this->dssSettings->user_id;
+            $this->dssSettings->user_group_id = $this->extractFirstAvailableResponseValue($secondLogin, ['userGroupId', 'user_group_id'])
+                ?? $this->dssSettings->user_group_id;
             $this->dssSettings->secret_key = $sessionSecrets['secret_key'];
             $this->dssSettings->secret_vector = $sessionSecrets['secret_vector'];
             $this->dssSettings->terminal_public_key = $this->extractFirstAvailableResponseValue($secondLogin, ['_terminal_public_key'])
@@ -178,6 +182,8 @@ class DssAuthService extends DssBaseService
                 'success' => true,
                 'token' => $this->token,
                 'credential' => $this->credential,
+                'user_id' => $this->dssSettings->user_id,
+                'user_group_id' => $this->dssSettings->user_group_id,
                 'secret_key' => $this->dssSettings->secret_key,
                 'secret_vector' => $this->dssSettings->secret_vector,
             ];
@@ -318,6 +324,10 @@ class DssAuthService extends DssBaseService
 
             $this->dssSettings->token = $newToken;
             $this->dssSettings->credential = $responseData['data']['credential'] ?? $this->dssSettings->credential;
+            $this->dssSettings->user_id = $this->extractFirstAvailableResponseValue($responseData, ['userId', 'user_id'])
+                ?? $this->dssSettings->user_id;
+            $this->dssSettings->user_group_id = $this->extractFirstAvailableResponseValue($responseData, ['userGroupId', 'user_group_id'])
+                ?? $this->dssSettings->user_group_id;
             $this->dssSettings->secret_key = $this->extractFirstAvailableResponseValue($responseData, ['secretKey', 'secret_key'])
                 ?? $this->dssSettings->secret_key;
             $this->dssSettings->secret_vector = $this->extractFirstAvailableResponseValue($responseData, ['secretVector', 'secret_vector'])

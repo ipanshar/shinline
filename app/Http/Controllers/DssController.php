@@ -11,6 +11,7 @@ namespace App\Http\Controllers;
 use App\Models\Devaice;
 use App\Models\DssSetings;
 use App\Services\DssAuthService;
+use App\Services\DssMqConfigService;
 use App\Services\DssObservabilityService;
 use App\Services\DssParkingService;
 use App\Services\DssPersonService;
@@ -23,6 +24,7 @@ class DssController extends Controller
 {
     public function __construct(
         protected DssAuthService $authService,
+        protected DssMqConfigService $mqConfigService,
         protected DssPersonService $personService,
         protected DssParkingService $parkingService,
         protected DssZoneHistoryService $zoneHistoryService,
@@ -186,6 +188,16 @@ class DssController extends Controller
         }
 
         return $this->successResponse('DSS token updated successfully', $updateTokenResponse);
+    }
+
+    public function dssMqConfig()
+    {
+        $mqConfigResponse = $this->mqConfigService->getMqConfig();
+        if (isset($mqConfigResponse['error'])) {
+            return $this->errorResponse($mqConfigResponse['error'], $mqConfigResponse, 500);
+        }
+
+        return $this->successResponse('MQ config DSS успешно получен', $mqConfigResponse);
     }
 
     //Выход из DSS

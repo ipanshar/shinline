@@ -83,6 +83,17 @@ class DssCaptureService extends DssBaseService
         }
 
         $pageData = $responseData['data']['pageData'] ?? [];
+
+        return $this->processCaptureItems($pageData);
+    }
+
+    public function ingestRealtimeCaptureItems(array $items): array
+    {
+        return $this->processCaptureItems($items);
+    }
+
+    private function processCaptureItems(array $pageData): array
+    {
         if (empty($pageData)) {
             $this->structuredLogger->info('capture_received', [
                 'processed' => 0,
