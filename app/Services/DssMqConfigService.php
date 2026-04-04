@@ -18,13 +18,20 @@ class DssMqConfigService extends DssBaseService
 
     public function getMqConfig(): array
     {
-        if ($error = $this->ensureSettings(['base_url', 'secret_key', 'secret_vector'])) {
-            return $error;
-        }
-
-        $authResult = $this->authService->ensureAuthorized();
+        $authResult = $this->authService->ensureSessionState([
+            'token',
+            'secret_key',
+            'secret_vector',
+            'user_id',
+        ]);
         if (isset($authResult['error'])) {
             return $authResult;
+        }
+
+        $this->refreshContext();
+
+        if ($error = $this->ensureSettings(['base_url', 'token', 'secret_key', 'secret_vector'])) {
+            return $error;
         }
 
         try {

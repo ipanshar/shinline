@@ -11,7 +11,8 @@ class DssMqttListen extends Command
     protected $signature = 'dss:mqtt-listen
         {--user-id= : DSS userId for user-scoped topics}
         {--topic= : Explicit MQTT topic override, one or many topics separated by comma}
-        {--qos= : MQTT QoS level (0,1,2)}';
+        {--qos= : MQTT QoS level (0,1,2)}
+        {--dump-raw : Print raw MQTT payloads for diagnostics}';
 
     protected $description = 'Подключается к DSS MQTT broker и слушает стандартные DSS topics';
 
@@ -24,7 +25,8 @@ class DssMqttListen extends Command
                 $this->option('qos') !== null ? (int) $this->option('qos') : null,
                 function (string $line): void {
                     $this->line(now()->toDateTimeLocalString() . ' ' . $line);
-                }
+                },
+                (bool) $this->option('dump-raw')
             );
 
             return self::SUCCESS;

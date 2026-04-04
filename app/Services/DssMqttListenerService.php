@@ -16,9 +16,13 @@ class DssMqttListenerService
     ) {
     }
 
-    public function listen(?string $userId = null, ?string $topicOverride = null, ?int $qos = null, ?callable $output = null): void
+    public function listen(?string $userId = null, ?string $topicOverride = null, ?int $qos = null, ?callable $output = null, bool $dumpRaw = false): void
     {
         $runtime = $this->buildRuntimeConfig($userId, $topicOverride, $qos);
+
+        if ($runtime['user_group_id'] === '') {
+            $output?->__invoke('MQTT notice userGroupId is empty, group topic subscription skipped');
+        }
 
         $mqtt = new MqttClient(
             $runtime['host'],
@@ -27,11 +31,22 @@ class DssMqttListenerService
             MqttClient::MQTT_3_1_1,
         );
 
-        $output?->__invoke(sprintf('MQTT connect %s:%d topics=%s', $runtime['host'], $runtime['port'], implode(', ', $runtime['topics'])));
+        $output?->__invoke(sprintf(
+            'MQTT connect %s:%d userId=%s userGroupId=%s topics=%s',
+            $runtime['host'],
+            $runtime['port'],
+            $runtime['user_id'] !== '' ? $runtime['user_id'] : '-',
+            $runtime['user_group_id'] !== '' ? $runtime['user_group_id'] : '-',
+            implode(', ', $runtime['topics'])
+        ));
 
         $mqtt->connect($runtime['connection_settings'], false);
         foreach ($runtime['topics'] as $topic) {
-            $mqtt->subscribe($topic, function (string $topic, string $message, bool $retained) use ($output) {
+            $mqtt->subscribe($topic, function (string $topic, string $message, bool $retained) use ($output, $dumpRaw) {
+                if ($dumpRaw) {
+                    $output?->__invoke(sprintf('MQTT raw topic=%s retained=%s payload=%s', $topic, $retained ? '1' : '0', $this->truncateMessage($message)));
+                }
+
                 $result = $this->handleRawMessage($topic, $message);
 
                 if (!empty($result['handled'])) {
@@ -252,6 +267,17 @@ class DssMqttListenerService
             static fn (string $topic): string => trim($topic),
             $chunks,
         ))));
+    }
+
+    private function truncateMessage(string $message, int $limit = 600): string
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($message)) ?? trim($message);
+
+        if (mb_strlen($normalized) <= $limit) {
+            return $normalized;
+        }
+
+        return mb_substr($normalized, 0, $limit) . '...';
     }
 
     private function parseEndpoint(string $endpoint): array

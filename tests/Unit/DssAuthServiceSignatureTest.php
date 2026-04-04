@@ -144,6 +144,46 @@ class DssAuthServiceSignatureTest extends TestCase
         $this->assertSame('9', $settings->user_group_id);
     }
 
+    public function test_ensure_session_state_reauthorizes_when_group_or_secret_context_is_missing(): void
+    {
+        $settings = $this->registerDefaultDssApis($this->createDssSettings([
+            'token' => 'stale-token',
+            'credential' => 'stale-credential',
+            'user_id' => '1',
+            'user_group_id' => null,
+            'secret_key' => '1234567890ABCDEF1234567890ABCDEF',
+            'secret_vector' => 'ABCDEF1234567890',
+        ]));
+        $platformKeys = $this->generatePlatformKeyPair();
+
+        $history = [];
+        $client = $this->makeHistoryMockClient([
+            $this->jsonResponse([
+                'realm' => 'dss-realm',
+                'randomKey' => 'random-key-1',
+                'publickey' => $platformKeys['public_key'],
+            ]),
+            $this->jsonResponse([
+                'token' => 'token-222',
+                'credential' => 'credential-222',
+                'userId' => '1',
+                'userGroupId' => '2',
+            ]),
+        ], $history);
+
+        $service = new DssAuthService(new DssStructuredLogger(), $client);
+
+        $response = $service->ensureSessionState(['token', 'secret_key', 'secret_vector', 'user_id', 'user_group_id']);
+
+        $this->assertTrue($response['success']);
+        $this->assertCount(2, $history);
+
+        $settings->refresh();
+
+        $this->assertSame('token-222', $settings->token);
+        $this->assertSame('2', $settings->user_group_id);
+    }
+
     private function jsonResponse(array $payload): \GuzzleHttp\Psr7\Response
     {
         return new \GuzzleHttp\Psr7\Response(

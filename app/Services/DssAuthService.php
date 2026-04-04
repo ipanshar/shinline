@@ -125,6 +125,30 @@ class DssAuthService extends DssBaseService
         return $this->dssAutorize();
     }
 
+    public function ensureSessionState(array $requiredSessionFields = []): array
+    {
+        if ($error = $this->ensureSettings(['base_url', 'user_name', 'password'])) {
+            return $error;
+        }
+
+        $missingField = collect($requiredSessionFields)
+            ->first(fn (string $field): bool => blank($this->dssSettings?->{$field}));
+
+        if (filled($this->dssSettings?->token) && $missingField === null) {
+            return [
+                'success' => true,
+                'token' => $this->dssSettings->token,
+                'credential' => $this->dssSettings->credential,
+                'user_id' => $this->dssSettings->user_id,
+                'user_group_id' => $this->dssSettings->user_group_id,
+                'secret_key' => $this->dssSettings->secret_key,
+                'secret_vector' => $this->dssSettings->secret_vector,
+            ];
+        }
+
+        return $this->dssAutorize();
+    }
+
     public function dssAutorize(): array
     {
         if ($error = $this->ensureSettings(['base_url', 'user_name', 'password'])) {
