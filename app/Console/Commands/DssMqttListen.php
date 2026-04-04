@@ -9,11 +9,11 @@ use Throwable;
 class DssMqttListen extends Command
 {
     protected $signature = 'dss:mqtt-listen
-        {--user-id= : User id part for mq.event.msg.topic.{userId}}
-        {--topic= : Explicit MQTT topic override}
+        {--user-id= : DSS userId for user-scoped topics}
+        {--topic= : Explicit MQTT topic override, one or many topics separated by comma}
         {--qos= : MQTT QoS level (0,1,2)}';
 
-    protected $description = 'Подключается к DSS MQTT broker и слушает notifyVehicleCaptureInfo события';
+    protected $description = 'Подключается к DSS MQTT broker и слушает стандартные DSS topics';
 
     public function handle(DssMqttListenerService $listenerService): int
     {

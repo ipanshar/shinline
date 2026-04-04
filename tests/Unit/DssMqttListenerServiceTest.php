@@ -61,7 +61,10 @@ class DssMqttListenerServiceTest extends TestCase
 
     public function test_build_runtime_config_uses_topic_pattern_and_decrypted_password(): void
     {
-        config()->set('dss.mqtt.topic_pattern', 'mq.event.msg.topic.%s');
+        config()->set('dss.mqtt.event_topic_pattern', 'mq.event.msg.topic.%s');
+        config()->set('dss.mqtt.alarm_topic_pattern', 'mq.alarm.msg.topic.%s');
+        config()->set('dss.mqtt.alarm_group_topic_pattern', 'mq.alarm.msg.group.topic.%s');
+        config()->set('dss.mqtt.common_topic', 'mq.common.msg.topic');
         config()->set('dss.mqtt.client_id_prefix', 'test-dss-');
         config()->set('dss.mqtt.qos', 1);
         config()->set('dss.mqtt.reconnect_automatically', true);
@@ -89,8 +92,13 @@ class DssMqttListenerServiceTest extends TestCase
         $this->assertSame('10.210.0.250', $runtime['host']);
         $this->assertSame(1883, $runtime['port']);
         $this->assertSame('mq.event.msg.topic.42', $runtime['topic']);
+        $this->assertSame([
+            'mq.event.msg.topic.42',
+            'mq.alarm.msg.topic.42',
+            'mq.common.msg.topic',
+        ], $runtime['topics']);
         $this->assertSame(1, $runtime['qos']);
-        $this->assertStringStartsWith('test-dss-42-', $runtime['client_id']);
+        $this->assertStringStartsWith('test-dss-u42-', $runtime['client_id']);
         $this->assertSame('consumer', $runtime['connection_settings']->getUsername());
         $this->assertSame('mq-password', $runtime['connection_settings']->getPassword());
         $this->assertTrue($runtime['connection_settings']->shouldUseTls());
@@ -100,10 +108,15 @@ class DssMqttListenerServiceTest extends TestCase
     {
         $this->createDssSettings([
             'user_id' => '88',
+            'user_group_id' => '99',
         ]);
 
-        config()->set('dss.mqtt.topic_pattern', 'mq.event.msg.topic.%s');
+        config()->set('dss.mqtt.event_topic_pattern', 'mq.event.msg.topic.%s');
+        config()->set('dss.mqtt.alarm_topic_pattern', 'mq.alarm.msg.topic.%s');
+        config()->set('dss.mqtt.alarm_group_topic_pattern', 'mq.alarm.msg.group.topic.%s');
+        config()->set('dss.mqtt.common_topic', 'mq.common.msg.topic');
         config()->set('dss.mqtt.topic_user_id', null);
+        config()->set('dss.mqtt.topic_user_group_id', null);
 
         $mqConfigService = Mockery::mock(DssMqConfigService::class);
         $captureService = Mockery::mock(DssCaptureService::class);
@@ -126,7 +139,42 @@ class DssMqttListenerServiceTest extends TestCase
         $runtime = $service->buildRuntimeConfig();
 
         $this->assertSame('mq.event.msg.topic.88', $runtime['topic']);
-        $this->assertStringStartsWith('shinline-dss-88-', $runtime['client_id']);
+        $this->assertSame([
+            'mq.event.msg.topic.88',
+            'mq.alarm.msg.topic.88',
+            'mq.alarm.msg.group.topic.99',
+            'mq.common.msg.topic',
+        ], $runtime['topics']);
+        $this->assertStringStartsWith('shinline-dss-u88-', $runtime['client_id']);
+    }
+
+    public function test_build_runtime_config_accepts_multiple_override_topics(): void
+    {
+        $mqConfigService = Mockery::mock(DssMqConfigService::class);
+        $captureService = Mockery::mock(DssCaptureService::class);
+        $structuredLogger = Mockery::mock(DssStructuredLogger::class);
+
+        $mqConfigService->shouldReceive('getMqConfig')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'data' => [
+                    'mqtt' => '10.210.0.250:1883',
+                    'userName' => 'consumer',
+                    'password_plain' => 'mq-password',
+                    'enableTls' => '0',
+                ],
+            ]);
+
+        $service = new DssMqttListenerService($mqConfigService, $captureService, $structuredLogger);
+
+        $runtime = $service->buildRuntimeConfig(null, 'mq.event.msg.topic.1, mq.common.msg.topic');
+
+        $this->assertSame([
+            'mq.event.msg.topic.1',
+            'mq.common.msg.topic',
+        ], $runtime['topics']);
+        $this->assertSame('mq.event.msg.topic.1', $runtime['topic']);
     }
 
     protected function tearDown(): void

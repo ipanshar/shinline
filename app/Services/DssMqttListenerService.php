@@ -27,26 +27,28 @@ class DssMqttListenerService
             MqttClient::MQTT_3_1_1,
         );
 
-        $output?->__invoke(sprintf('MQTT connect %s:%d topic=%s', $runtime['host'], $runtime['port'], $runtime['topic']));
+        $output?->__invoke(sprintf('MQTT connect %s:%d topics=%s', $runtime['host'], $runtime['port'], implode(', ', $runtime['topics'])));
 
         $mqtt->connect($runtime['connection_settings'], false);
-        $mqtt->subscribe($runtime['topic'], function (string $topic, string $message, bool $retained) use ($output) {
-            $result = $this->handleRawMessage($topic, $message);
+        foreach ($runtime['topics'] as $topic) {
+            $mqtt->subscribe($topic, function (string $topic, string $message, bool $retained) use ($output) {
+                $result = $this->handleRawMessage($topic, $message);
 
-            if (!empty($result['handled'])) {
-                $output?->__invoke(sprintf('MQTT handled topic=%s captures=%d', $topic, (int) ($result['captures_found'] ?? 0)));
-                return;
-            }
+                if (!empty($result['handled'])) {
+                    $output?->__invoke(sprintf('MQTT handled topic=%s method=%s captures=%d', $topic, $result['event_name'] ?? 'unknown', (int) ($result['captures_found'] ?? 0)));
+                    return;
+                }
 
-            if (!empty($result['ignored'])) {
-                $output?->__invoke(sprintf('MQTT ignored topic=%s reason=%s', $topic, $result['reason'] ?? 'unknown'));
-                return;
-            }
+                if (!empty($result['ignored'])) {
+                    $output?->__invoke(sprintf('MQTT ignored topic=%s method=%s reason=%s', $topic, $result['event_name'] ?? 'unknown', $result['reason'] ?? 'unknown'));
+                    return;
+                }
 
-            if (!empty($result['error'])) {
-                $output?->__invoke(sprintf('MQTT error topic=%s error=%s', $topic, $result['error']));
-            }
-        }, $runtime['qos']);
+                if (!empty($result['error'])) {
+                    $output?->__invoke(sprintf('MQTT error topic=%s error=%s', $topic, $result['error']));
+                }
+            }, $runtime['qos']);
+        }
 
         if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
             pcntl_async_signals(true);
@@ -76,20 +78,24 @@ class DssMqttListenerService
         [$host, $port] = $this->parseEndpoint((string) ($config['mqtt'] ?? $config['addr'] ?? ''));
 
         $resolvedUserId = $this->resolveTopicUserId($userId);
-        $resolvedTopic = $topicOverride
-            ? trim($topicOverride)
-            : $this->buildTopic($resolvedUserId);
+        $resolvedUserGroupId = $this->resolveTopicUserGroupId();
+        $resolvedTopics = $topicOverride
+            ? $this->parseTopicOverride($topicOverride)
+            : $this->buildTopics($resolvedUserId, $resolvedUserGroupId);
 
-        if ($resolvedTopic === '') {
-            throw new RuntimeException('MQTT topic is not configured. Provide --user-id, DSS_MQTT_TOPIC_USER_ID or authorize DSS to store userId');
+        if ($resolvedTopics === []) {
+            throw new RuntimeException('MQTT topics are not configured. Provide --topic, --user-id, DSS_MQTT_TOPIC_USER_ID or authorize DSS to store userId/userGroupId');
         }
 
         return [
             'host' => $host,
             'port' => $port,
-            'topic' => $resolvedTopic,
+            'topic' => $resolvedTopics[0],
+            'topics' => $resolvedTopics,
+            'user_id' => $resolvedUserId,
+            'user_group_id' => $resolvedUserGroupId,
             'qos' => $qos ?? (int) config('dss.mqtt.qos', 0),
-            'client_id' => $this->buildClientId($resolvedUserId),
+            'client_id' => $this->buildClientId($resolvedUserId, $resolvedUserGroupId),
             'connection_settings' => $this->buildConnectionSettings($config),
             'mq_config' => $config,
         ];
@@ -106,6 +112,7 @@ class DssMqttListenerService
             return [
                 'ignored' => true,
                 'reason' => 'invalid_json',
+                'event_name' => null,
             ];
         }
 
@@ -169,19 +176,35 @@ class DssMqttListenerService
         return $settings;
     }
 
-    private function buildTopic(string $userId): string
+    private function buildTopics(string $userId, string $userGroupId): array
     {
-        if ($userId === '') {
-            return '';
+        $topics = [];
+
+        if ($userId !== '') {
+            $topics[] = sprintf((string) config('dss.mqtt.event_topic_pattern', 'mq.event.msg.topic.%s'), $userId);
+            $topics[] = sprintf((string) config('dss.mqtt.alarm_topic_pattern', 'mq.alarm.msg.topic.%s'), $userId);
         }
 
-        return sprintf((string) config('dss.mqtt.topic_pattern', 'mq.event.msg.topic.%s'), $userId);
+        if ($userGroupId !== '') {
+            $topics[] = sprintf((string) config('dss.mqtt.alarm_group_topic_pattern', 'mq.alarm.msg.group.topic.%s'), $userGroupId);
+        }
+
+        $commonTopic = trim((string) config('dss.mqtt.common_topic', 'mq.common.msg.topic'));
+        if ($commonTopic !== '') {
+            $topics[] = $commonTopic;
+        }
+
+        return array_values(array_unique(array_filter(array_map('trim', $topics))));
     }
 
-    private function buildClientId(string $userId): string
+    private function buildClientId(string $userId, string $userGroupId = ''): string
     {
         $prefix = (string) config('dss.mqtt.client_id_prefix', 'shinline-dss-');
-        $suffix = $userId !== '' ? $userId . '-' : '';
+        $suffix = $userId !== '' ? 'u' . $userId . '-' : '';
+
+        if ($suffix === '' && $userGroupId !== '') {
+            $suffix = 'g' . $userGroupId . '-';
+        }
 
         return $prefix . $suffix . substr(bin2hex(random_bytes(6)), 0, 12);
     }
@@ -202,6 +225,33 @@ class DssMqttListenerService
         }
 
         return '';
+    }
+
+    private function resolveTopicUserGroupId(): string
+    {
+        $candidates = [
+            config('dss.mqtt.topic_user_group_id', ''),
+            DssSetings::query()->value('user_group_id'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $resolved = trim((string) $candidate);
+            if ($resolved !== '') {
+                return $resolved;
+            }
+        }
+
+        return '';
+    }
+
+    private function parseTopicOverride(string $topicOverride): array
+    {
+        $chunks = preg_split('/[,;\r\n]+/', $topicOverride) ?: [];
+
+        return array_values(array_unique(array_filter(array_map(
+            static fn (string $topic): string => trim($topic),
+            $chunks,
+        ))));
     }
 
     private function parseEndpoint(string $endpoint): array

@@ -28,7 +28,12 @@ return [
 
     'mqtt' => [
         'topic_pattern' => env('DSS_MQTT_TOPIC_PATTERN', 'mq.event.msg.topic.%s'),
+        'event_topic_pattern' => env('DSS_MQTT_EVENT_TOPIC_PATTERN', env('DSS_MQTT_TOPIC_PATTERN', 'mq.event.msg.topic.%s')),
+        'alarm_topic_pattern' => env('DSS_MQTT_ALARM_TOPIC_PATTERN', 'mq.alarm.msg.topic.%s'),
+        'alarm_group_topic_pattern' => env('DSS_MQTT_ALARM_GROUP_TOPIC_PATTERN', 'mq.alarm.msg.group.topic.%s'),
+        'common_topic' => env('DSS_MQTT_COMMON_TOPIC', 'mq.common.msg.topic'),
         'topic_user_id' => env('DSS_MQTT_TOPIC_USER_ID'),
+        'topic_user_group_id' => env('DSS_MQTT_TOPIC_USER_GROUP_ID'),
         'client_id_prefix' => env('DSS_MQTT_CLIENT_ID_PREFIX', 'shinline-dss-'),
         'qos' => (int) env('DSS_MQTT_QOS', 0),
         'connect_timeout' => (int) env('DSS_MQTT_CONNECT_TIMEOUT', 10),
