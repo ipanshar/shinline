@@ -4,7 +4,7 @@ namespace App\Services;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
-use Illuminate\Support\Str;
+use RuntimeException;
 
 class DssAuthService extends DssBaseService
 {
@@ -45,7 +45,7 @@ class DssAuthService extends DssBaseService
         }
     }
 
-    public function secondLogin(string $username, string $password, string $realm, string $randomKey): array
+    public function secondLogin(string $username, string $password, string $realm, string $randomKey, ?string $platformPublicKey = null): array
     {
         if ($error = $this->ensureSettings(['base_url'])) {
             return $error;
@@ -63,20 +63,46 @@ class DssAuthService extends DssBaseService
         $signature = md5($temp4 . ':' . $randomKey);
 
         try {
+            $encryptedSession = $this->prepareEncryptedSessionSecrets($platformPublicKey);
+        } catch (RuntimeException $exception) {
+            return ['error' => $exception->getMessage()];
+        }
+
+        $payload = [
+            'userName' => $username,
+            'signature' => $signature,
+            'randomKey' => $randomKey,
+            'encryptType' => 'MD5',
+            'clientType' => $this->dssSettings->client_type ?? 'WINPC_V2',
+            'publicKey' => $encryptedSession['terminal_public_key'],
+            'secretKey' => $encryptedSession['encrypted_secret_key'],
+            'secretVector' => $encryptedSession['encrypted_secret_vector'],
+            'userType' => '0',
+        ];
+
+        try {
             $response = $this->client->post($this->baseUrl . $dssApi->request_url, [
-                'json' => [
-                    'userName' => $username,
-                    'signature' => $signature,
-                    'randomKey' => $randomKey,
-                    'encryptType' => 'MD5',
-                    'clientType' => $this->dssSettings->client_type ?? 'WINPC_V2',
-                ],
+                'json' => $payload,
             ]);
 
-            return json_decode($response->getBody(), true);
+            $responsePayload = json_decode($response->getBody(), true);
+
+            return array_merge($responsePayload, [
+                '_generated_secret_key' => $encryptedSession['secret_key'],
+                '_generated_secret_vector' => $encryptedSession['secret_vector'],
+                '_terminal_public_key' => $encryptedSession['terminal_public_key'],
+                '_platform_public_key' => $encryptedSession['platform_public_key'],
+            ]);
         } catch (RequestException $exception) {
             if ($exception->hasResponse()) {
-                return json_decode($exception->getResponse()->getBody(), true);
+                $responsePayload = json_decode($exception->getResponse()->getBody(), true);
+
+                return array_merge($responsePayload, [
+                    '_generated_secret_key' => $encryptedSession['secret_key'],
+                    '_generated_secret_vector' => $encryptedSession['secret_vector'],
+                    '_terminal_public_key' => $encryptedSession['terminal_public_key'],
+                    '_platform_public_key' => $encryptedSession['platform_public_key'],
+                ]);
             }
 
             return ['error' => $exception->getMessage()];
@@ -117,7 +143,8 @@ class DssAuthService extends DssBaseService
             $this->dssSettings->user_name,
             $this->dssSettings->password,
             $firstLogin['realm'] ?? '',
-            $firstLogin['randomKey'] ?? ''
+            $firstLogin['randomKey'] ?? '',
+            $this->extractFirstAvailableResponseValue($firstLogin, ['publickey', 'publicKey'])
         );
 
         $token = $this->extractResponseValue($secondLogin, 'token');
@@ -128,6 +155,11 @@ class DssAuthService extends DssBaseService
             $this->dssSettings->credential = $this->extractResponseValue($secondLogin, 'credential');
             $this->dssSettings->secret_key = $sessionSecrets['secret_key'];
             $this->dssSettings->secret_vector = $sessionSecrets['secret_vector'];
+            $this->dssSettings->terminal_public_key = $this->extractFirstAvailableResponseValue($secondLogin, ['_terminal_public_key'])
+                ?? $this->dssSettings->terminal_public_key;
+            $this->dssSettings->platform_public_key = $this->extractFirstAvailableResponseValue($secondLogin, ['_platform_public_key'])
+                ?? $this->extractFirstAvailableResponseValue($firstLogin, ['publickey', 'publicKey'])
+                ?? $this->dssSettings->platform_public_key;
             $this->dssSettings->begin_session = now();
             $this->dssSettings->update_token = null;
             $this->dssSettings->update_token_count = 0;
@@ -380,23 +412,161 @@ class DssAuthService extends DssBaseService
 
     private function resolveSessionSecrets(array $payload): array
     {
-        $secretKey = $this->extractFirstAvailableResponseValue($payload, ['secretKey', 'secret_key'])
+        $secretKey = $this->extractFirstAvailableResponseValue($payload, ['_generated_secret_key'])
+            ?? $this->extractFirstAvailableResponseValue($payload, ['secretKey', 'secret_key'])
             ?? $this->dssSettings?->secret_key;
-        $secretVector = $this->extractFirstAvailableResponseValue($payload, ['secretVector', 'secret_vector'])
+        $secretVector = $this->extractFirstAvailableResponseValue($payload, ['_generated_secret_vector'])
+            ?? $this->extractFirstAvailableResponseValue($payload, ['secretVector', 'secret_vector'])
             ?? $this->dssSettings?->secret_vector;
 
         if (blank($secretKey)) {
-            $secretKey = Str::random(32);
+            $secretKey = bin2hex(random_bytes(16));
         }
 
         if (blank($secretVector)) {
-            $secretVector = Str::random(16);
+            $secretVector = bin2hex(random_bytes(8));
         }
 
         return [
             'secret_key' => $secretKey,
             'secret_vector' => $secretVector,
         ];
+    }
+
+    private function prepareEncryptedSessionSecrets(?string $platformPublicKey): array
+    {
+        $normalizedPlatformPublicKey = $this->normalizePublicKey($platformPublicKey ?? $this->dssSettings?->platform_public_key);
+        if ($normalizedPlatformPublicKey === null) {
+            throw new RuntimeException('DSS first login did not return platform public key');
+        }
+
+        $terminalKeys = $this->ensureTerminalKeyPair();
+        $secretKey = bin2hex(random_bytes(16));
+        $secretVector = bin2hex(random_bytes(8));
+
+        return [
+            'secret_key' => $secretKey,
+            'secret_vector' => $secretVector,
+            'encrypted_secret_key' => $this->encryptWithPublicKey($secretKey, $normalizedPlatformPublicKey),
+            'encrypted_secret_vector' => $this->encryptWithPublicKey($secretVector, $normalizedPlatformPublicKey),
+            'terminal_public_key' => $terminalKeys['public_key'],
+            'platform_public_key' => $normalizedPlatformPublicKey,
+        ];
+    }
+
+    private function ensureTerminalKeyPair(): array
+    {
+        $publicKey = $this->normalizePublicKey($this->dssSettings?->terminal_public_key);
+        $privateKey = $this->dssSettings?->terminal_private_key;
+
+        if (filled($publicKey) && filled($privateKey)) {
+            return [
+                'public_key' => $publicKey,
+                'private_key' => $privateKey,
+            ];
+        }
+
+        $resource = openssl_pkey_new($this->buildOpenSslKeyGenerationConfig());
+
+        if ($resource === false) {
+            throw new RuntimeException('Unable to generate terminal RSA key pair');
+        }
+
+        $privateKeyOutput = null;
+        if (!openssl_pkey_export($resource, $privateKeyOutput) || blank($privateKeyOutput)) {
+            throw new RuntimeException('Unable to export terminal private key');
+        }
+
+        $details = openssl_pkey_get_details($resource);
+        $generatedPublicKey = $details['key'] ?? null;
+        if (blank($generatedPublicKey)) {
+            throw new RuntimeException('Unable to extract terminal public key');
+        }
+
+        $this->dssSettings->terminal_public_key = $generatedPublicKey;
+        $this->dssSettings->terminal_private_key = $privateKeyOutput;
+        $this->dssSettings->save();
+        $this->refreshContext();
+
+        return [
+            'public_key' => $generatedPublicKey,
+            'private_key' => $privateKeyOutput,
+        ];
+    }
+
+    private function buildOpenSslKeyGenerationConfig(): array
+    {
+        $config = [
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ];
+
+        $configPath = $this->findOpenSslConfigPath();
+        if ($configPath !== null) {
+            $config['config'] = $configPath;
+        }
+
+        return $config;
+    }
+
+    private function findOpenSslConfigPath(): ?string
+    {
+        $phpBinaryDir = dirname(PHP_BINARY);
+        $phpBinaryParentDir = dirname($phpBinaryDir);
+        $phpBinaryGrandParentDir = dirname($phpBinaryParentDir);
+
+        $candidates = array_filter([
+            getenv('OPENSSL_CONF') ?: null,
+            $phpBinaryDir . DIRECTORY_SEPARATOR . 'conf' . DIRECTORY_SEPARATOR . 'openssl.cnf',
+            $phpBinaryDir . DIRECTORY_SEPARATOR . 'extras' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
+            $phpBinaryParentDir . DIRECTORY_SEPARATOR . 'conf' . DIRECTORY_SEPARATOR . 'openssl.cnf',
+            $phpBinaryGrandParentDir . DIRECTORY_SEPARATOR . 'system' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
+        ]);
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizePublicKey(?string $publicKey): ?string
+    {
+        if (blank($publicKey)) {
+            return null;
+        }
+
+        $trimmed = trim($publicKey);
+        if (str_contains($trimmed, 'BEGIN PUBLIC KEY')) {
+            return $trimmed;
+        }
+
+        $normalizedBody = preg_replace('/\s+/', '', $trimmed);
+        if (blank($normalizedBody)) {
+            return null;
+        }
+
+        return "-----BEGIN PUBLIC KEY-----\n"
+            . trim(chunk_split($normalizedBody, 64, "\n"))
+            . "\n-----END PUBLIC KEY-----";
+    }
+
+    private function encryptWithPublicKey(string $plaintext, string $publicKey): string
+    {
+        $resource = openssl_pkey_get_public($publicKey);
+        if ($resource === false) {
+            throw new RuntimeException('Unable to read DSS platform public key');
+        }
+
+        $encrypted = null;
+        $success = openssl_public_encrypt($plaintext, $encrypted, $resource, OPENSSL_PKCS1_PADDING);
+        if (!$success || $encrypted === null) {
+            throw new RuntimeException('Unable to encrypt DSS session secrets');
+        }
+
+        return base64_encode($encrypted);
     }
 
     private function extractFirstAvailableResponseValue(array $payload, array $keys): ?string

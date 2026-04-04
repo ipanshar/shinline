@@ -25,6 +25,7 @@
 - Ожидаемые поля ответа:
   - `realm: string`
   - `randomKey: string`
+  - `publickey: string` (RSA public key платформы для шифрования session secrets)
 
 ### Шаг 2: Second Login
 - Внутренний метод: `DssService::secondLogin`
@@ -35,6 +36,10 @@
   - `randomKey: string`
   - `encryptType: string` (`MD5`)
   - `clientType: string` (`WINPC_V2`)
+  - `publicKey: string` (RSA public key терминала)
+  - `secretKey: string` (base64 RSA ciphertext; plaintext длиной 32 hex-символа)
+  - `secretVector: string` (base64 RSA ciphertext; plaintext длиной 16 hex-символов)
+  - `userType: string` (`0`)
 - Ожидаемые поля ответа:
   - `token: string`
   - `credential?: string`
@@ -42,8 +47,11 @@
 Локально после успешного второго логина backend сохраняет в `dss_setings`:
 - `secret_key`
 - `secret_vector`
+- `terminal_public_key`
+- `terminal_private_key`
+- `platform_public_key`
 
-Если DSS явно не вернул эти значения в ответе, backend генерирует их локально для последующего использования без изменения текущего payload авторизации.
+`secret_key` и `secret_vector` генерируются локально, шифруются публичным ключом платформы из first login и отправляются в second login. Для будущей дешифровки MQTT-сообщений backend также хранит RSA-пару терминала.
 
 ## 2. KeepAlive
 

@@ -20,6 +20,8 @@ type DSSConfig = {
   credential?: string;
   secret_key?: string;
   secret_vector?: string;
+  terminal_public_key?: string;
+  platform_public_key?: string;
   subhour?: number;
 };
 
@@ -268,6 +270,14 @@ const DSSConnectionSettings = () => {
               <div className="flex items-start justify-between gap-3">
                 <dt className="text-muted-foreground">Secret vector</dt>
                 <dd className="max-w-[220px] break-all text-right font-medium">{config.secret_vector || '—'}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Terminal public key</dt>
+                <dd className="max-w-[220px] break-all text-right font-medium">{config.terminal_public_key || '—'}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Platform public key</dt>
+                <dd className="max-w-[220px] break-all text-right font-medium">{config.platform_public_key || '—'}</dd>
               </div>
               <div className="flex items-start justify-between gap-3">
                 <dt className="text-muted-foreground">Keepalive</dt>

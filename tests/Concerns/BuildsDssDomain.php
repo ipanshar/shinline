@@ -178,6 +178,9 @@ trait BuildsDssDomain
             'credential' => null,
             'secret_key' => null,
             'secret_vector' => null,
+            'terminal_public_key' => null,
+            'terminal_private_key' => null,
+            'platform_public_key' => null,
             'client_type' => 'WINPC_V2',
             'subhour' => 0,
         ], $attributes));
