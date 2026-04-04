@@ -46,6 +46,8 @@ return [
         'tls_verify_peer_name' => filter_var(env('DSS_MQTT_TLS_VERIFY_PEER_NAME', false), FILTER_VALIDATE_BOOL),
         'tls_allow_self_signed' => filter_var(env('DSS_MQTT_TLS_ALLOW_SELF_SIGNED', true), FILTER_VALIDATE_BOOL),
         'listen_event_name' => env('DSS_MQTT_LISTEN_EVENT_NAME', 'ipms.entrance.notifyVehicleCaptureInfo'),
+        'include_slash_variants' => filter_var(env('DSS_MQTT_INCLUDE_SLASH_VARIANTS', false), FILTER_VALIDATE_BOOL),
+        'diagnostic_heartbeat_seconds' => (int) env('DSS_MQTT_DIAGNOSTIC_HEARTBEAT_SECONDS', 0),
     ],
 
     'retention' => [

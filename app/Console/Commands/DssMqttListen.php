@@ -12,7 +12,9 @@ class DssMqttListen extends Command
         {--user-id= : DSS userId for user-scoped topics}
         {--topic= : Explicit MQTT topic override, one or many topics separated by comma}
         {--qos= : MQTT QoS level (0,1,2)}
-        {--dump-raw : Print raw MQTT payloads for diagnostics}';
+        {--dump-raw : Print raw MQTT payloads for diagnostics}
+        {--with-slash-variants : Also subscribe to slash-separated topic variants}
+        {--heartbeat=15 : Print diagnostic heartbeat every N seconds, 0 disables}';
 
     protected $description = 'Подключается к DSS MQTT broker и слушает стандартные DSS topics';
 
@@ -26,7 +28,9 @@ class DssMqttListen extends Command
                 function (string $line): void {
                     $this->line(now()->toDateTimeLocalString() . ' ' . $line);
                 },
-                (bool) $this->option('dump-raw')
+                (bool) $this->option('dump-raw'),
+                (bool) $this->option('with-slash-variants'),
+                $this->option('heartbeat') !== null ? (int) $this->option('heartbeat') : null,
             );
 
             return self::SUCCESS;

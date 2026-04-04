@@ -16,9 +16,17 @@ class DssMqttListenerService
     ) {
     }
 
-    public function listen(?string $userId = null, ?string $topicOverride = null, ?int $qos = null, ?callable $output = null, bool $dumpRaw = false): void
+    public function listen(
+        ?string $userId = null,
+        ?string $topicOverride = null,
+        ?int $qos = null,
+        ?callable $output = null,
+        bool $dumpRaw = false,
+        bool $includeSlashVariants = false,
+        ?int $heartbeatSeconds = null,
+    ): void
     {
-        $runtime = $this->buildRuntimeConfig($userId, $topicOverride, $qos);
+        $runtime = $this->buildRuntimeConfig($userId, $topicOverride, $qos, $includeSlashVariants);
 
         if ($runtime['user_group_id'] === '') {
             $output?->__invoke('MQTT notice userGroupId is empty, group topic subscription skipped');
@@ -39,6 +47,20 @@ class DssMqttListenerService
             $runtime['user_group_id'] !== '' ? $runtime['user_group_id'] : '-',
             implode(', ', $runtime['topics'])
         ));
+
+        $heartbeatInterval = $heartbeatSeconds ?? (int) config('dss.mqtt.diagnostic_heartbeat_seconds', 0);
+        if ($heartbeatInterval > 0) {
+            $lastHeartbeatAt = -1;
+            $mqtt->registerLoopEventHandler(function (MqttClient $mqttClient, float $elapsedTime) use ($output, $heartbeatInterval, &$lastHeartbeatAt): void {
+                $elapsedSeconds = (int) floor($elapsedTime);
+                if ($elapsedSeconds <= 0 || $elapsedSeconds === $lastHeartbeatAt || $elapsedSeconds % $heartbeatInterval !== 0) {
+                    return;
+                }
+
+                $lastHeartbeatAt = $elapsedSeconds;
+                $output?->__invoke(sprintf('MQTT heartbeat elapsed=%ds', $elapsedSeconds));
+            });
+        }
 
         $mqtt->connect($runtime['connection_settings'], false);
         foreach ($runtime['topics'] as $topic) {
@@ -82,7 +104,7 @@ class DssMqttListenerService
         }
     }
 
-    public function buildRuntimeConfig(?string $userId = null, ?string $topicOverride = null, ?int $qos = null): array
+    public function buildRuntimeConfig(?string $userId = null, ?string $topicOverride = null, ?int $qos = null, bool $includeSlashVariants = false): array
     {
         $mqConfig = $this->mqConfigService->getMqConfig();
         if (isset($mqConfig['error'])) {
@@ -96,7 +118,7 @@ class DssMqttListenerService
         $resolvedUserGroupId = $this->resolveTopicUserGroupId();
         $resolvedTopics = $topicOverride
             ? $this->parseTopicOverride($topicOverride)
-            : $this->buildTopics($resolvedUserId, $resolvedUserGroupId);
+            : $this->buildTopics($resolvedUserId, $resolvedUserGroupId, $includeSlashVariants);
 
         if ($resolvedTopics === []) {
             throw new RuntimeException('MQTT topics are not configured. Provide --topic, --user-id, DSS_MQTT_TOPIC_USER_ID or authorize DSS to store userId/userGroupId');
@@ -109,6 +131,7 @@ class DssMqttListenerService
             'topics' => $resolvedTopics,
             'user_id' => $resolvedUserId,
             'user_group_id' => $resolvedUserGroupId,
+            'include_slash_variants' => $includeSlashVariants,
             'qos' => $qos ?? (int) config('dss.mqtt.qos', 0),
             'client_id' => $this->buildClientId($resolvedUserId, $resolvedUserGroupId),
             'connection_settings' => $this->buildConnectionSettings($config),
@@ -191,7 +214,7 @@ class DssMqttListenerService
         return $settings;
     }
 
-    private function buildTopics(string $userId, string $userGroupId): array
+    private function buildTopics(string $userId, string $userGroupId, bool $includeSlashVariants = false): array
     {
         $topics = [];
 
@@ -207,6 +230,15 @@ class DssMqttListenerService
         $commonTopic = trim((string) config('dss.mqtt.common_topic', 'mq.common.msg.topic'));
         if ($commonTopic !== '') {
             $topics[] = $commonTopic;
+        }
+
+        if ($includeSlashVariants || (bool) config('dss.mqtt.include_slash_variants', false)) {
+            foreach ($topics as $topic) {
+                $slashTopic = $this->toSlashTopic($topic);
+                if ($slashTopic !== $topic) {
+                    $topics[] = $slashTopic;
+                }
+            }
         }
 
         return array_values(array_unique(array_filter(array_map('trim', $topics))));
@@ -278,6 +310,15 @@ class DssMqttListenerService
         }
 
         return mb_substr($normalized, 0, $limit) . '...';
+    }
+
+    private function toSlashTopic(string $topic): string
+    {
+        if (str_contains($topic, '/')) {
+            return $topic;
+        }
+
+        return str_replace('.', '/', $topic);
     }
 
     private function parseEndpoint(string $endpoint): array

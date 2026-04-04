@@ -177,6 +177,46 @@ class DssMqttListenerServiceTest extends TestCase
         $this->assertSame('mq.event.msg.topic.1', $runtime['topic']);
     }
 
+    public function test_build_runtime_config_can_include_slash_variants(): void
+    {
+        $this->createDssSettings([
+            'user_id' => '7',
+        ]);
+
+        config()->set('dss.mqtt.event_topic_pattern', 'mq.event.msg.topic.%s');
+        config()->set('dss.mqtt.alarm_topic_pattern', 'mq.alarm.msg.topic.%s');
+        config()->set('dss.mqtt.common_topic', 'mq.common.msg.topic');
+
+        $mqConfigService = Mockery::mock(DssMqConfigService::class);
+        $captureService = Mockery::mock(DssCaptureService::class);
+        $structuredLogger = Mockery::mock(DssStructuredLogger::class);
+
+        $mqConfigService->shouldReceive('getMqConfig')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'data' => [
+                    'mqtt' => '10.210.0.250:1883',
+                    'userName' => 'consumer',
+                    'password_plain' => 'mq-password',
+                    'enableTls' => '0',
+                ],
+            ]);
+
+        $service = new DssMqttListenerService($mqConfigService, $captureService, $structuredLogger);
+
+        $runtime = $service->buildRuntimeConfig(null, null, null, true);
+
+        $this->assertSame([
+            'mq.event.msg.topic.7',
+            'mq.alarm.msg.topic.7',
+            'mq.common.msg.topic',
+            'mq/event/msg/topic/7',
+            'mq/alarm/msg/topic/7',
+            'mq/common/msg/topic',
+        ], $runtime['topics']);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();
