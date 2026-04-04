@@ -12,6 +12,8 @@ class DssSetings extends Model
         'password',
         'token',
         'credential',
+        'secret_key',
+        'secret_vector',
         'client_type',
         'keepalive',
         'update_token',

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use Illuminate\Support\Str;
 
 class DssAuthService extends DssBaseService
 {
@@ -119,9 +120,14 @@ class DssAuthService extends DssBaseService
             $firstLogin['randomKey'] ?? ''
         );
 
-        if (!isset($secondLogin['error']) && isset($secondLogin['token'])) {
-            $this->dssSettings->token = $secondLogin['token'];
-            $this->dssSettings->credential = $secondLogin['credential'] ?? null;
+        $token = $this->extractResponseValue($secondLogin, 'token');
+        if (!isset($secondLogin['error']) && filled($token)) {
+            $sessionSecrets = $this->resolveSessionSecrets($secondLogin);
+
+            $this->dssSettings->token = $token;
+            $this->dssSettings->credential = $this->extractResponseValue($secondLogin, 'credential');
+            $this->dssSettings->secret_key = $sessionSecrets['secret_key'];
+            $this->dssSettings->secret_vector = $sessionSecrets['secret_vector'];
             $this->dssSettings->begin_session = now();
             $this->dssSettings->update_token = null;
             $this->dssSettings->update_token_count = 0;
@@ -133,7 +139,13 @@ class DssAuthService extends DssBaseService
                 'username' => $this->dssSettings->user_name,
             ]);
 
-            return ['success' => true, 'token' => $this->token];
+            return [
+                'success' => true,
+                'token' => $this->token,
+                'credential' => $this->credential,
+                'secret_key' => $this->dssSettings->secret_key,
+                'secret_vector' => $this->dssSettings->secret_vector,
+            ];
         }
 
         $this->structuredLogger->error('auth_fail', [
@@ -207,9 +219,7 @@ class DssAuthService extends DssBaseService
         }
 
         if ((int) ($responseData['code'] ?? 0) === 7000) {
-            $this->dssSettings->token = null;
-            $this->dssSettings->begin_session = null;
-            $this->dssSettings->save();
+            $this->clearSessionState();
         }
 
         $this->structuredLogger->error('auth_fail', [
@@ -273,6 +283,10 @@ class DssAuthService extends DssBaseService
 
             $this->dssSettings->token = $newToken;
             $this->dssSettings->credential = $responseData['data']['credential'] ?? $this->dssSettings->credential;
+            $this->dssSettings->secret_key = $this->extractFirstAvailableResponseValue($responseData, ['secretKey', 'secret_key'])
+                ?? $this->dssSettings->secret_key;
+            $this->dssSettings->secret_vector = $this->extractFirstAvailableResponseValue($responseData, ['secretVector', 'secret_vector'])
+                ?? $this->dssSettings->secret_vector;
             $this->dssSettings->update_token = now();
             $this->dssSettings->update_token_count += 1;
             $this->dssSettings->save();
@@ -286,11 +300,7 @@ class DssAuthService extends DssBaseService
             return ['success' => true, 'new_token' => $newToken];
         }
 
-        $this->dssSettings->token = null;
-        $this->dssSettings->begin_session = null;
-        $this->dssSettings->update_token = null;
-        $this->dssSettings->update_token_count = 0;
-        $this->dssSettings->save();
+        $this->clearSessionState();
 
         $this->structuredLogger->error('auth_fail', [
             'stage' => 'update_token',
@@ -340,13 +350,7 @@ class DssAuthService extends DssBaseService
             return ['error' => 'Неверный код ответа: ' . ($responseData['code'] ?? 'unknown')];
         }
 
-        $this->dssSettings->token = null;
-        $this->dssSettings->begin_session = null;
-        $this->dssSettings->update_token = null;
-        $this->dssSettings->update_token_count = 0;
-        $this->dssSettings->keepalive = null;
-        $this->dssSettings->save();
-        $this->refreshContext();
+        $this->clearSessionState(true);
 
         $this->structuredLogger->info('auth_success', [
             'stage' => 'logout',
@@ -354,5 +358,71 @@ class DssAuthService extends DssBaseService
         ]);
 
         return ['success' => true];
+    }
+
+    private function clearSessionState(bool $clearKeepalive = false): void
+    {
+        $this->dssSettings->token = null;
+        $this->dssSettings->credential = null;
+        $this->dssSettings->secret_key = null;
+        $this->dssSettings->secret_vector = null;
+        $this->dssSettings->begin_session = null;
+        $this->dssSettings->update_token = null;
+        $this->dssSettings->update_token_count = 0;
+
+        if ($clearKeepalive) {
+            $this->dssSettings->keepalive = null;
+        }
+
+        $this->dssSettings->save();
+        $this->refreshContext();
+    }
+
+    private function resolveSessionSecrets(array $payload): array
+    {
+        $secretKey = $this->extractFirstAvailableResponseValue($payload, ['secretKey', 'secret_key'])
+            ?? $this->dssSettings?->secret_key;
+        $secretVector = $this->extractFirstAvailableResponseValue($payload, ['secretVector', 'secret_vector'])
+            ?? $this->dssSettings?->secret_vector;
+
+        if (blank($secretKey)) {
+            $secretKey = Str::random(32);
+        }
+
+        if (blank($secretVector)) {
+            $secretVector = Str::random(16);
+        }
+
+        return [
+            'secret_key' => $secretKey,
+            'secret_vector' => $secretVector,
+        ];
+    }
+
+    private function extractFirstAvailableResponseValue(array $payload, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            $value = $this->extractResponseValue($payload, $key);
+            if (filled($value)) {
+                return (string) $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractResponseValue(array $payload, string $key): mixed
+    {
+        if (array_key_exists($key, $payload)) {
+            return $payload[$key];
+        }
+
+        $data = $payload['data'] ?? null;
+
+        if (is_array($data) && array_key_exists($key, $data)) {
+            return $data[$key];
+        }
+
+        return null;
     }
 }

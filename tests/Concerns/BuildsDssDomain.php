@@ -176,6 +176,8 @@ trait BuildsDssDomain
             'password' => 'secret',
             'token' => null,
             'credential' => null,
+            'secret_key' => null,
+            'secret_vector' => null,
             'client_type' => 'WINPC_V2',
             'subhour' => 0,
         ], $attributes));

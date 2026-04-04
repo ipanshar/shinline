@@ -39,6 +39,12 @@
   - `token: string`
   - `credential?: string`
 
+Локально после успешного второго логина backend сохраняет в `dss_setings`:
+- `secret_key`
+- `secret_vector`
+
+Если DSS явно не вернул эти значения в ответе, backend генерирует их локально для последующего использования без изменения текущего payload авторизации.
+
 ## 2. KeepAlive
 
 - Внутренний метод: `DssService::dssKeepAlive`
