@@ -4,6 +4,9 @@ namespace App\Services;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib3\Crypt\RSA;
+use phpseclib3\Crypt\RSA\PublicKey as RsaPublicKey;
 use RuntimeException;
 
 class DssAuthService extends DssBaseService
@@ -466,19 +469,9 @@ class DssAuthService extends DssBaseService
             ];
         }
 
-        $resource = openssl_pkey_new($this->buildOpenSslKeyGenerationConfig());
-
-        if ($resource === false) {
-            throw new RuntimeException('Unable to generate terminal RSA key pair');
-        }
-
-        $privateKeyOutput = null;
-        if (!openssl_pkey_export($resource, $privateKeyOutput) || blank($privateKeyOutput)) {
-            throw new RuntimeException('Unable to export terminal private key');
-        }
-
-        $details = openssl_pkey_get_details($resource);
-        $generatedPublicKey = $details['key'] ?? null;
+        $privateKeyObject = RSA::createKey(2048);
+        $privateKeyOutput = $privateKeyObject->toString('PKCS8');
+        $generatedPublicKey = $privateKeyObject->getPublicKey()->toString('PKCS8');
         if (blank($generatedPublicKey)) {
             throw new RuntimeException('Unable to extract terminal public key');
         }
@@ -492,44 +485,6 @@ class DssAuthService extends DssBaseService
             'public_key' => $generatedPublicKey,
             'private_key' => $privateKeyOutput,
         ];
-    }
-
-    private function buildOpenSslKeyGenerationConfig(): array
-    {
-        $config = [
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ];
-
-        $configPath = $this->findOpenSslConfigPath();
-        if ($configPath !== null) {
-            $config['config'] = $configPath;
-        }
-
-        return $config;
-    }
-
-    private function findOpenSslConfigPath(): ?string
-    {
-        $phpBinaryDir = dirname(PHP_BINARY);
-        $phpBinaryParentDir = dirname($phpBinaryDir);
-        $phpBinaryGrandParentDir = dirname($phpBinaryParentDir);
-
-        $candidates = array_filter([
-            getenv('OPENSSL_CONF') ?: null,
-            $phpBinaryDir . DIRECTORY_SEPARATOR . 'conf' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-            $phpBinaryDir . DIRECTORY_SEPARATOR . 'extras' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-            $phpBinaryParentDir . DIRECTORY_SEPARATOR . 'conf' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-            $phpBinaryGrandParentDir . DIRECTORY_SEPARATOR . 'system' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-        ]);
-
-        foreach ($candidates as $candidate) {
-            if (is_string($candidate) && is_file($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
     }
 
     private function normalizePublicKey(?string $publicKey): ?string
@@ -555,14 +510,19 @@ class DssAuthService extends DssBaseService
 
     private function encryptWithPublicKey(string $plaintext, string $publicKey): string
     {
-        $resource = openssl_pkey_get_public($publicKey);
-        if ($resource === false) {
+        try {
+            $loadedKey = PublicKeyLoader::load($publicKey);
+            if (!$loadedKey instanceof RsaPublicKey) {
+                throw new RuntimeException('Unable to read DSS platform public key');
+            }
+
+            $loadedKey = $loadedKey->withPadding(RSA::ENCRYPTION_PKCS1);
+        } catch (\Throwable $exception) {
             throw new RuntimeException('Unable to read DSS platform public key');
         }
 
-        $encrypted = null;
-        $success = openssl_public_encrypt($plaintext, $encrypted, $resource, OPENSSL_PKCS1_PADDING);
-        if (!$success || $encrypted === null) {
+        $encrypted = $loadedKey->encrypt($plaintext);
+        if ($encrypted === false || $encrypted === '') {
             throw new RuntimeException('Unable to encrypt DSS session secrets');
         }
 

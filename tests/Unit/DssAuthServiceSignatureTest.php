@@ -5,6 +5,9 @@ namespace Tests\Unit;
 use App\Services\DssAuthService;
 use App\Services\DssStructuredLogger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib3\Crypt\RSA;
+use phpseclib3\Crypt\RSA\PrivateKey as RsaPrivateKey;
 use Tests\Concerns\BuildsDssDomain;
 use Tests\TestCase;
 
@@ -142,55 +145,25 @@ class DssAuthServiceSignatureTest extends TestCase
 
     private function generatePlatformKeyPair(): array
     {
-        $resource = openssl_pkey_new($this->buildOpenSslKeyGenerationConfig());
-
-        $this->assertNotFalse($resource);
-
-        $privateKey = null;
-        $this->assertTrue(openssl_pkey_export($resource, $privateKey));
-
-        $details = openssl_pkey_get_details($resource);
+        $privateKeyObject = RSA::createKey(2048);
 
         return [
-            'private_key' => $privateKey,
-            'public_key' => $details['key'],
+            'private_key' => $privateKeyObject->toString('PKCS8'),
+            'public_key' => $privateKeyObject->getPublicKey()->toString('PKCS8'),
         ];
-    }
-
-    private function buildOpenSslKeyGenerationConfig(): array
-    {
-        $phpBinaryDir = dirname(PHP_BINARY);
-        $phpBinaryParentDir = dirname($phpBinaryDir);
-        $phpBinaryGrandParentDir = dirname($phpBinaryParentDir);
-
-        $config = [
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ];
-
-        foreach (array_filter([
-            getenv('OPENSSL_CONF') ?: null,
-            $phpBinaryDir . DIRECTORY_SEPARATOR . 'conf' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-            $phpBinaryDir . DIRECTORY_SEPARATOR . 'extras' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-            $phpBinaryParentDir . DIRECTORY_SEPARATOR . 'conf' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-            $phpBinaryGrandParentDir . DIRECTORY_SEPARATOR . 'system' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
-        ]) as $candidate) {
-            if (is_string($candidate) && is_file($candidate)) {
-                $config['config'] = $candidate;
-                break;
-            }
-        }
-
-        return $config;
     }
 
     private function decryptPayloadValue(string $ciphertext, string $privateKey): string
     {
-        $decrypted = null;
-        $success = openssl_private_decrypt(base64_decode($ciphertext, true), $decrypted, $privateKey, OPENSSL_PKCS1_PADDING);
+        $decoded = base64_decode($ciphertext, true);
+        $this->assertNotFalse($decoded);
 
-        $this->assertTrue($success);
+        $loadedKey = PublicKeyLoader::load($privateKey);
+        $this->assertInstanceOf(RsaPrivateKey::class, $loadedKey);
+        /** @var RsaPrivateKey $loadedKey */
 
-        return $decrypted;
+        $loadedKey = $loadedKey->withPadding(RSA::ENCRYPTION_PKCS1);
+
+        return $loadedKey->decrypt($decoded);
     }
 }
