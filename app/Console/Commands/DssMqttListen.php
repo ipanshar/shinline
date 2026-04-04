@@ -11,6 +11,7 @@ class DssMqttListen extends Command
     protected $signature = 'dss:mqtt-listen
         {--user-id= : DSS userId for user-scoped topics}
         {--topic= : Explicit MQTT topic override, one or many topics separated by comma}
+        {--client-id= : Explicit MQTT client id override}
         {--qos= : MQTT QoS level (0,1,2)}
         {--dump-raw : Print raw MQTT payloads for diagnostics}
         {--with-slash-variants : Also subscribe to slash-separated topic variants}
@@ -31,6 +32,7 @@ class DssMqttListen extends Command
                 (bool) $this->option('dump-raw'),
                 (bool) $this->option('with-slash-variants'),
                 $this->option('heartbeat') !== null ? (int) $this->option('heartbeat') : null,
+                $this->option('client-id') ? (string) $this->option('client-id') : null,
             );
 
             return self::SUCCESS;

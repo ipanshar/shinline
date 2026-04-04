@@ -34,6 +34,8 @@ return [
         'common_topic' => env('DSS_MQTT_COMMON_TOPIC', 'mq.common.msg.topic'),
         'topic_user_id' => env('DSS_MQTT_TOPIC_USER_ID'),
         'topic_user_group_id' => env('DSS_MQTT_TOPIC_USER_GROUP_ID'),
+        'client_id' => env('DSS_MQTT_CLIENT_ID'),
+        'client_id_mode' => env('DSS_MQTT_CLIENT_ID_MODE', 'user-id'),
         'client_id_prefix' => env('DSS_MQTT_CLIENT_ID_PREFIX', 'shinline-dss-'),
         'qos' => (int) env('DSS_MQTT_QOS', 0),
         'connect_timeout' => (int) env('DSS_MQTT_CONNECT_TIMEOUT', 10),

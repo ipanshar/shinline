@@ -24,9 +24,10 @@ class DssMqttListenerService
         bool $dumpRaw = false,
         bool $includeSlashVariants = false,
         ?int $heartbeatSeconds = null,
+        ?string $clientIdOverride = null,
     ): void
     {
-        $runtime = $this->buildRuntimeConfig($userId, $topicOverride, $qos, $includeSlashVariants);
+        $runtime = $this->buildRuntimeConfig($userId, $topicOverride, $qos, $includeSlashVariants, $clientIdOverride);
 
         if ($runtime['user_group_id'] === '') {
             $output?->__invoke('MQTT notice userGroupId is empty, group topic subscription skipped');
@@ -40,9 +41,10 @@ class DssMqttListenerService
         );
 
         $output?->__invoke(sprintf(
-            'MQTT connect %s:%d userId=%s userGroupId=%s topics=%s',
+            'MQTT connect %s:%d clientId=%s userId=%s userGroupId=%s topics=%s',
             $runtime['host'],
             $runtime['port'],
+            $runtime['client_id'],
             $runtime['user_id'] !== '' ? $runtime['user_id'] : '-',
             $runtime['user_group_id'] !== '' ? $runtime['user_group_id'] : '-',
             implode(', ', $runtime['topics'])
@@ -104,7 +106,13 @@ class DssMqttListenerService
         }
     }
 
-    public function buildRuntimeConfig(?string $userId = null, ?string $topicOverride = null, ?int $qos = null, bool $includeSlashVariants = false): array
+    public function buildRuntimeConfig(
+        ?string $userId = null,
+        ?string $topicOverride = null,
+        ?int $qos = null,
+        bool $includeSlashVariants = false,
+        ?string $clientIdOverride = null,
+    ): array
     {
         $mqConfig = $this->mqConfigService->getMqConfig();
         if (isset($mqConfig['error'])) {
@@ -133,7 +141,7 @@ class DssMqttListenerService
             'user_group_id' => $resolvedUserGroupId,
             'include_slash_variants' => $includeSlashVariants,
             'qos' => $qos ?? (int) config('dss.mqtt.qos', 0),
-            'client_id' => $this->buildClientId($resolvedUserId, $resolvedUserGroupId),
+            'client_id' => $this->buildClientId($resolvedUserId, $resolvedUserGroupId, $clientIdOverride),
             'connection_settings' => $this->buildConnectionSettings($config),
             'mq_config' => $config,
         ];
@@ -244,8 +252,22 @@ class DssMqttListenerService
         return array_values(array_unique(array_filter(array_map('trim', $topics))));
     }
 
-    private function buildClientId(string $userId, string $userGroupId = ''): string
+    private function buildClientId(string $userId, string $userGroupId = '', ?string $clientIdOverride = null): string
     {
+        $explicitClientId = trim((string) ($clientIdOverride ?? config('dss.mqtt.client_id')));
+        if ($explicitClientId !== '') {
+            return $explicitClientId;
+        }
+
+        $clientIdMode = trim((string) config('dss.mqtt.client_id_mode', 'user-id'));
+        if ($clientIdMode === 'user-id' && $userId !== '') {
+            return $userId;
+        }
+
+        if ($clientIdMode === 'user-group-id' && $userGroupId !== '') {
+            return $userGroupId;
+        }
+
         $prefix = (string) config('dss.mqtt.client_id_prefix', 'shinline-dss-');
         $suffix = $userId !== '' ? 'u' . $userId . '-' : '';
 

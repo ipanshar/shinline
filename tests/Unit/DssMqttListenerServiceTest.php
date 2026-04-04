@@ -98,7 +98,7 @@ class DssMqttListenerServiceTest extends TestCase
             'mq.common.msg.topic',
         ], $runtime['topics']);
         $this->assertSame(1, $runtime['qos']);
-        $this->assertStringStartsWith('test-dss-u42-', $runtime['client_id']);
+        $this->assertSame('42', $runtime['client_id']);
         $this->assertSame('consumer', $runtime['connection_settings']->getUsername());
         $this->assertSame('mq-password', $runtime['connection_settings']->getPassword());
         $this->assertTrue($runtime['connection_settings']->shouldUseTls());
@@ -145,7 +145,7 @@ class DssMqttListenerServiceTest extends TestCase
             'mq.alarm.msg.group.topic.99',
             'mq.common.msg.topic',
         ], $runtime['topics']);
-        $this->assertStringStartsWith('shinline-dss-u88-', $runtime['client_id']);
+        $this->assertSame('88', $runtime['client_id']);
     }
 
     public function test_build_runtime_config_accepts_multiple_override_topics(): void
@@ -215,6 +215,36 @@ class DssMqttListenerServiceTest extends TestCase
             'mq/alarm/msg/topic/7',
             'mq/common/msg/topic',
         ], $runtime['topics']);
+        $this->assertSame('7', $runtime['client_id']);
+    }
+
+    public function test_build_runtime_config_allows_explicit_client_id_override(): void
+    {
+        $this->createDssSettings([
+            'user_id' => '7',
+        ]);
+
+        $mqConfigService = Mockery::mock(DssMqConfigService::class);
+        $captureService = Mockery::mock(DssCaptureService::class);
+        $structuredLogger = Mockery::mock(DssStructuredLogger::class);
+
+        $mqConfigService->shouldReceive('getMqConfig')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'data' => [
+                    'mqtt' => '10.210.0.250:1883',
+                    'userName' => 'consumer',
+                    'password_plain' => 'mq-password',
+                    'enableTls' => '0',
+                ],
+            ]);
+
+        $service = new DssMqttListenerService($mqConfigService, $captureService, $structuredLogger);
+
+        $runtime = $service->buildRuntimeConfig(null, null, null, false, 'custom-client');
+
+        $this->assertSame('custom-client', $runtime['client_id']);
     }
 
     protected function tearDown(): void
