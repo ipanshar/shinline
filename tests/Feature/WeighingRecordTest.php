@@ -351,6 +351,94 @@ class WeighingRecordTest extends TestCase
         $this->assertCount(1, $data->pluck('history_group_key')->unique());
     }
 
+    public function test_history_returns_task_cargo_and_deviation_from_weight_difference(): void
+    {
+        $user = User::factory()->create();
+        $status = Status::create(['key' => 'new', 'name' => 'Новый']);
+        $yard = Yard::create(['name' => 'Deviation yard']);
+        $truck = Truck::create(['plate_number' => 'DEV12305']);
+        $task = Task::create([
+            'name' => 'Рейс DEV',
+            'user_id' => $user->id,
+            'status_id' => $status->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'plan_date' => now(),
+            'total_weight' => 5000,
+            'count_boxes' => 120,
+        ]);
+
+        $visitor = Visitor::create([
+            'plate_number' => 'DEV12305',
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'task_id' => $task->id,
+            'user_id' => $user->id,
+            'entry_date' => now()->subHour(),
+            'exit_date' => null,
+            'confirmation_status' => Visitor::CONFIRMATION_PENDING,
+        ]);
+
+        $requirement = WeighingRequirement::create([
+            'yard_id' => $yard->id,
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck->id,
+            'task_id' => $task->id,
+            'plate_number' => 'DEV12305',
+            'required_type' => WeighingRequirement::TYPE_BOTH,
+            'reason' => WeighingRequirement::REASON_TASK,
+            'status' => WeighingRequirement::STATUS_COMPLETED,
+        ]);
+
+        $entry = Weighing::create([
+            'yard_id' => $yard->id,
+            'task_id' => $task->id,
+            'plate_number' => 'DEV12305',
+            'weighing_type' => Weighing::TYPE_ENTRY,
+            'weight' => 10000,
+            'weighed_at' => Carbon::parse('2026-04-06 10:00:00'),
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck->id,
+            'requirement_id' => $requirement->id,
+            'operator_user_id' => $user->id,
+        ]);
+
+        $exit = Weighing::create([
+            'yard_id' => $yard->id,
+            'task_id' => $task->id,
+            'plate_number' => 'DEV12305',
+            'weighing_type' => Weighing::TYPE_EXIT,
+            'weight' => 14900,
+            'weighed_at' => Carbon::parse('2026-04-06 12:00:00'),
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck->id,
+            'requirement_id' => $requirement->id,
+            'operator_user_id' => $user->id,
+        ]);
+
+        $requirement->forceFill([
+            'entry_weighing_id' => $entry->id,
+            'exit_weighing_id' => $exit->id,
+        ])->save();
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/weighing/history', [
+            'yard_id' => $yard->id,
+            'date_from' => '2026-04-06',
+            'date_to' => '2026-04-06',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('count', 2)
+            ->assertJsonPath('data.0.task_name', 'Рейс DEV')
+            ->assertJsonPath('data.0.task_total_weight', 5000)
+                ->assertJsonPath('data.0.task_count_boxes', 120)
+            ->assertJsonPath('data.0.weight_diff', 4900)
+            ->assertJsonPath('data.0.weight_diff_deviation', -100);
+    }
+
     public function test_get_tasks_returns_actual_weighing_results_for_task(): void
     {
         $user = User::factory()->create();

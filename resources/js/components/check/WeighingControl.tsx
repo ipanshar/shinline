@@ -104,6 +104,10 @@ interface Weighing {
   weight: number | null;
   weighed_at: string;
   weight_diff: number | null;
+  task_name: string | null;
+  task_total_weight: number | null;
+  task_count_boxes: number | null;
+  weight_diff_deviation: number | null;
   visitor_id: number | null;
   truck_id: number | null;
   requirement_id: number | null;
@@ -124,6 +128,10 @@ interface GroupedWeighing {
   exit_weight: number | null;
   exit_time: string | null;
   weight_diff: number | null;
+  task_name: string | null;
+  task_total_weight: number | null;
+  task_count_boxes: number | null;
+  weight_diff_deviation: number | null;
   operator_name: string | null;
   notes: string | null;
   hasEntry: boolean;
@@ -224,6 +232,10 @@ const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
         exit_weight: null,
         exit_time: null,
         weight_diff: null,
+        task_name: null,
+        task_total_weight: null,
+        task_count_boxes: null,
+        weight_diff_deviation: null,
         operator_name: null,
         notes: null,
         hasEntry: false,
@@ -238,9 +250,18 @@ const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
       grouped[key].isSkipped = true;
       grouped[key].skippedAt = w.skipped_at || w.weighed_at;
       grouped[key].skippedReason = w.skipped_reason;
+      if (w.task_name) grouped[key].task_name = w.task_name;
+      if (w.task_total_weight !== null && w.task_total_weight !== undefined) grouped[key].task_total_weight = w.task_total_weight;
+      if (w.task_count_boxes !== null && w.task_count_boxes !== undefined) grouped[key].task_count_boxes = w.task_count_boxes;
+      if (w.weight_diff_deviation !== null && w.weight_diff_deviation !== undefined) grouped[key].weight_diff_deviation = w.weight_diff_deviation;
       if (w.operator_name) grouped[key].operator_name = w.operator_name;
       return;
     }
+
+    if (w.task_name) grouped[key].task_name = w.task_name;
+    if (w.task_total_weight !== null && w.task_total_weight !== undefined) grouped[key].task_total_weight = w.task_total_weight;
+    if (w.task_count_boxes !== null && w.task_count_boxes !== undefined) grouped[key].task_count_boxes = w.task_count_boxes;
+    if (w.weight_diff_deviation !== null && w.weight_diff_deviation !== undefined) grouped[key].weight_diff_deviation = w.weight_diff_deviation;
     
     if (w.weighing_type === "entry") {
       grouped[key].entry_weight = w.weight;
@@ -264,6 +285,40 @@ const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
     const timeB = b.skippedAt || b.exit_time || b.entry_time || '';
     return new Date(timeB).getTime() - new Date(timeA).getTime();
   });
+};
+
+const formatWeightValue = (value: number | null | undefined, digits = 2): string => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "—";
+  }
+
+  return `${Number(value).toFixed(digits)} кг`;
+};
+
+const getDiffClassName = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "text-gray-600";
+  }
+
+  if (Number(value) > 0) {
+    return "text-green-600";
+  }
+
+  if (Number(value) < 0) {
+    return "text-red-600";
+  }
+
+  return "text-gray-600";
+};
+
+const formatSignedWeightValue = (value: number | null | undefined, digits = 2): string => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "—";
+  }
+
+  const numericValue = Number(value);
+
+  return `${numericValue > 0 ? "+" : ""}${numericValue.toFixed(digits)} кг`;
 };
 
 const WeighingControl: React.FC = () => {
@@ -1351,8 +1406,22 @@ const WeighingControl: React.FC = () => {
                   </div>
 
                   {/* Дополнительная информация */}
-                  {(g.operator_name || g.notes || g.isSkipped) && (
+                  {(g.task_name || g.task_total_weight !== null || g.task_count_boxes !== null || g.weight_diff_deviation !== null || g.operator_name || g.notes || g.isSkipped) && (
                     <div className="space-y-1 text-sm text-gray-600">
+                      {(g.task_name || g.task_total_weight !== null || g.task_count_boxes !== null) && (
+                        <p className="flex items-center gap-2 text-gray-700">
+                          <Weight className="w-3.5 h-3.5" />
+                          {g.task_name ? `${g.task_name} • ` : ""}
+                          Груз по заданию: {formatWeightValue(g.task_total_weight, 2)}
+                          {g.task_count_boxes !== null ? ` • Коробок: ${g.task_count_boxes}` : ""}
+                        </p>
+                      )}
+                      {g.weight_diff_deviation !== null && g.weight_diff_deviation !== undefined && (
+                        <p className={cn("flex items-center gap-2 font-medium", getDiffClassName(g.weight_diff_deviation))}>
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          Отклонение: {formatSignedWeightValue(g.weight_diff_deviation, 0)}
+                        </p>
+                      )}
                       {g.operator_name && (
                         <p className="flex items-center gap-2">
                           <User className="w-3.5 h-3.5" />
@@ -1393,6 +1462,8 @@ const WeighingControl: React.FC = () => {
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Въезд</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Выезд</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Разница</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Груз по заданию</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Отклонение</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Оператор</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Примечание</th>
                 </tr>
@@ -1400,7 +1471,7 @@ const WeighingControl: React.FC = () => {
               <tbody className="divide-y">
                 {filteredGroupedHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                       <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
                       <p>{normalizedPlateSearchQuery ? "Ничего не найдено" : "Нет взвешиваний за выбранный период"}</p>
                     </td>
@@ -1451,13 +1522,28 @@ const WeighingControl: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-center">
                         {g.weight_diff !== null && g.weight_diff !== undefined ? (
-                          <span className={cn(
-                            "font-semibold",
-                            parseFloat(String(g.weight_diff)) > 0 ? "text-green-600" : 
-                            parseFloat(String(g.weight_diff)) < 0 ? "text-red-600" : "text-gray-600"
-                          )}>
-                            {parseFloat(String(g.weight_diff)) > 0 ? "+" : ""}
-                            {parseFloat(String(g.weight_diff)).toFixed(2)} кг
+                          <span className={cn("font-semibold", getDiffClassName(g.weight_diff))}>
+                            {formatSignedWeightValue(g.weight_diff, 2)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center text-sm text-gray-600">
+                        <div>
+                          <span className="font-medium">{formatWeightValue(g.task_total_weight, 2)}</span>
+                          {(g.task_name || g.task_count_boxes !== null) && (
+                            <p className="text-xs text-gray-400">
+                              {g.task_name || ""}
+                              {g.task_count_boxes !== null ? `${g.task_name ? ' • ' : ''}${g.task_count_boxes} коробок` : ""}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {g.weight_diff_deviation !== null && g.weight_diff_deviation !== undefined ? (
+                          <span className={cn("font-semibold", getDiffClassName(g.weight_diff_deviation))}>
+                            {formatSignedWeightValue(g.weight_diff_deviation, 2)}
                           </span>
                         ) : (
                           <span className="text-gray-300">—</span>

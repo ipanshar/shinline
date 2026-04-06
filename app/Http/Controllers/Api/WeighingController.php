@@ -163,6 +163,8 @@ class WeighingController extends Controller
                     : ($paired
                         ? 'pair:' . min($w->id, $paired->id) . '-' . max($w->id, $paired->id)
                         : 'single:' . $w->id);
+                $taskTotalWeight = $w->task?->total_weight !== null ? (float) $w->task->total_weight : null;
+                $weightDiff = $w->getWeightDifference();
 
                 return [
                     'id' => $w->id,
@@ -170,7 +172,13 @@ class WeighingController extends Controller
                     'weighing_type' => $w->weighing_type,
                     'weight' => $w->weight,
                     'weighed_at' => $w->weighed_at,
-                    'weight_diff' => $w->getWeightDifference(),
+                    'weight_diff' => $weightDiff,
+                    'task_name' => $w->task?->name,
+                    'task_total_weight' => $taskTotalWeight,
+                    'task_count_boxes' => $w->task?->count_boxes,
+                    'weight_diff_deviation' => $weightDiff !== null && $taskTotalWeight !== null
+                        ? $weightDiff - $taskTotalWeight
+                        : null,
                     'visitor_id' => $w->visitor_id,
                     'truck_id' => $w->truck_id,
                     'requirement_id' => $w->requirement_id,
@@ -184,13 +192,22 @@ class WeighingController extends Controller
             });
 
             $skippedData = $skippedRequirements->map(function ($requirement) {
+                $taskTotalWeight = $requirement->task?->total_weight !== null ? (float) $requirement->task->total_weight : null;
+                $weightDiff = $requirement->getWeightDifference();
+
                 return [
                     'id' => 'skipped-' . $requirement->id,
                     'plate_number' => $requirement->plate_number,
                     'weighing_type' => 'skipped',
                     'weight' => null,
                     'weighed_at' => $requirement->skipped_at,
-                    'weight_diff' => $requirement->getWeightDifference(),
+                    'weight_diff' => $weightDiff,
+                    'task_name' => $requirement->task?->name,
+                    'task_total_weight' => $taskTotalWeight,
+                    'task_count_boxes' => $requirement->task?->count_boxes,
+                    'weight_diff_deviation' => $weightDiff !== null && $taskTotalWeight !== null
+                        ? $weightDiff - $taskTotalWeight
+                        : null,
                     'visitor_id' => $requirement->visitor_id,
                     'truck_id' => $requirement->truck_id,
                     'requirement_id' => $requirement->id,

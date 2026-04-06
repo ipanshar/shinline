@@ -203,6 +203,20 @@ const formatWeightDifference = (difference: number | null): string | null => {
   return `${sign}${difference} кг`;
 };
 
+const getWeighingDeviation = (task: Task, weighings: TaskWeighing[], weighing: TaskWeighing): number | null => {
+  if (task.total_weight === null || task.total_weight === undefined) {
+    return null;
+  }
+
+  const difference = getWeighingDifference(weighings, weighing);
+
+  if (difference === null) {
+    return null;
+  }
+
+  return difference - Number(task.total_weight);
+};
+
 // Получение цвета статуса
 const getStatusColor = (status: string): string => {
   const lower = status.toLowerCase();
@@ -219,6 +233,22 @@ const getStatusColor = (status: string): string => {
   return 'bg-gray-100 text-gray-800 dark:bg-gray-800/30 dark:text-gray-400';
 };
 
+const getDifferenceTextClass = (value: number | null): string => {
+  if (value === null) {
+    return "";
+  }
+
+  if (value > 0) {
+    return "text-emerald-700 dark:text-emerald-400";
+  }
+
+  if (value < 0) {
+    return "text-red-700 dark:text-red-400";
+  }
+
+  return "text-muted-foreground";
+};
+
 interface TaskTableProps {
   tasks: Task[];
   fetchTasks: () => void;
@@ -227,6 +257,10 @@ interface TaskTableProps {
 // Компонент карточки задания
 const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task, onEdit }) => {
   const sortedTaskWeighings = sortTaskWeighings(task.task_weighings);
+  const latestTaskDeviation = [...sortedTaskWeighings]
+    .reverse()
+    .map((weighing) => getWeighingDeviation(task, sortedTaskWeighings, weighing))
+    .find((deviation) => deviation !== null) ?? null;
 
   return (
     <Card className="p-3 sm:p-4 transition-all duration-200 hover:shadow-md">
@@ -355,6 +389,7 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
               <div className="mt-2 text-sm leading-snug text-muted-foreground">
                 {task.total_weight !== null && task.total_weight !== undefined ? `Вес груза: ${Number(task.total_weight).toFixed(2)} кг` : "Вес груза: —"}
                 {task.count_boxes !== null && task.count_boxes !== undefined ? ` • Коробок: ${task.count_boxes}` : ""}
+                {latestTaskDeviation !== null ? ` • Отклонение: ${latestTaskDeviation > 0 ? "+" : ""}${latestTaskDeviation.toFixed(2)} кг` : ""}
               </div>
             ) : null}
             {task.description && (
@@ -413,13 +448,16 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
               <div className="text-xs font-medium text-muted-foreground uppercase">Взвешивания</div>
               <div className="flex flex-wrap gap-1.5">
                 {sortedTaskWeighings.map((weighing, i) => {
-                  const difference = formatWeightDifference(getWeighingDifference(sortedTaskWeighings, weighing));
+                  const rawDifference = getWeighingDifference(sortedTaskWeighings, weighing);
+                  const difference = formatWeightDifference(rawDifference);
+                  const deviation = getWeighingDeviation(task, sortedTaskWeighings, weighing);
 
                   return (
                   <Badge key={weighing.id ?? i} variant="secondary" className="text-xs">
                     <Scale className="w-3 h-3 mr-1" />
                     {weighing.weight} кг
-                    {difference && <span className="ml-1 text-emerald-700 dark:text-emerald-400">({difference})</span>}
+                    {difference && <span className={cn("ml-1", getDifferenceTextClass(rawDifference))}>({difference})</span>}
+                    {deviation !== null && <span className={cn("ml-1", getDifferenceTextClass(deviation))}>[откл. {deviation > 0 ? "+" : ""}{deviation.toFixed(2)} кг]</span>}
                     <span className="ml-1">— {weighing.statuse_weighing_name}</span>
                   </Badge>
                 )})}

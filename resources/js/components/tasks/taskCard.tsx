@@ -42,6 +42,71 @@ type Task = {
     task_loadings: TaskLoading[];
 };
 
+const getWeighingStatusId = (weighing: TaskWeighing): number | null => {
+    const lower = weighing.statuse_weighing_name.toLowerCase();
+
+    if (lower.includes("до погруз")) return 1;
+    if (lower.includes("после погруз")) return 2;
+    if (lower.includes("до выгруз")) return 3;
+    if (lower.includes("после выгруз")) return 4;
+
+    return null;
+};
+
+const sortTaskWeighings = (weighings: TaskWeighing[]): TaskWeighing[] => {
+    return [...weighings].sort((left, right) => {
+        const leftStatus = getWeighingStatusId(left) ?? Number.MAX_SAFE_INTEGER;
+        const rightStatus = getWeighingStatusId(right) ?? Number.MAX_SAFE_INTEGER;
+
+        if (leftStatus !== rightStatus) {
+            return leftStatus - rightStatus;
+        }
+
+        return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
+    });
+};
+
+const getWeighingDifference = (weighings: TaskWeighing[], weighing: TaskWeighing): number | null => {
+    const currentStatusId = getWeighingStatusId(weighing);
+
+    if (!currentStatusId || currentStatusId % 2 !== 0) {
+        return null;
+    }
+
+    const pairStatusId = currentStatusId - 1;
+    const pairWeighing = [...weighings]
+        .reverse()
+        .find((candidate) => getWeighingStatusId(candidate) === pairStatusId);
+
+    if (!pairWeighing) {
+        return null;
+    }
+
+    return weighing.weight - pairWeighing.weight;
+};
+
+const getWeighingDeviation = (task: Task, weighings: TaskWeighing[], weighing: TaskWeighing): number | null => {
+    if (task.total_weight === null || task.total_weight === undefined) {
+        return null;
+    }
+
+    const difference = getWeighingDifference(weighings, weighing);
+
+    if (difference === null) {
+        return null;
+    }
+
+    return difference - Number(task.total_weight);
+};
+
+const formatSignedWeight = (value: number | null): string | null => {
+    if (value === null) {
+        return null;
+    }
+
+    return `${value > 0 ? '+' : ''}${value.toFixed(2)} кг`;
+};
+
 // Функция для форматирования даты под локальный формат
 const formatDate = (dateStr: string) => {
     if (!dateStr) return "—";
@@ -55,7 +120,14 @@ const formatDate = (dateStr: string) => {
     }).format(date);
 };
 
-const TaskCard: React.FC<{ task: Task }> = ({ task }) => (
+const TaskCard: React.FC<{ task: Task }> = ({ task }) => {
+    const sortedTaskWeighings = sortTaskWeighings(task.task_weighings);
+    const latestTaskDeviation = [...sortedTaskWeighings]
+        .reverse()
+        .map((weighing) => getWeighingDeviation(task, sortedTaskWeighings, weighing))
+        .find((deviation) => deviation !== null) ?? null;
+
+    return (
     <Card sx={{ maxWidth: 600, margin: "10px", boxShadow: 3, borderRadius: 2 }}>
         <CardContent>
             <Typography variant="h6" gutterBottom color="primary" >
@@ -79,6 +151,7 @@ const TaskCard: React.FC<{ task: Task }> = ({ task }) => (
                 <Typography variant="body2" sx={{ mt: 1 }}>
                     ⚖️ Вес груза: <b>{task.total_weight !== null && task.total_weight !== undefined ? Number(task.total_weight).toFixed(2) + ' кг' : '—'}</b>
                     {task.count_boxes !== null && task.count_boxes !== undefined ? ` | 📦 Коробок: ${task.count_boxes}` : ''}
+                    {latestTaskDeviation !== null ? ` | Δ Отклонение: ${formatSignedWeight(latestTaskDeviation)}` : ''}
                 </Typography>
             ) : null}
             
@@ -104,13 +177,21 @@ const TaskCard: React.FC<{ task: Task }> = ({ task }) => (
                     </TableRow>
                 </TableHead>
                 <TableBody>
-                    {task.task_weighings.map((weighing, idx) => (
+                    {sortedTaskWeighings.map((weighing, idx) => {
+                        const difference = formatSignedWeight(getWeighingDifference(sortedTaskWeighings, weighing));
+                        const deviation = formatSignedWeight(getWeighingDeviation(task, sortedTaskWeighings, weighing));
+
+                        return (
                         <TableRow key={idx} sx={{ backgroundColor: "#e0f2f1" }}>
                             <TableCell><Info color="success" /> {weighing.statuse_weighing_name}</TableCell>
-                            <TableCell>Вес: <b>{weighing.weight}</b></TableCell>
+                            <TableCell>
+                                Вес: <b>{weighing.weight}</b>
+                                {difference ? ` | Δпары: ${difference}` : ''}
+                                {deviation ? ` | Откл.: ${deviation}` : ''}
+                            </TableCell>
                             <TableCell>{weighing.weight ? formatDate(weighing.updated_at) : "—"}</TableCell>
                         </TableRow>
-                    ))}
+                    )})}
                     {task.task_loadings.map((loading, idx) => (
                         <TableRow key={idx} sx={{ backgroundColor: "#fff3e0" }}>
                             <TableCell>{loading.warehouse_name}</TableCell>
@@ -123,5 +204,6 @@ const TaskCard: React.FC<{ task: Task }> = ({ task }) => (
         </CardContent>
     </Card>
 );
+};
 
 export default TaskCard;
