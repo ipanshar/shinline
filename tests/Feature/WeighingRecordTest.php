@@ -286,4 +286,65 @@ class WeighingRecordTest extends TestCase
 
         $this->assertCount(1, $data->pluck('history_group_key')->unique());
     }
+
+    public function test_history_includes_skipped_requirement_and_related_entry_weighing(): void
+    {
+        $user = User::factory()->create();
+        $yard = Yard::create(['name' => 'Skipped history yard']);
+        $truck = Truck::create(['plate_number' => 'SKP12305']);
+        $visitor = Visitor::create([
+            'plate_number' => 'SKP12305',
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'user_id' => $user->id,
+        ]);
+
+        $requirement = WeighingRequirement::create([
+            'yard_id' => $yard->id,
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck->id,
+            'plate_number' => 'SKP12305',
+            'required_type' => WeighingRequirement::TYPE_BOTH,
+            'reason' => WeighingRequirement::REASON_MANUAL,
+            'status' => WeighingRequirement::STATUS_ENTRY_DONE,
+        ]);
+
+        $entry = Weighing::create([
+            'yard_id' => $yard->id,
+            'plate_number' => 'SKP12305',
+            'weighing_type' => Weighing::TYPE_ENTRY,
+            'weight' => 8200,
+            'weighed_at' => Carbon::parse('2026-04-04 23:50:00'),
+            'visitor_id' => $visitor->id,
+            'truck_id' => $truck->id,
+            'requirement_id' => $requirement->id,
+            'operator_user_id' => $user->id,
+        ]);
+
+        $requirement->forceFill([
+            'entry_weighing_id' => $entry->id,
+            'status' => WeighingRequirement::STATUS_SKIPPED,
+            'skipped_reason' => 'Весы были недоступны',
+            'skipped_by_user_id' => $user->id,
+            'skipped_at' => Carbon::parse('2026-04-05 08:15:00'),
+        ])->save();
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/weighing/history', [
+            'yard_id' => $yard->id,
+            'date_from' => '2026-04-05',
+            'date_to' => '2026-04-05',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('count', 2);
+
+        $data = collect($response->json('data'));
+
+        $this->assertTrue($data->contains(fn ($item) => $item['id'] === $entry->id));
+        $this->assertTrue($data->contains(fn ($item) => $item['history_item_type'] === 'skipped' && $item['skipped_reason'] === 'Весы были недоступны'));
+        $this->assertCount(1, $data->pluck('history_group_key')->unique());
+    }
 }

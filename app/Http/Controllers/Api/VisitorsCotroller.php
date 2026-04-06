@@ -516,6 +516,10 @@ class VisitorsCotroller extends Controller
                 ], 200);
             }
 
+            if ($blockingRequirement = $this->weighingService->getBlockingExitRequirementForVisitor($visitor)) {
+                return $this->weighingExitBlockedResponse($blockingRequirement);
+            }
+
             $this->visitorFlowService->closeVisitorExit($visitor);
 
             return response()->json([
@@ -1164,6 +1168,10 @@ class VisitorsCotroller extends Controller
                     'status' => false,
                     'message' => 'Выбранный визит уже закрыт или не относится к этому двору',
                 ], 422);
+            }
+
+            if ($blockingRequirement = $this->weighingService->getBlockingExitRequirementForVisitor($visitor)) {
+                return $this->weighingExitBlockedResponse($blockingRequirement);
             }
 
             if ($visitor->confirmation_status === Visitor::CONFIRMATION_PENDING) {
@@ -1819,6 +1827,20 @@ class VisitorsCotroller extends Controller
         }
 
         return Visitor::find($candidates[0]['visitor_id']);
+    }
+
+    private function weighingExitBlockedResponse($requirement)
+    {
+        return response()->json([
+            'status' => false,
+            'message' => 'ТС не может выехать без обязательного выездного взвешивания.',
+            'code' => 'exit_weighing_required',
+            'data' => [
+                'requirement_id' => $requirement->id,
+                'status' => $requirement->status,
+                'plate_number' => $requirement->plate_number,
+            ],
+        ], 422);
     }
 
     /**

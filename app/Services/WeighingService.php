@@ -247,6 +247,33 @@ class WeighingService
         );
     }
 
+    public function getSkippedHistoryByYard(int $yardId, ?string $dateFrom = null, ?string $dateTo = null): \Illuminate\Database\Eloquent\Collection
+    {
+        $query = WeighingRequirement::with([
+            'visitor',
+            'truck',
+            'task',
+            'entryWeighing.operator',
+            'exitWeighing.operator',
+            'skippedByUser',
+        ])
+            ->byYard($yardId)
+            ->where('status', WeighingRequirement::STATUS_SKIPPED)
+            ->whereNotNull('skipped_at');
+
+        if ($dateFrom) {
+            $query->whereDate('skipped_at', '>=', $dateFrom);
+        }
+
+        if ($dateTo) {
+            $query->whereDate('skipped_at', '<=', $dateTo);
+        }
+
+        return $query
+            ->orderByDesc('skipped_at')
+            ->get();
+    }
+
     /**
      * Получить историю взвешиваний ТС
      */
@@ -299,6 +326,23 @@ class WeighingService
         $requirement = WeighingRequirement::findOrFail($requirementId);
         $requirement->skip($userId, $reason);
         return $requirement;
+    }
+
+    public function getBlockingExitRequirementForVisitor(Visitor $visitor): ?WeighingRequirement
+    {
+        return WeighingRequirement::query()
+            ->where('visitor_id', $visitor->id)
+            ->whereIn('status', [
+                WeighingRequirement::STATUS_PENDING,
+                WeighingRequirement::STATUS_ENTRY_DONE,
+            ])
+            ->whereIn('required_type', [
+                WeighingRequirement::TYPE_EXIT,
+                WeighingRequirement::TYPE_BOTH,
+            ])
+            ->whereNull('exit_weighing_id')
+            ->orderByDesc('id')
+            ->first();
     }
 
     /**

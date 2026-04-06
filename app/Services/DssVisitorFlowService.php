@@ -172,6 +172,22 @@ class DssVisitorFlowService
 
             $visitor = $visitorQuery->orderBy('id', 'desc')->first();
             if ($visitor) {
+                $blockingRequirement = $this->weighingService->getBlockingExitRequirementForVisitor($visitor);
+
+                if ($blockingRequirement) {
+                    $this->createPendingExitReview(
+                        $device,
+                        $zone,
+                        $truck,
+                        $plateNo,
+                        $captureTime,
+                        $captureData,
+                        'Камера выезда зафиксировала ТС, но для визита не завершено обязательное выездное взвешивание.'
+                    );
+
+                    return;
+                }
+
                 $this->closeVisitorExit($visitor, $device, $captureTime);
                 $this->createConfirmedExitReview($visitor, $device, $zone, $plateNo, $captureTime, $captureData);
             } else {
@@ -419,7 +435,8 @@ class DssVisitorFlowService
         ?Truck $truck,
         string $plateNo,
         $captureTime,
-        array $captureData = []
+        array $captureData = [],
+        ?string $note = null
     ): void {
         if (!$device->checkpoint_id) {
             return;
@@ -449,9 +466,7 @@ class DssVisitorFlowService
         $review->capture_time = $captureTime ?? now();
         $review->status = 'pending';
 
-        if (!$review->note) {
-            $review->note = 'Камера выезда зафиксировала ТС, но активный подтверждённый визит не найден.';
-        }
+        $review->note = $note ?: $review->note ?: 'Камера выезда зафиксировала ТС, но активный подтверждённый визит не найден.';
 
         $review->save();
 

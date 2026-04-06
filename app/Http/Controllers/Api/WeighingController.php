@@ -138,8 +138,23 @@ class WeighingController extends Controller
                 $validate['date_from'] ?? null,
                 $validate['date_to'] ?? null
             );
+            $skippedRequirements = $this->weighingService->getSkippedHistoryByYard(
+                $validate['yard_id'],
+                $validate['date_from'] ?? null,
+                $validate['date_to'] ?? null
+            );
 
-            $data = $weighings->map(function ($w) {
+            foreach ($skippedRequirements as $requirement) {
+                foreach ([$requirement->entryWeighing, $requirement->exitWeighing] as $relatedWeighing) {
+                    if (!$relatedWeighing || $weighings->contains('id', $relatedWeighing->id)) {
+                        continue;
+                    }
+
+                    $weighings->push($relatedWeighing);
+                }
+            }
+
+            $weighingData = $weighings->map(function ($w) {
                 $paired = $w->getPairedWeighing();
                 $historyGroupKey = $w->requirement_id
                     ? 'requirement:' . $w->requirement_id
@@ -160,8 +175,38 @@ class WeighingController extends Controller
                     'history_group_key' => $historyGroupKey,
                     'operator_name' => $w->operator?->name,
                     'notes' => $w->notes,
+                    'history_item_type' => 'weighing',
+                    'skipped_at' => null,
+                    'skipped_reason' => null,
                 ];
             });
+
+            $skippedData = $skippedRequirements->map(function ($requirement) {
+                return [
+                    'id' => 'skipped-' . $requirement->id,
+                    'plate_number' => $requirement->plate_number,
+                    'weighing_type' => 'skipped',
+                    'weight' => null,
+                    'weighed_at' => $requirement->skipped_at,
+                    'weight_diff' => $requirement->getWeightDifference(),
+                    'visitor_id' => $requirement->visitor_id,
+                    'truck_id' => $requirement->truck_id,
+                    'requirement_id' => $requirement->id,
+                    'history_group_key' => 'requirement:' . $requirement->id,
+                    'operator_name' => $requirement->skippedByUser?->name,
+                    'notes' => null,
+                    'history_item_type' => 'skipped',
+                    'skipped_at' => $requirement->skipped_at,
+                    'skipped_reason' => $requirement->skipped_reason,
+                ];
+            });
+
+            $data = $weighingData
+                ->concat($skippedData)
+                ->sortByDesc(function ($item) {
+                    return $item['skipped_at'] ?? $item['weighed_at'];
+                })
+                ->values();
 
             return response()->json([
                 'status' => true,

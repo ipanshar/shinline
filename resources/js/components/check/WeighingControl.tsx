@@ -96,10 +96,10 @@ interface WeighingRequirement {
 }
 
 interface Weighing {
-  id: number;
+  id: number | string;
   plate_number: string;
-  weighing_type: "entry" | "exit" | "intermediate";
-  weight: number;
+  weighing_type: "entry" | "exit" | "intermediate" | "skipped";
+  weight: number | null;
   weighed_at: string;
   weight_diff: number | null;
   visitor_id: number | null;
@@ -108,6 +108,9 @@ interface Weighing {
   history_group_key: string | null;
   operator_name: string | null;
   notes: string | null;
+  history_item_type: "weighing" | "skipped";
+  skipped_at: string | null;
+  skipped_reason: string | null;
 }
 
 // Группированное взвешивание (въезд + выезд в одной записи)
@@ -123,6 +126,9 @@ interface GroupedWeighing {
   notes: string | null;
   hasEntry: boolean;
   hasExit: boolean;
+  isSkipped: boolean;
+  skippedAt: string | null;
+  skippedReason: string | null;
 }
 
 interface WeighFormData {
@@ -220,7 +226,18 @@ const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
         notes: null,
         hasEntry: false,
         hasExit: false,
+        isSkipped: false,
+        skippedAt: null,
+        skippedReason: null,
       };
+    }
+
+    if (w.history_item_type === "skipped" || w.weighing_type === "skipped") {
+      grouped[key].isSkipped = true;
+      grouped[key].skippedAt = w.skipped_at || w.weighed_at;
+      grouped[key].skippedReason = w.skipped_reason;
+      if (w.operator_name) grouped[key].operator_name = w.operator_name;
+      return;
     }
     
     if (w.weighing_type === "entry") {
@@ -241,8 +258,8 @@ const groupWeighings = (weighings: Weighing[]): GroupedWeighing[] => {
   
   // Сортируем по времени последнего взвешивания (выезд или въезд)
   return Object.values(grouped).sort((a, b) => {
-    const timeA = a.exit_time || a.entry_time || '';
-    const timeB = b.exit_time || b.entry_time || '';
+    const timeA = a.skippedAt || a.exit_time || a.entry_time || '';
+    const timeB = b.skippedAt || b.exit_time || b.entry_time || '';
     return new Date(timeB).getTime() - new Date(timeA).getTime();
   });
 };
@@ -252,6 +269,7 @@ const WeighingControl: React.FC = () => {
   const [selectedYardId, setSelectedYardId] = useState<number | null>(null);
   const [pendingRequirements, setPendingRequirements] = useState<WeighingRequirement[]>([]);
   const [historyWeighings, setHistoryWeighings] = useState<Weighing[]>([]);
+  const [plateSearchQuery, setPlateSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
   const [isMobile, setIsMobile] = useState(false);
@@ -362,7 +380,46 @@ const WeighingControl: React.FC = () => {
   }, [selectedYardId, fetchPending, fetchHistory]);
 
   const groupedHistory = groupWeighings(historyWeighings);
+  const normalizedPlateSearchQuery = normalizePlateInput(plateSearchQuery);
+  const filteredPendingRequirements = pendingRequirements.filter((requirement) => {
+    if (!normalizedPlateSearchQuery) {
+      return true;
+    }
+
+    return normalizePlateInput(requirement.plate_number).includes(normalizedPlateSearchQuery);
+  });
+  const filteredGroupedHistory = groupedHistory.filter((group) => {
+    if (!normalizedPlateSearchQuery) {
+      return true;
+    }
+
+    return normalizePlateInput(group.plate_number).includes(normalizedPlateSearchQuery);
+  });
   const latestActiveVisitor = getLatestVisitor(activeVisitors);
+
+  const getStoredUserId = (): number | null => {
+    const sources = [sessionStorage, localStorage];
+
+    for (const storage of sources) {
+      const rawUser = storage.getItem("user");
+
+      if (!rawUser) {
+        continue;
+      }
+
+      try {
+        const parsedUser = JSON.parse(rawUser);
+
+        if (parsedUser?.id) {
+          return Number(parsedUser.id);
+        }
+      } catch (error) {
+        console.error("Не удалось прочитать данные пользователя из хранилища:", error);
+      }
+    }
+
+    return null;
+  };
 
   const searchTrucks = useCallback(
     async (plate: string) => {
@@ -589,8 +646,7 @@ const WeighingControl: React.FC = () => {
     }
 
     // Получаем user_id текущего пользователя
-    const userData = sessionStorage.getItem("user");
-    const operatorUserId = userData ? JSON.parse(userData).id : null;
+    const operatorUserId = getStoredUserId();
 
     setSaving(true);
     try {
@@ -649,9 +705,7 @@ const WeighingControl: React.FC = () => {
 
     if (!selectedRequirement) return;
 
-    // Получаем user_id из localStorage или другого источника
-    const userData = localStorage.getItem("user");
-    const userId = userData ? JSON.parse(userData).id : null;
+    const userId = getStoredUserId();
 
     if (!userId) {
       toast.error("Не удалось определить пользователя");
@@ -708,6 +762,8 @@ const WeighingControl: React.FC = () => {
         return "Выезд";
       case "intermediate":
         return "Промежуточное";
+      case "skipped":
+        return "Отменено";
       default:
         return type;
     }
@@ -721,6 +777,8 @@ const WeighingControl: React.FC = () => {
         return "warning";
       case "intermediate":
         return "info";
+      case "skipped":
+        return "default";
       default:
         return "default";
     }
@@ -1007,6 +1065,28 @@ const WeighingControl: React.FC = () => {
         </div>
       </div>
 
+      <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 border-b">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex-1">
+            <Input
+              value={plateSearchQuery}
+              onChange={(e) => setPlateSearchQuery(sanitizePlateInput(e.target.value))}
+              placeholder="Поиск по номеру ТС"
+            />
+          </div>
+          {activeTab === "history" && (
+            <div className="text-sm text-gray-500">
+              Найдено: {filteredGroupedHistory.length}
+            </div>
+          )}
+          {activeTab === "pending" && (
+            <div className="text-sm text-gray-500">
+              Найдено: {filteredPendingRequirements.length}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Фильтр по периоду для истории */}
       {activeTab === "history" && (
         <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 border-b">
@@ -1055,13 +1135,13 @@ const WeighingControl: React.FC = () => {
           isMobile ? (
             // Мобильный вид - карточки ожидающих
             <div className="space-y-3">
-              {pendingRequirements.length === 0 ? (
+              {filteredPendingRequirements.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Scale className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>Нет ожидающих взвешивания</p>
+                  <p>{normalizedPlateSearchQuery ? "Ничего не найдено" : "Нет ожидающих взвешивания"}</p>
                 </div>
               ) : (
-                pendingRequirements.map((req) => (
+                filteredPendingRequirements.map((req) => (
                   <Card key={req.id} className="p-3">
                     {/* Верхняя часть - номер и статус */}
                     <div className="flex items-start justify-between mb-2">
@@ -1151,7 +1231,7 @@ const WeighingControl: React.FC = () => {
             // Десктоп вид - таблица
             <Box sx={{ height: "100%", width: "100%", minHeight: 400 }}>
               <DataGrid
-                rows={pendingRequirements}
+                rows={filteredPendingRequirements}
                 columns={pendingColumns}
                 pageSizeOptions={[10, 25, 50]}
                 initialState={{
@@ -1159,7 +1239,7 @@ const WeighingControl: React.FC = () => {
                 }}
                 disableRowSelectionOnClick
                 localeText={{
-                  noRowsLabel: "Нет ожидающих взвешивания",
+                  noRowsLabel: normalizedPlateSearchQuery ? "Ничего не найдено" : "Нет ожидающих взвешивания",
                 }}
                 sx={{
                   bgcolor: "white",
@@ -1173,13 +1253,13 @@ const WeighingControl: React.FC = () => {
         ) : isMobile ? (
           // Мобильный вид - группированные карточки истории взвешиваний
           <div className="space-y-3">
-            {groupedHistory.length === 0 ? (
+            {filteredGroupedHistory.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>Нет взвешиваний за выбранный период</p>
+                <p>{normalizedPlateSearchQuery ? "Ничего не найдено" : "Нет взвешиваний за выбранный период"}</p>
               </div>
             ) : (
-              groupedHistory.map((g) => (
+              filteredGroupedHistory.map((g) => (
                 <Card key={g.group_key} className="p-3">
                   {/* Верхняя часть - номер и статус */}
                   <div className="flex items-start justify-between mb-3">
@@ -1188,6 +1268,12 @@ const WeighingControl: React.FC = () => {
                       <span className="font-mono font-bold text-lg">{g.plate_number}</span>
                     </div>
                     <div className="flex gap-1">
+                        {g.isSkipped && (
+                          <Badge variant="outline" className="border-gray-300 text-gray-700 bg-gray-50">
+                            <XCircle className="w-3 h-3 mr-1" />
+                            Отменено
+                          </Badge>
+                        )}
                       {g.hasEntry && (
                         <Badge variant="outline" className="border-green-300 text-green-600 bg-green-50">
                           <ArrowDownToLine className="w-3 h-3 mr-1" />
@@ -1256,12 +1342,24 @@ const WeighingControl: React.FC = () => {
                   </div>
 
                   {/* Дополнительная информация */}
-                  {(g.operator_name || g.notes) && (
+                  {(g.operator_name || g.notes || g.isSkipped) && (
                     <div className="space-y-1 text-sm text-gray-600">
                       {g.operator_name && (
                         <p className="flex items-center gap-2">
                           <User className="w-3.5 h-3.5" />
                           {g.operator_name}
+                        </p>
+                      )}
+                      {g.isSkipped && g.skippedAt && (
+                        <p className="flex items-center gap-2 text-gray-600">
+                          <XCircle className="w-3.5 h-3.5" />
+                          Отменено: {formatVisitorDateTime(g.skippedAt)}
+                        </p>
+                      )}
+                      {g.isSkipped && g.skippedReason && (
+                        <p className="flex items-start gap-2 text-gray-700">
+                          <FileText className="w-3.5 h-3.5 mt-0.5" />
+                          <span className="line-clamp-3">Причина отмены: {g.skippedReason}</span>
                         </p>
                       )}
                       {g.notes && (
@@ -1291,20 +1389,27 @@ const WeighingControl: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {groupedHistory.length === 0 ? (
+                {filteredGroupedHistory.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                       <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                      <p>Нет взвешиваний за выбранный период</p>
+                      <p>{normalizedPlateSearchQuery ? "Ничего не найдено" : "Нет взвешиваний за выбранный период"}</p>
                     </td>
                   </tr>
                 ) : (
-                  groupedHistory.map((g) => (
+                  filteredGroupedHistory.map((g) => (
                     <tr key={g.group_key} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <TruckIcon className="w-4 h-4 text-gray-400" />
-                          <span className="font-mono font-bold">{g.plate_number}</span>
+                          <div>
+                            <div className="font-mono font-bold">{g.plate_number}</div>
+                            {g.isSkipped && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Отменено{g.skippedAt ? ` ${formatHistoryDateTime(g.skippedAt)}` : ""}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -1353,7 +1458,11 @@ const WeighingControl: React.FC = () => {
                         {g.operator_name || <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">
-                        {g.notes ? (
+                        {g.isSkipped && g.skippedReason ? (
+                          <Tooltip title={g.skippedReason}>
+                            <span>Отмена: {g.skippedReason}</span>
+                          </Tooltip>
+                        ) : g.notes ? (
                           <Tooltip title={g.notes}>
                             <span>{g.notes}</span>
                           </Tooltip>
