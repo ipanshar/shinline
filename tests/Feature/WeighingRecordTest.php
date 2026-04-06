@@ -8,6 +8,9 @@ use App\Models\User;
 use App\Models\Weighing;
 use App\Models\WeighingRequirement;
 use App\Models\Yard;
+use App\Models\Status;
+use App\Models\Task;
+use App\Models\TaskWeighing;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -346,5 +349,68 @@ class WeighingRecordTest extends TestCase
         $this->assertTrue($data->contains(fn ($item) => $item['id'] === $entry->id));
         $this->assertTrue($data->contains(fn ($item) => $item['history_item_type'] === 'skipped' && $item['skipped_reason'] === 'Весы были недоступны'));
         $this->assertCount(1, $data->pluck('history_group_key')->unique());
+    }
+
+    public function test_get_tasks_returns_actual_weighing_results_for_task(): void
+    {
+        $user = User::factory()->create();
+        $status = Status::create(['key' => 'on_territory', 'name' => 'На территории']);
+        $yard = Yard::create(['name' => 'Task weighing yard']);
+        $truck = Truck::create(['plate_number' => 'TSK12305']);
+
+        $task = Task::create([
+            'name' => 'Рейс 100',
+            'user_id' => $user->id,
+            'status_id' => $status->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'plan_date' => now(),
+        ]);
+
+        TaskWeighing::create([
+            'task_id' => $task->id,
+            'sort_order' => 1,
+            'statuse_weighing_id' => 1,
+            'yard_id' => $yard->id,
+        ]);
+
+        TaskWeighing::create([
+            'task_id' => $task->id,
+            'sort_order' => 2,
+            'statuse_weighing_id' => 2,
+            'yard_id' => $yard->id,
+        ]);
+
+        Weighing::create([
+            'yard_id' => $yard->id,
+            'task_id' => $task->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'weighing_type' => Weighing::TYPE_ENTRY,
+            'weight' => 12000,
+            'weighed_at' => Carbon::parse('2026-04-06 09:15:00'),
+            'operator_user_id' => $user->id,
+        ]);
+
+        Weighing::create([
+            'yard_id' => $yard->id,
+            'task_id' => $task->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'weighing_type' => Weighing::TYPE_EXIT,
+            'weight' => 7200,
+            'weighed_at' => Carbon::parse('2026-04-06 12:45:00'),
+            'operator_user_id' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/task/gettasks', [
+            'task_id' => $task->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.task_weighings.0.weight', 12000)
+            ->assertJsonPath('data.task_weighings.1.weight', 7200);
     }
 }

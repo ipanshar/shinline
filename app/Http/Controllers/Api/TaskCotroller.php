@@ -23,6 +23,7 @@ use App\Events\MessageSent;
 use App\Http\Controllers\TelegramController;
 use App\Models\EntryPermit;
 use App\Models\Visitor;
+use App\Models\Weighing;
 use App\Models\WeighingRequirement;
 use App\Services\DssPermitVehicleService;
 use App\Services\EntryPermitReplacementService;
@@ -100,10 +101,7 @@ class TaskCotroller extends Controller
                     )
                     ->get();
 
-                $taskWeighings = TaskWeighing::where('task_id', $task->id)
-                    ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
-                    ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
-                    ->get();
+                $taskWeighings = $this->buildTaskWeighingsForDisplay($task->id);
 
                 return response()->json([
                     'status' => true,
@@ -259,10 +257,7 @@ class TaskCotroller extends Controller
                     )
                     ->get();
 
-                $taskWeighings = TaskWeighing::where('task_id', $task->id)
-                    ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
-                    ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
-                    ->get();
+                $taskWeighings = $this->buildTaskWeighingsForDisplay($task->id);
 
                 // Получаем имена регионов
                 $regionNames = [];
@@ -1306,6 +1301,87 @@ class TaskCotroller extends Controller
         }
         
         return $login;
+    }
+
+    private function buildTaskWeighingsForDisplay(int $taskId)
+    {
+        $taskWeighings = TaskWeighing::query()
+            ->where('task_id', $taskId)
+            ->leftJoin('statuse_weighings', 'task_weighings.statuse_weighing_id', '=', 'statuse_weighings.id')
+            ->select('task_weighings.*', 'statuse_weighings.name as statuse_weighing_name')
+            ->orderByRaw('COALESCE(task_weighings.sort_order, task_weighings.id) asc')
+            ->get()
+            ->map(function ($item) {
+                $item->sort_order = $item->sort_order ?? $item->id;
+                return $item;
+            })
+            ->values();
+
+        $actualWeighings = Weighing::query()
+            ->where('task_id', $taskId)
+            ->whereIn('weighing_type', [Weighing::TYPE_ENTRY, Weighing::TYPE_EXIT])
+            ->orderBy('weighed_at')
+            ->get();
+
+        $entryWeighing = $actualWeighings
+            ->where('weighing_type', Weighing::TYPE_ENTRY)
+            ->sortByDesc('weighed_at')
+            ->first();
+
+        $exitWeighing = $actualWeighings
+            ->where('weighing_type', Weighing::TYPE_EXIT)
+            ->sortByDesc('weighed_at')
+            ->first();
+
+        $result = $taskWeighings->map(function ($item) {
+            return clone $item;
+        })->values();
+
+        if ($entryWeighing) {
+            if ($result->count() > 0) {
+                $result[0]->weight = (float) $entryWeighing->weight;
+                $result[0]->updated_at = $entryWeighing->weighed_at;
+                $result[0]->sort_order = $result[0]->sort_order ?? 1;
+            } else {
+                $result->push((object) [
+                    'id' => 'weighing-entry-' . $entryWeighing->id,
+                    'task_id' => $taskId,
+                    'sort_order' => 1,
+                    'statuse_weighing_id' => 1,
+                    'statuse_weighing_name' => 'Въездное взвешивание',
+                    'weight' => (float) $entryWeighing->weight,
+                    'updated_at' => $entryWeighing->weighed_at,
+                    'description' => $entryWeighing->notes,
+                    'yard_id' => $entryWeighing->yard_id,
+                ]);
+            }
+        }
+
+        if ($exitWeighing) {
+            if ($result->count() > 1) {
+                $result[1]->weight = (float) $exitWeighing->weight;
+                $result[1]->updated_at = $exitWeighing->weighed_at;
+                $result[1]->sort_order = $result[1]->sort_order ?? 2;
+            } else {
+                $result->push((object) [
+                    'id' => 'weighing-exit-' . $exitWeighing->id,
+                    'task_id' => $taskId,
+                    'sort_order' => max(2, $result->count() + 1),
+                    'statuse_weighing_id' => 2,
+                    'statuse_weighing_name' => 'Выездное взвешивание',
+                    'weight' => (float) $exitWeighing->weight,
+                    'updated_at' => $exitWeighing->weighed_at,
+                    'description' => $exitWeighing->notes,
+                    'yard_id' => $exitWeighing->yard_id,
+                ]);
+            }
+        }
+
+        return $result
+            ->sortBy(function ($item) {
+                return $item->sort_order ?? PHP_INT_MAX;
+            })
+            ->values();
     }
 
     private function createUpdateTaskWeighing($task_id, $weighing = null, $yard_id = 1, $warehouseCount = 1, $truck_id = null, $plate_number = null)
