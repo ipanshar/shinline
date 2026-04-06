@@ -127,6 +127,8 @@ class TaskCotroller extends Controller
                         'avtor' => $task->avtor,
                         'company' => $task->company,
                         'description' => $task->description,
+                        'total_weight' => $task->total_weight !== null ? (float) $task->total_weight : null,
+                        'count_boxes' => $task->count_boxes,
                         'address' => $task->address,
                         'phone' => $task->phone,
                         'plan_date' => $task->plan_date,
@@ -293,6 +295,8 @@ class TaskCotroller extends Controller
                     'avtor' => $task->avtor,
                     'company' => $task->company,
                     'description' => $task->description,
+                    'total_weight' => $task->total_weight !== null ? (float) $task->total_weight : null,
+                    'count_boxes' => $task->count_boxes,
                     'address' => $task->address,
                     'phone' => $task->phone,
                     'plan_date' => $task->plan_date,
@@ -317,6 +321,12 @@ class TaskCotroller extends Controller
                 ],
             ], 200);
         } catch (\Exception $e) {
+            Log::error('getTasks - Ошибка', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all(),
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'Error Retrieving Tasks: ' . $e->getMessage(),
@@ -466,6 +476,8 @@ class TaskCotroller extends Controller
                 'description' => 'nullable|string|max:500',
                 'plan_date' => 'nullable|date_format:Y-m-d H:i:s',
                 'end_date' => 'nullable|date_format:Y-m-d H:i:s',
+                'total_weight' => 'nullable|numeric|min:0|max:999999.99',
+                'count_boxes' => 'nullable|integer|min:0|max:1000000',
                 'weighing' => 'required|boolean',
                 'warehouse' => 'required|array',
                 'warehouse.*.name' => 'required|string|max:255',
@@ -565,6 +577,16 @@ class TaskCotroller extends Controller
                 $status = $statusNew;
             }
 
+            if (!$yard) {
+                $yard = Yard::query()->orderBy('id')->first();
+
+                if (!$yard) {
+                    $yard = Yard::create([
+                        'name' => 'Основной двор',
+                    ]);
+                }
+            }
+
 
             $task = $this->getTaskById(
                 $validate['task_id'],
@@ -581,7 +603,9 @@ class TaskCotroller extends Controller
                 $visitor ? $visitor->exit_date : null,
                 $request->has('create_user_id') ? $request->create_user_id : null,
                 $request->has('specification') ? $request->specification : null,
-                $request->has('reward') ? $request->reward : null
+                $request->has('reward') ? $request->reward : null,
+                $validate['total_weight'] ?? null,
+                $validate['count_boxes'] ?? null
 
             );
 
@@ -1425,6 +1449,44 @@ class TaskCotroller extends Controller
         return 0;
     }
 
+    private function findActiveVisitorForWeighingRequirement(int $yard_id, int $task_id, ?int $truck_id = null, ?string $plate_number = null): ?Visitor
+    {
+        $baseQuery = Visitor::query()
+            ->where('yard_id', $yard_id)
+            ->whereNull('exit_date');
+
+        if ($task_id) {
+            $visitor = (clone $baseQuery)
+                ->where('task_id', $task_id)
+                ->orderByDesc('entry_date')
+                ->first();
+
+            if ($visitor) {
+                return $visitor;
+            }
+        }
+
+        if ($truck_id) {
+            $visitor = (clone $baseQuery)
+                ->where('truck_id', $truck_id)
+                ->orderByDesc('entry_date')
+                ->first();
+
+            if ($visitor) {
+                return $visitor;
+            }
+        }
+
+        if ($plate_number) {
+            return (clone $baseQuery)
+                ->where('plate_number', $plate_number)
+                ->orderByDesc('entry_date')
+                ->first();
+        }
+
+        return null;
+    }
+
     /**
      * Синхронизирует WeighingRequirement с TaskWeighing
      * @param int $task_id ID задачи
@@ -1458,12 +1520,24 @@ class TaskCotroller extends Controller
         $requirement = WeighingRequirement::where('task_id', $task_id)
             ->where('yard_id', $yard_id)
             ->first();
+
+        $visitor = $this->findActiveVisitorForWeighingRequirement(
+            $yard_id,
+            $task_id,
+            $truck_id,
+            $plate_number
+        );
         
         if ($needsWeighing) {
             // Если требование не существует - создаем
             if (!$requirement) {
+                if (!$visitor) {
+                    return;
+                }
+
                 WeighingRequirement::create([
                     'yard_id' => $yard_id,
+                    'visitor_id' => $visitor->id,
                     'task_id' => $task_id,
                     'truck_id' => $truck_id,
                     'plate_number' => $plate_number,
@@ -1481,6 +1555,9 @@ class TaskCotroller extends Controller
                 }
                 if ($plate_number && $requirement->plate_number !== $plate_number) {
                     $updateData['plate_number'] = $plate_number;
+                }
+                if ($visitor && $requirement->visitor_id !== $visitor->id) {
+                    $updateData['visitor_id'] = $visitor->id;
                 }
                 // Если статус skipped - восстанавливаем на pending
                 if ($requirement->status === WeighingRequirement::STATUS_SKIPPED) {
@@ -1537,7 +1614,7 @@ class TaskCotroller extends Controller
         return implode(',', $regionIds);
     }
 
-    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null, $specification = null,$reward=null)
+    private function getTaskById($task_id, $name = null, $user_id = null, $truck_id = null, $avtor = null, $phone = null, $description = null, $plan_date = null, $yard_id = null, $status_id = 1, $begin_date = null, $end_date = null, $create_user_id = null, $specification = null, $reward = null, $total_weight = null, $count_boxes = null)
     {
         // Обрабатываем маршрут из описания, если оно есть
         $route_regions = null;
@@ -1563,7 +1640,9 @@ class TaskCotroller extends Controller
             'create_user_id' => $create_user_id,
             'route_regions' => $route_regions,
             'specification' => $specification,
-            'reward'=>$reward
+            'reward' => $reward,
+            'total_weight' => $total_weight,
+            'count_boxes' => $count_boxes,
         ];
         
         // Фильтруем пустые значения для обновления
@@ -1590,8 +1669,9 @@ class TaskCotroller extends Controller
         if ($task) {
             $task->update($data);
         } else {
-            // Для создания используем все данные
-            $task = Task::create([
+            // Для создания сохраняем внешний task_id как первичный ключ задачи,
+            // потому что дальше по этому id идет вся интеграция и связанные сущности.
+            $task = new Task([
                 'name' => $name,
                 'user_id' => $user_id,
                 'truck_id' => $truck_id,
@@ -1606,8 +1686,16 @@ class TaskCotroller extends Controller
                 'create_user_id' => $create_user_id,
                 'route_regions' => $route_regions,
                 'specification' => $specification,
-                'reward'=>$reward,
+                'reward' => $reward,
+                'total_weight' => $total_weight,
+                'count_boxes' => $count_boxes,
             ]);
+
+            if (!empty($task_id)) {
+                $task->id = (int) $task_id;
+            }
+
+            $task->save();
         }
         return $task;
     }

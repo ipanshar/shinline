@@ -25,6 +25,8 @@ export type Task = {
   avtor: string;
   phone?: string;
   company?: string;
+  total_weight?: number | null;
+  count_boxes?: number | null;
   truck_plate_number: string;
   trailer_plate_number?: string;
   truck_model?: string;

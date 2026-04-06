@@ -23,6 +23,7 @@ use App\Services\DssVisitorFlowService;
 use App\Services\EntryPermitReplacementService;
 use App\Services\WeighingService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 
 class VisitorsCotroller extends Controller
@@ -377,6 +378,12 @@ class VisitorsCotroller extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('getPermitsByTruck - Ошибка', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all(),
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'Error: ' . $e->getMessage(),
@@ -2505,7 +2512,7 @@ class VisitorsCotroller extends Controller
                 'truck_id' => 'required|integer|exists:trucks,id',
             ]);
 
-            $permits = EntryPermit::where('truck_id', $validate['truck_id'])
+            $permits = EntryPermit::where('entry_permits.truck_id', $validate['truck_id'])
                 ->leftJoin('yards', 'entry_permits.yard_id', '=', 'yards.id')
                 ->leftJoin('users as drivers', 'entry_permits.user_id', '=', 'drivers.id')
                 ->leftJoin('users as granters', 'entry_permits.granted_by_user_id', '=', 'granters.id')

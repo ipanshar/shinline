@@ -47,6 +47,8 @@ type Task = {
   avtor: string;
   phone?: string;
   company?: string;
+  total_weight?: number | null;
+  count_boxes?: number | null;
   truck_plate_number: string;
   trailer_plate_number?: string;
   truck_model?: string;
@@ -349,6 +351,12 @@ const TaskCard: React.FC<{ task: Task; onEdit: (id: number) => void }> = ({ task
               {task.phone && <span className="text-muted-foreground ml-2">({task.phone})</span>}
               {task.company && <span className="text-muted-foreground ml-2">• {task.company}</span>}
             </div>
+            {(task.total_weight !== null && task.total_weight !== undefined) || (task.count_boxes !== null && task.count_boxes !== undefined) ? (
+              <div className="mt-2 text-sm leading-snug text-muted-foreground">
+                {task.total_weight !== null && task.total_weight !== undefined ? `Вес груза: ${Number(task.total_weight).toFixed(2)} кг` : "Вес груза: —"}
+                {task.count_boxes !== null && task.count_boxes !== undefined ? ` • Коробок: ${task.count_boxes}` : ""}
+              </div>
+            ) : null}
             {task.description && (
               <div className="mt-2 text-sm leading-snug text-muted-foreground">
                 {task.description}

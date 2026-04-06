@@ -26,6 +26,8 @@ type Task = {
     avtor: string;
     phone?: string;
     company?: string;
+    total_weight?: number | null;
+    count_boxes?: number | null;
     truck_plate_number: string;
     trailer_plate_number?: string;
     truck_model?: string;
@@ -72,6 +74,13 @@ const TaskCard: React.FC<{ task: Task }> = ({ task }) => (
             <Typography variant="body2" color="secondary">
                 📞 Координатор: {task.avtor} {task.phone && ` | Тел: ${task.phone}`}
             </Typography>
+
+            {(task.total_weight !== null && task.total_weight !== undefined) || (task.count_boxes !== null && task.count_boxes !== undefined) ? (
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                    ⚖️ Вес груза: <b>{task.total_weight !== null && task.total_weight !== undefined ? Number(task.total_weight).toFixed(2) + ' кг' : '—'}</b>
+                    {task.count_boxes !== null && task.count_boxes !== undefined ? ` | 📦 Коробок: ${task.count_boxes}` : ''}
+                </Typography>
+            ) : null}
             
             <Typography variant="body2">
                 <LocalShipping color="action" /> Компания: {task.company || "Не указано"} | Номер ТС: <b>{task.truck_plate_number}</b>

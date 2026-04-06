@@ -6,6 +6,7 @@ use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Truck;
 use App\Models\User;
+use App\Models\WeighingRequirement;
 use App\Services\DssPermitVehicleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -39,6 +40,8 @@ class AddApiTaskIntegrationIssuerTest extends TestCase
             'task_id' => '2911',
             'vin' => '',
             'weighing' => false,
+            'total_weight' => 11345.92,
+            'count_boxes' => 3000,
             'user_name' => 'Владимир Логотин ',
             'login' => '77762239332',
             'trailer_model' => null,
@@ -91,5 +94,16 @@ class AddApiTaskIntegrationIssuerTest extends TestCase
         $permitsResponse
             ->assertOk()
             ->assertJsonPath('data.0.granted_by_name', 'Интеграция');
+
+        $taskResponse = $this->postJson('/api/task/gettasks', [
+            'task_id' => 2911,
+        ]);
+
+        $taskResponse
+            ->assertOk()
+            ->assertJsonPath('data.total_weight', 11345.92)
+            ->assertJsonPath('data.count_boxes', 3000);
+
+        $this->assertSame(0, WeighingRequirement::count());
     }
 }

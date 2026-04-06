@@ -23,6 +23,16 @@ class Task extends Model
         'route_regions',
         'specification',
         'reward',
+        'total_weight',
+        'count_boxes',
+    ];
+
+    protected $casts = [
+        'plan_date' => 'datetime',
+        'begin_date' => 'datetime',
+        'end_date' => 'datetime',
+        'total_weight' => 'decimal:2',
+        'count_boxes' => 'integer',
     ];
 
     public function user()

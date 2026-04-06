@@ -51,6 +51,8 @@ class WeighingController extends Controller
                     'entry_weighed_at' => $req->entryWeighing?->weighed_at,
                     'visitor_entry_date' => $req->visitor?->entry_date,
                     'task_name' => $req->task?->name,
+                    'task_total_weight' => $req->task?->total_weight !== null ? (float) $req->task->total_weight : null,
+                    'task_count_boxes' => $req->task?->count_boxes,
                     'created_at' => $req->created_at,
                 ];
             });

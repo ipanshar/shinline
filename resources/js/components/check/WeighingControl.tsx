@@ -92,6 +92,8 @@ interface WeighingRequirement {
   entry_weighed_at: string | null;
   visitor_entry_date: string | null;
   task_name: string | null;
+  task_total_weight: number | null;
+  task_count_boxes: number | null;
   created_at: string;
 }
 
@@ -1179,6 +1181,13 @@ const WeighingControl: React.FC = () => {
                         <p className="flex items-center gap-2 text-blue-600">
                           <FileText className="w-3.5 h-3.5" />
                           {req.task_name}
+                        </p>
+                      )}
+                      {(req.task_total_weight !== null || req.task_count_boxes !== null) && (
+                        <p className="flex items-center gap-2 text-gray-700">
+                          <Weight className="w-3.5 h-3.5" />
+                          {req.task_total_weight !== null ? `Груз: ${Number(req.task_total_weight).toFixed(2)} кг` : "Груз: —"}
+                          {req.task_count_boxes !== null ? ` • Коробок: ${req.task_count_boxes}` : ""}
                         </p>
                       )}
                       {req.visitor_entry_date && (
