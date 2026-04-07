@@ -216,10 +216,13 @@ class DssController extends Controller
     public function dssAlarmAdd(Request $request)
     {
         $payload = $request->all();
+        $shouldLogPayload = (string) ($payload['alarmType'] ?? '') !== (string) config('dss.alarms.unknown_vehicle_type', '10708');
 
         try {
-            $data = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
-            Storage::disk('local')->append('dss_alarm_log.txt', $data);
+            if ($shouldLogPayload) {
+                $data = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+                Storage::disk('local')->append('dss_alarm_log.txt', $data);
+            }
 
             $result = $this->captureService->handleAlarmEvent($payload);
             if (isset($result['error'])) {
