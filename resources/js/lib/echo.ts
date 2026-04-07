@@ -15,7 +15,7 @@ const reverbPort = Number(import.meta.env.VITE_REVERB_PORT || (reverbScheme === 
 const useTls = reverbScheme === 'https';
 
 const echo = new Echo({
-  broadcaster: 'pusher',
+  broadcaster: 'reverb',
   key: import.meta.env.VITE_REVERB_APP_KEY,
   wsHost: reverbHost,
   wsPort: reverbPort,

@@ -6,7 +6,8 @@ import SecurityCheckMobile from "@/components/check/SecurityCheckMobile";
 import CheckpointReview from "@/components/check/CheckpointReview";
 import VisitorHistory from "@/components/check/VisitorHistory";
 import EntryPermitsManager from "@/components/check/EntryPermitsManager";
-import { Shield, History, Camera } from "lucide-react";
+import DssAlarmDebug from "@/components/check/DssAlarmDebug";
+import { Shield, History, Camera, Radio } from "lucide-react";
 
 const breadcrumbs: BreadcrumbItem[] = [
   {
@@ -15,7 +16,7 @@ const breadcrumbs: BreadcrumbItem[] = [
   },
 ];
 
-type TabType = 'checkpoint' | 'checkpoint-review' | 'history' | 'permits';
+type TabType = 'checkpoint' | 'checkpoint-review' | 'history' | 'permits' | 'dss-alarms';
 
 export default function Check() {
   const [activeTab, setActiveTab] = useState<TabType>('checkpoint-review');
@@ -59,6 +60,17 @@ export default function Check() {
               <History className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>История</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('dss-alarms')}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 flex items-center justify-center gap-2 font-medium text-sm sm:text-base transition-colors ${activeTab === 'dss-alarms'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700/50'
+                }`}
+            >
+              <Radio className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>DSS 10708</span>
+            </button>
           </div>
         </div>
 
@@ -66,6 +78,7 @@ export default function Check() {
         {activeTab === 'checkpoint' && <SecurityCheckMobile />}
         {activeTab === 'checkpoint-review' && <CheckpointReview />}
         {activeTab === 'history' && <VisitorHistory />}
+        {activeTab === 'dss-alarms' && <DssAlarmDebug />}
       </div>
     </AppLayout>
   );
