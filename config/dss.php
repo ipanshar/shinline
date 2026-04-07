@@ -27,6 +27,7 @@ return [
     'broadcast' => [
         'channels' => [
             'alarms' => env('DSS_BROADCAST_ALARMS_CHANNEL', 'dss.alarms'),
+            'alarms_debug' => env('DSS_BROADCAST_ALARMS_DEBUG_CHANNEL', 'dss.alarms.debug'),
         ],
         'events' => [
             'unknown_vehicle_detected' => env('DSS_BROADCAST_UNKNOWN_VEHICLE_EVENT', 'DssUnknownVehicleDetected'),

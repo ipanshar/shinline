@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, Clock3, Radio, RefreshCw, Wifi, WifiOff } from 'lucide-react';
-import { subscribeToDssUnknownVehicleDetected, type DssUnknownVehicleDetectedEvent } from '@/lib/dss-alarms';
+import {
+  bindDssAlarmConnectionDebug,
+  subscribeToPublicDssUnknownVehicleDetected,
+  type DssUnknownVehicleDetectedEvent,
+} from '@/lib/dss-alarms';
 
 const formatDateTime = (value?: string | null) => {
   if (!value) return '—';
@@ -24,11 +28,15 @@ export default function DssAlarmDebug() {
   const [events, setEvents] = useState<DssUnknownVehicleDetectedEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [lastReceivedAt, setLastReceivedAt] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<string>('initialized');
 
   useEffect(() => {
-    setConnected(true);
+    const unbindConnection = bindDssAlarmConnectionDebug((state) => {
+      setConnectionState(state);
+      setConnected(state === 'connected');
+    });
 
-    const unsubscribe = subscribeToDssUnknownVehicleDetected((event) => {
+    const unsubscribe = subscribeToPublicDssUnknownVehicleDetected((event) => {
       setConnected(true);
       setLastReceivedAt(new Date().toISOString());
       setEvents((current) => [event, ...current].slice(0, 50));
@@ -36,6 +44,7 @@ export default function DssAlarmDebug() {
 
     return () => {
       setConnected(false);
+      unbindConnection();
       unsubscribe();
     };
   }, []);
@@ -50,7 +59,7 @@ export default function DssAlarmDebug() {
           </div>
           <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${connected ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
             {connected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-            {connected ? 'Слушатель запущен' : 'Нет подключения'}
+            {connected ? 'WebSocket подключен' : `Состояние: ${connectionState}`}
           </div>
         </div>
 
@@ -75,7 +84,7 @@ export default function DssAlarmDebug() {
         <div className="flex items-center justify-between border-b px-4 py-3 dark:border-gray-700">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">События DSS 10708</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Временная вкладка для проверки websocket-уведомлений unknown vehicle.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Временная вкладка слушает публичный debug-канал dss.alarms.debug, чтобы исключить проблемы auth приватного канала.</p>
           </div>
           <button
             type="button"

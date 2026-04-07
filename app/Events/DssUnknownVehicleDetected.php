@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\VehicleCapture;
+use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -26,9 +27,12 @@ class DssUnknownVehicleDetected implements ShouldBroadcastNow
         return (string) config('dss.broadcast.events.unknown_vehicle_detected', 'DssUnknownVehicleDetected');
     }
 
-    public function broadcastOn(): PrivateChannel
+    public function broadcastOn(): array
     {
-        return new PrivateChannel((string) config('dss.broadcast.channels.alarms', 'dss.alarms'));
+        return [
+            new PrivateChannel((string) config('dss.broadcast.channels.alarms', 'dss.alarms')),
+            new Channel((string) config('dss.broadcast.channels.alarms_debug', 'dss.alarms.debug')),
+        ];
     }
 
     public function broadcastWith(): array

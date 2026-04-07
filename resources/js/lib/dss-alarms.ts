@@ -21,6 +21,7 @@ export interface DssUnknownVehicleDetectedEvent {
 }
 
 const alarmsChannelName = 'dss.alarms';
+const publicDebugChannelName = 'dss.alarms.debug';
 const unknownVehicleEventName = '.DssUnknownVehicleDetected';
 
 export function subscribeToDssUnknownVehicleDetected(
@@ -32,5 +33,50 @@ export function subscribeToDssUnknownVehicleDetected(
   return () => {
     channel.stopListening(unknownVehicleEventName);
     echo.leave(`private-${alarmsChannelName}`);
+  };
+}
+
+export function subscribeToPublicDssUnknownVehicleDetected(
+  handler: (event: DssUnknownVehicleDetectedEvent) => void,
+) {
+  const channel = echo.channel(publicDebugChannelName);
+  channel.listen(unknownVehicleEventName, handler);
+
+  return () => {
+    channel.stopListening(unknownVehicleEventName);
+    echo.leave(publicDebugChannelName);
+  };
+}
+
+export function bindDssAlarmConnectionDebug(callback: (state: string) => void) {
+  const connector = (echo as any).connector;
+  const pusher = connector?.pusher;
+  const connection = pusher?.connection;
+
+  if (!connection || typeof connection.bind !== 'function') {
+    callback('unavailable');
+    return () => {};
+  }
+
+  const states = [
+    'initialized',
+    'connecting',
+    'connected',
+    'unavailable',
+    'failed',
+    'disconnected',
+  ];
+
+  const unbinders = states.map((state) => {
+    const handler = () => callback(state);
+    connection.bind(state, handler);
+
+    return () => connection.unbind(state, handler);
+  });
+
+  callback(connection.state || 'initialized');
+
+  return () => {
+    unbinders.forEach((unbind) => unbind());
   };
 }
