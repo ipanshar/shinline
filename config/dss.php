@@ -24,6 +24,15 @@ return [
         'alarm_entrance_detail' => env('DSS_ALARM_ENTRANCE_DETAIL_ENDPOINT', '/eams/api/v1.1/alarm/record/entrance/detail'),
     ],
 
+    'broadcast' => [
+        'channels' => [
+            'alarms' => env('DSS_BROADCAST_ALARMS_CHANNEL', 'dss.alarms'),
+        ],
+        'events' => [
+            'unknown_vehicle_detected' => env('DSS_BROADCAST_UNKNOWN_VEHICLE_EVENT', 'DssUnknownVehicleDetected'),
+        ],
+    ],
+
     'cache' => [
         'lookup_ttl_seconds' => (int) env('DSS_LOOKUP_CACHE_TTL', 60),
         'status_ttl_seconds' => (int) env('DSS_STATUS_CACHE_TTL', 300),

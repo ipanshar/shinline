@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Events\DssUnknownVehicleDetected;
 use App\Models\VehicleCapture;
 use App\Services\DssAuthService;
 use App\Services\DssCaptureService;
 use App\Services\DssDeviceSyncService;
 use App\Services\DssMediaService;
 use App\Services\DssStructuredLogger;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
@@ -87,6 +89,7 @@ class DssContractResponsesTest extends TestCase
     public function test_alarm_10708_detail_is_saved_into_vehicle_captures(): void
     {
         Queue::fake();
+        Event::fake([DssUnknownVehicleDetected::class]);
         $this->registerDefaultDssApis($this->createDssSettings(['token' => 'live-token']));
         $history = [];
 
@@ -147,6 +150,12 @@ class DssContractResponsesTest extends TestCase
         $this->assertSame('KPP1', $capture->dss_alarm_source_name);
         $this->assertSame('2', $capture->dss_alarm_source_code);
         $this->assertSame('906BAR05', $capture->dss_alarm_detail_payload['plateNo']);
+
+        Event::assertDispatched(DssUnknownVehicleDetected::class, function (DssUnknownVehicleDetected $event) use ($capture) {
+            return $event->vehicleCapture?->id === $capture->id
+                && ($event->alarmDetail['plateNo'] ?? null) === '906BAR05'
+                && ($event->processingResult['processed'] ?? null) === 1;
+        });
     }
 
     protected function tearDown(): void

@@ -9,15 +9,20 @@ declare global {
 
 window.Pusher = Pusher;
 
+const reverbScheme = import.meta.env.VITE_REVERB_SCHEME || 'http';
+const reverbHost = import.meta.env.VITE_REVERB_HOST || window.location.hostname;
+const reverbPort = Number(import.meta.env.VITE_REVERB_PORT || (reverbScheme === 'https' ? 443 : 8080));
+const useTls = reverbScheme === 'https';
+
 const echo = new Echo({
   broadcaster: 'pusher',
-  key: import.meta.env.VITE_PUSHER_APP_KEY,
-  cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
-  forceTLS: true, // Важно, forceTLS, не encrypted
-  wsHost: import.meta.env.VITE_PUSHER_HOST || `ws-${import.meta.env.VITE_PUSHER_APP_CLUSTER}.pusher.com`,
-  wsPort: 443,
-  wssPort: 443,
+  key: import.meta.env.VITE_REVERB_APP_KEY,
+  wsHost: reverbHost,
+  wsPort: reverbPort,
+  wssPort: reverbPort,
+  forceTLS: useTls,
   enabledTransports: ['ws', 'wss'],
+  authEndpoint: '/broadcasting/auth',
 });
 
 export default echo;

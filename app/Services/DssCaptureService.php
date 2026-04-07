@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\DssUnknownVehicleDetected;
 use App\Jobs\EnrichVehicleCaptureJob;
 use App\Models\VehicleCapture;
 use GuzzleHttp\Client;
@@ -131,12 +132,17 @@ class DssCaptureService extends DssBaseService
         }
 
         $result = $this->processCaptureItems([$captureItem]);
+        $vehicleCaptureId = $result['vehicle_capture_ids'][0] ?? null;
+        $vehicleCapture = $vehicleCaptureId ? VehicleCapture::find($vehicleCaptureId) : null;
+
+        event(new DssUnknownVehicleDetected($alarmPayload, $detail, $vehicleCapture, $result));
 
         $this->structuredLogger->info('alarm_event_processed', [
             'alarm_code' => $alarmCode,
             'alarm_type' => $alarmType,
             'processed' => $result['processed'] ?? 0,
             'duplicates_skipped' => $result['duplicates_skipped'] ?? 0,
+            'broadcasted' => true,
         ]);
 
         return $result;
@@ -156,6 +162,7 @@ class DssCaptureService extends DssBaseService
 
         $processed = 0;
         $duplicatesSkipped = 0;
+        $vehicleCaptureIds = [];
         foreach ($pageData as $item) {
             $item = $this->normalizeCaptureItem($item);
             if ($item === null) {
@@ -196,6 +203,8 @@ class DssCaptureService extends DssBaseService
                 $vehicleCapture->save();
             }
 
+            $vehicleCaptureIds[] = $vehicleCapture->id;
+
             if (!$isNew && $vehicleCapture->processed_at) {
                 $duplicatesSkipped++;
                 continue;
@@ -224,6 +233,7 @@ class DssCaptureService extends DssBaseService
             'success' => true,
             'processed' => $processed,
             'duplicates_skipped' => $duplicatesSkipped,
+            'vehicle_capture_ids' => array_values(array_unique(array_filter($vehicleCaptureIds))),
         ];
     }
 
