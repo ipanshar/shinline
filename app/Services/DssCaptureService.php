@@ -19,7 +19,7 @@ class DssCaptureService extends DssBaseService
         parent::__construct($client);
     }
 
-    public function dssVehicleCapture(): array
+    public function dssVehicleCapture(int $lookbackSeconds = 4): array
     {
         if ($error = $this->ensureSettings(['base_url'])) {
             return $error;
@@ -36,13 +36,14 @@ class DssCaptureService extends DssBaseService
         }
 
         $currentTimestamp = time();
+        $startTime = $currentTimestamp - max(1, $lookbackSeconds);
 
         try {
             $response = $this->client->post($this->baseUrl . $dssApi->request_url, [
                 'headers' => $this->getJsonHeaders($this->dssSettings->token),
                 'json' => [
                     'plateNoMatchMode' => 1,
-                    'startTime' => $currentTimestamp - 4,
+                    'startTime' => $startTime,
                     'endTime' => $currentTimestamp,
                     'page' => 1,
                     'currentPage' => 1,
@@ -60,7 +61,7 @@ class DssCaptureService extends DssBaseService
                 'headers' => $this->getJsonHeaders($this->dssSettings->token),
                 'json' => [
                     'plateNoMatchMode' => 1,
-                    'startTime' => $currentTimestamp - 4,
+                    'startTime' => $startTime,
                     'endTime' => $currentTimestamp,
                     'page' => 1,
                     'currentPage' => 1,
@@ -92,6 +93,55 @@ class DssCaptureService extends DssBaseService
         return $this->processCaptureItems($items);
     }
 
+    public function handleAlarmEvent(array $alarmPayload): array
+    {
+        $expectedAlarmType = (string) config('dss.alarms.unknown_vehicle_type', '10708');
+        $alarmType = trim((string) ($alarmPayload['alarmType'] ?? ''));
+
+        if ($alarmType === '' || $alarmType !== $expectedAlarmType) {
+            return [
+                'success' => true,
+                'ignored' => true,
+                'reason' => 'alarm_type_not_supported',
+            ];
+        }
+
+        $alarmCode = trim((string) ($alarmPayload['alarmCode'] ?? ''));
+        if ($alarmCode === '') {
+            return ['error' => 'DSS alarmCode is required'];
+        }
+
+        $detailResult = $this->fetchAlarmEntranceDetail($alarmCode);
+        if (isset($detailResult['error'])) {
+            return $detailResult;
+        }
+
+        $detail = $detailResult['data'] ?? [];
+        if (!is_array($detail) || $detail === []) {
+            return ['error' => 'DSS alarm detail payload is empty'];
+        }
+
+        $captureItem = $this->mapAlarmDetailToCaptureItem($detail, $alarmPayload);
+        if ($captureItem === null) {
+            return [
+                'success' => true,
+                'ignored' => true,
+                'reason' => 'alarm_detail_incomplete',
+            ];
+        }
+
+        $result = $this->processCaptureItems([$captureItem]);
+
+        $this->structuredLogger->info('alarm_event_processed', [
+            'alarm_code' => $alarmCode,
+            'alarm_type' => $alarmType,
+            'processed' => $result['processed'] ?? 0,
+            'duplicates_skipped' => $result['duplicates_skipped'] ?? 0,
+        ]);
+
+        return $result;
+    }
+
     private function processCaptureItems(array $pageData): array
     {
         if (empty($pageData)) {
@@ -107,7 +157,8 @@ class DssCaptureService extends DssBaseService
         $processed = 0;
         $duplicatesSkipped = 0;
         foreach ($pageData as $item) {
-            if (empty($item['channelId']) || empty($item['plateNo']) || mb_strlen($item['plateNo']) < 4) {
+            $item = $this->normalizeCaptureItem($item);
+            if ($item === null) {
                 continue;
             }
 
@@ -133,6 +184,12 @@ class DssCaptureService extends DssBaseService
                 'captureTime' => (string) $item['captureTime'],
                 'vehicleColorName' => $item['vehicleColorName'] ?? null,
                 'vehicleModelName' => $item['vehicleModelName'] ?? null,
+                'dss_alarm_code' => $item['dss_alarm_code'] ?? null,
+                'dss_alarm_type' => $item['dss_alarm_type'] ?? null,
+                'dss_alarm_source_code' => $item['dss_alarm_source_code'] ?? null,
+                'dss_alarm_source_name' => $item['dss_alarm_source_name'] ?? null,
+                'dss_alarm_payload' => $item['dss_alarm_payload'] ?? null,
+                'dss_alarm_detail_payload' => $item['dss_alarm_detail_payload'] ?? null,
             ]);
 
             if ($isNew || $vehicleCapture->isDirty()) {
@@ -175,5 +232,129 @@ class DssCaptureService extends DssBaseService
         $normalizedPlate = strtolower(str_replace([' ', '-'], '', $plateNo));
 
         return sha1(implode('|', [$deviceId, $captureTime, $normalizedPlate, $direction]));
+    }
+
+    private function fetchAlarmEntranceDetail(string $alarmCode): array
+    {
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
+
+        $authResult = $this->authService->ensureAuthorized();
+        if (isset($authResult['error'])) {
+            return $authResult;
+        }
+
+        $requestUrl = $this->getApiDefinition('AlarmEntranceDetail')?->request_url
+            ?: (string) config('dss.endpoints.alarm_entrance_detail', '/eams/api/v1.1/alarm/record/entrance/detail');
+
+        if ($requestUrl === '') {
+            return ['error' => 'DSS alarm entrance detail endpoint is not configured'];
+        }
+
+        try {
+            $response = $this->client->get($this->baseUrl . $requestUrl, [
+                'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                'query' => [
+                    'alarmCode' => $alarmCode,
+                ],
+            ]);
+        } catch (RequestException $exception) {
+            $authResult = $this->authService->dssAutorize();
+            if (isset($authResult['error'])) {
+                return $authResult;
+            }
+
+            $response = $this->client->get($this->baseUrl . $requestUrl, [
+                'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                'query' => [
+                    'alarmCode' => $alarmCode,
+                ],
+            ]);
+        }
+
+        if ($response->getStatusCode() !== 200 || !$response->getBody()) {
+            return ['error' => 'Ошибка запроса детализации тревоги: ' . $response->getStatusCode()];
+        }
+
+        $responseData = json_decode($response->getBody(), true);
+        if ((int) ($responseData['code'] ?? 0) !== 1000) {
+            return [
+                'error' => 'Неверный код ответа детализации тревоги: ' . ($responseData['code'] ?? 'unknown'),
+                'data' => $responseData,
+            ];
+        }
+
+        return $responseData;
+    }
+
+    private function mapAlarmDetailToCaptureItem(array $detail, array $alarmPayload): ?array
+    {
+        $plateNo = trim((string) ($detail['plateNo'] ?? ''));
+        $channelId = trim((string) ($detail['channelId'] ?? $detail['pointId'] ?? ''));
+        $captureTime = $this->normalizeCaptureTimestamp($detail['captureTime'] ?? $alarmPayload['alarmTime'] ?? null);
+
+        if ($plateNo === '' || $channelId === '' || $captureTime === null) {
+            return null;
+        }
+
+        $capturePicture = $detail['vehiclePicture'] ?? null;
+        if ($capturePicture === null && isset($alarmPayload['alarmPictures'][0])) {
+            $capturePicture = $alarmPayload['alarmPictures'][0];
+        }
+
+        return [
+            'channelId' => $channelId,
+            'channelName' => (string) ($detail['channelName'] ?? $detail['pointName'] ?? $detail['parkingLotName'] ?? $alarmPayload['sourceName'] ?? $channelId),
+            'plateNo' => $plateNo,
+            'capturePicture' => $capturePicture,
+            'plateNoPicture' => $detail['plateNoPicture'] ?? null,
+            'vehicleBrandName' => isset($detail['carBrand']) ? (string) $detail['carBrand'] : null,
+            'captureTime' => (string) $captureTime,
+            'vehicleColorName' => isset($detail['carColor']) ? (string) $detail['carColor'] : null,
+            'vehicleModelName' => isset($detail['vehicleType']) ? (string) $detail['vehicleType'] : null,
+            'dss_alarm_code' => (string) ($detail['alarmCode'] ?? $alarmPayload['alarmCode'] ?? ''),
+            'dss_alarm_type' => (string) ($detail['alarmType'] ?? $alarmPayload['alarmType'] ?? ''),
+            'dss_alarm_source_code' => isset($alarmPayload['sourceCode']) ? (string) $alarmPayload['sourceCode'] : null,
+            'dss_alarm_source_name' => isset($alarmPayload['sourceName']) ? (string) $alarmPayload['sourceName'] : null,
+            'dss_alarm_payload' => $alarmPayload,
+            'dss_alarm_detail_payload' => $detail,
+        ];
+    }
+
+    private function normalizeCaptureItem(array $item): ?array
+    {
+        $channelId = trim((string) ($item['channelId'] ?? ''));
+        $plateNo = trim((string) ($item['plateNo'] ?? ''));
+        $captureTime = $this->normalizeCaptureTimestamp($item['captureTime'] ?? null);
+
+        if ($channelId === '' || $plateNo === '' || mb_strlen($plateNo) < 4 || $captureTime === null) {
+            return null;
+        }
+
+        $item['channelId'] = $channelId;
+        $item['plateNo'] = $plateNo;
+        $item['captureTime'] = (string) $captureTime;
+        $item['channelName'] = trim((string) ($item['channelName'] ?? $channelId));
+
+        return $item;
+    }
+
+    private function normalizeCaptureTimestamp(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        $timestamp = (int) floor((float) $value);
+        if ($timestamp > 9999999999) {
+            $timestamp = (int) floor($timestamp / 1000);
+        }
+
+        return $timestamp > 0 ? $timestamp : null;
     }
 }

@@ -23,7 +23,10 @@ class DssDaemon extends Command
 
     public function handle()
     {
-        $this->info("Запущен DSS Daemon (polling bridge: VehicleCapture каждые 3 секунды, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
+        $vehicleCaptureInterval = max(1, (int) config('dss.polling.capture_interval_seconds', 600));
+        $vehicleCaptureLookback = max($vehicleCaptureInterval, (int) config('dss.polling.capture_history_window_seconds', 900));
+
+        $this->info("Запущен DSS Daemon (polling bridge: VehicleCapture каждые {$vehicleCaptureInterval} секунд, KeepAlive каждые 22 секунды, NewToken каждые 30 минут)");
         $this->warn('Для production рекомендуется supervisor-managed queue workers для очередей dss-enrichment, dss-media, dss-notifications.');
 
         $service = app(DssService::class);
@@ -50,12 +53,12 @@ class DssDaemon extends Command
             try {
                 $heartbeat->touch('running');
 
-                // Вызов VehicleCapture каждые 3 секунды
-                if ((time() - $lastVehicleCapture) >= 3) {
+                // Историческая подкачка VehicleCapture по расписанию
+                if ((time() - $lastVehicleCapture) >= $vehicleCaptureInterval) {
                     try {
                         $heartbeat->touch('vehicle_capture');
-                        $VehicleCaptureResult = $this->executeWithRetry(function() use ($service) {
-                            return $service->dssVehicleCapture();
+                        $VehicleCaptureResult = $this->executeWithRetry(function() use ($service, $vehicleCaptureLookback) {
+                            return $service->dssVehicleCapture($vehicleCaptureLookback);
                         });
                         
                         if ($VehicleCaptureResult) {

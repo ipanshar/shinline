@@ -29,9 +29,14 @@ class DssService
         return $this->authService->dssUpdateToken();
     }
 
-    public function dssVehicleCapture(): array
+    public function dssVehicleCapture(int $lookbackSeconds = 4): array
     {
-        return $this->captureService->dssVehicleCapture();
+        return $this->captureService->dssVehicleCapture($lookbackSeconds);
+    }
+
+    public function handleAlarmEvent(array $alarmPayload): array
+    {
+        return $this->captureService->handleAlarmEvent($alarmPayload);
     }
 
     public function dssMqConfig(): array

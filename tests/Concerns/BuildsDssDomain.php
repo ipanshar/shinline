@@ -156,6 +156,7 @@ trait BuildsDssDomain
             'GetMqConfig' => '/mq-config',
             'Unauthorize' => '/logout',
             'VehicleCapture' => '/captures',
+            'AlarmEntranceDetail' => '/eams/api/v1.1/alarm/record/entrance/detail',
         ] as $name => $url) {
             DssApi::updateOrCreate([
                 'dss_setings_id' => $settings->id,

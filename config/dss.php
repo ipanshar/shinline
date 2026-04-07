@@ -3,15 +3,25 @@
 return [
     'polling' => [
         'mode' => env('DSS_POLLING_MODE', 'polling-bridge'),
+        'capture_interval_seconds' => (int) env('DSS_CAPTURE_POLLING_INTERVAL_SECONDS', 600),
+        'capture_history_window_seconds' => (int) env('DSS_CAPTURE_HISTORY_WINDOW_SECONDS', 900),
     ],
 
     'health' => [
         'heartbeat_file' => env('DSS_HEARTBEAT_FILE', 'app/dss/daemon-heartbeat.json'),
         'max_age_seconds' => (int) env('DSS_HEARTBEAT_MAX_AGE', 120),
         'max_keepalive_age_seconds' => (int) env('DSS_KEEPALIVE_MAX_AGE', 180),
-        'max_capture_age_seconds' => (int) env('DSS_CAPTURE_MAX_AGE', 180),
+        'max_capture_age_seconds' => (int) env('DSS_CAPTURE_MAX_AGE', 900),
         'restart_service' => env('DSS_RESTART_SERVICE'),
         'nssm_path' => env('DSS_NSSM_PATH'),
+    ],
+
+    'alarms' => [
+        'unknown_vehicle_type' => env('DSS_UNKNOWN_VEHICLE_ALARM_TYPE', '10708'),
+    ],
+
+    'endpoints' => [
+        'alarm_entrance_detail' => env('DSS_ALARM_ENTRANCE_DETAIL_ENDPOINT', '/eams/api/v1.1/alarm/record/entrance/detail'),
     ],
 
     'cache' => [

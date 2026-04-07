@@ -11,6 +11,7 @@ namespace App\Http\Controllers;
 use App\Models\Devaice;
 use App\Models\DssSetings;
 use App\Services\DssAuthService;
+use App\Services\DssCaptureService;
 use App\Services\DssMqConfigService;
 use App\Services\DssObservabilityService;
 use App\Services\DssParkingService;
@@ -24,6 +25,7 @@ class DssController extends Controller
 {
     public function __construct(
         protected DssAuthService $authService,
+        protected DssCaptureService $captureService,
         protected DssMqConfigService $mqConfigService,
         protected DssPersonService $personService,
         protected DssParkingService $parkingService,
@@ -213,10 +215,26 @@ class DssController extends Controller
 
     public function dssAlarmAdd(Request $request)
     {
+        $payload = $request->all();
+
         try {
-            $data = json_encode($request->all(), JSON_PRETTY_PRINT) . "\n";
+            $data = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
             Storage::disk('local')->append('dss_alarm_log.txt', $data);
-            return response()->json(['message' => 'Запись успешно добавлена', 'data' => $request->all()], 201);
+
+            $result = $this->captureService->handleAlarmEvent($payload);
+            if (isset($result['error'])) {
+                return response()->json([
+                    'message' => 'Событие сохранено, но обработка DSS capture завершилась ошибкой',
+                    'data' => $payload,
+                    'result' => $result,
+                ], 500);
+            }
+
+            return response()->json([
+                'message' => !empty($result['ignored']) ? 'Событие DSS сохранено, capture не обрабатывался' : 'Событие DSS успешно обработано',
+                'data' => $payload,
+                'result' => $result,
+            ], !empty($result['ignored']) ? 200 : 201);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Ошибка при записи в файл', 'data' => $e->getMessage()], 500);
         }
