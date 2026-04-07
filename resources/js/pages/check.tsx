@@ -5,8 +5,7 @@ import { type BreadcrumbItem } from "@/types";
 import SecurityCheckMobile from "@/components/check/SecurityCheckMobile";
 import CheckpointReview from "@/components/check/CheckpointReview";
 import VisitorHistory from "@/components/check/VisitorHistory";
-import EntryPermitsManager from "@/components/check/EntryPermitsManager";
-import DssAlarmDebug from "@/components/check/DssAlarmDebug";
+import DssCheckpointDesk from "@/components/check/DssCheckpointDesk";
 import { Shield, History, Camera, Radio } from "lucide-react";
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -69,7 +68,7 @@ export default function Check() {
                 }`}
             >
               <Radio className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span>DSS 10708</span>
+              <span>Live КПП DSS</span>
             </button>
           </div>
         </div>
@@ -78,7 +77,7 @@ export default function Check() {
         {activeTab === 'checkpoint' && <SecurityCheckMobile />}
         {activeTab === 'checkpoint-review' && <CheckpointReview />}
         {activeTab === 'history' && <VisitorHistory />}
-        {activeTab === 'dss-alarms' && <DssAlarmDebug />}
+        {activeTab === 'dss-alarms' && <DssCheckpointDesk />}
       </div>
     </AppLayout>
   );

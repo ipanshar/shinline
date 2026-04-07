@@ -20,31 +20,53 @@ export interface DssUnknownVehicleDetectedEvent {
   created_at: string;
 }
 
+export type DssChannelSubscriptionState = 'idle' | 'subscribing' | 'subscribed' | 'error';
+
 const alarmsChannelName = 'dss.alarms';
-const publicDebugChannelName = 'dss.alarms.debug';
 const unknownVehicleEventName = '.DssUnknownVehicleDetected';
 
 export function subscribeToDssUnknownVehicleDetected(
   handler: (event: DssUnknownVehicleDetectedEvent) => void,
+  options?: {
+    onSubscribing?: () => void;
+    onSubscribed?: () => void;
+    onError?: (error: unknown) => void;
+  },
 ) {
-  const channel = echo.private(alarmsChannelName);
+  const channel = echo.private(alarmsChannelName) as any;
+  options?.onSubscribing?.();
   channel.listen(unknownVehicleEventName, handler);
 
+  if (typeof channel.subscribed === 'function') {
+    channel.subscribed(() => {
+      options?.onSubscribed?.();
+    });
+  }
+
+  if (typeof channel.error === 'function') {
+    channel.error((error: unknown) => {
+      options?.onError?.(error);
+    });
+  }
+
+  const pusherChannel = channel.subscription;
+  const subscriptionErrorHandler = (error: unknown) => {
+    options?.onError?.(error);
+  };
+
+  if (pusherChannel && typeof pusherChannel.bind === 'function') {
+    pusherChannel.bind('pusher:subscription_succeeded', options?.onSubscribed);
+    pusherChannel.bind('pusher:subscription_error', subscriptionErrorHandler);
+  }
+
   return () => {
+    if (pusherChannel && typeof pusherChannel.unbind === 'function') {
+      pusherChannel.unbind('pusher:subscription_succeeded', options?.onSubscribed);
+      pusherChannel.unbind('pusher:subscription_error', subscriptionErrorHandler);
+    }
+
     channel.stopListening(unknownVehicleEventName);
     echo.leave(`private-${alarmsChannelName}`);
-  };
-}
-
-export function subscribeToPublicDssUnknownVehicleDetected(
-  handler: (event: DssUnknownVehicleDetectedEvent) => void,
-) {
-  const channel = echo.channel(publicDebugChannelName);
-  channel.listen(unknownVehicleEventName, handler);
-
-  return () => {
-    channel.stopListening(unknownVehicleEventName);
-    echo.leave(publicDebugChannelName);
   };
 }
 
