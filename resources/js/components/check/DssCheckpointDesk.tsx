@@ -377,6 +377,7 @@ export default function DssCheckpointDesk() {
   const [manualTruckSearchLoading, setManualTruckSearchLoading] = useState(false);
   const [manualCreatePermit, setManualCreatePermit] = useState(false);
   const [manualCreateWeighing, setManualCreateWeighing] = useState(false);
+  const [manualOpenBarrier, setManualOpenBarrier] = useState(false);
   const [manualComment, setManualComment] = useState('');
   const [creatingManualVisitor, setCreatingManualVisitor] = useState(false);
   const [exitConfirmDialog, setExitConfirmDialog] = useState<{
@@ -775,6 +776,7 @@ export default function DssCheckpointDesk() {
     setManualTruckResults([]);
     setManualCreatePermit(false);
     setManualCreateWeighing(false);
+    setManualOpenBarrier(false);
     setManualComment('');
   };
 
@@ -783,6 +785,7 @@ export default function DssCheckpointDesk() {
     setManualTruckResults([]);
     setManualCreatePermit(false);
     setManualCreateWeighing(false);
+    setManualOpenBarrier(false);
     setManualComment('');
   };
 
@@ -820,14 +823,26 @@ export default function DssCheckpointDesk() {
         comment: manualComment.trim() || undefined,
         create_permit: manualCreatePermit && !selectedManualTruck?.has_permit,
         create_weighing: manualCreateWeighing,
+        open_barrier: manualOpenBarrier,
       }, {
         headers: getAuthHeaders(),
       });
 
       if (response.data?.status) {
         toast.success(response.data?.data?.already_exists ? 'Найдена существующая запись' : 'ТС добавлено и подтверждено');
+
+        if (manualOpenBarrier) {
+          if (response.data?.data?.barrier_opened) {
+            toast.success('Шлагбаум открыт');
+          } else {
+            toast.error(response.data?.data?.barrier_open_error || 'ТС добавлено, но шлагбаум не открылся');
+          }
+        }
+
         closeManualDialog();
         await refreshCheckpointContext(manualDialog.checkpointId);
+      } else {
+        toast.error(response.data?.message || 'Не удалось добавить ТС');
       }
     } catch (error: unknown) {
       console.error('Ошибка ручного добавления посетителя:', error);
@@ -1462,7 +1477,7 @@ export default function DssCheckpointDesk() {
               )}
             </div>
 
-            <div className="grid gap-3 rounded-lg border p-4 md:grid-cols-2">
+            <div className="grid gap-3 rounded-lg border p-4 md:grid-cols-3">
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={manualCreatePermit} onCheckedChange={(checked) => setManualCreatePermit(checked === true)} />
                 Создать разрешение
@@ -1470,6 +1485,10 @@ export default function DssCheckpointDesk() {
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={manualCreateWeighing} onCheckedChange={(checked) => setManualCreateWeighing(checked === true)} />
                 Создать весовой контроль
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={manualOpenBarrier} onCheckedChange={(checked) => setManualOpenBarrier(checked === true)} />
+                Открыть шлагбаум
               </label>
             </div>
 

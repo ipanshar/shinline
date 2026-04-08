@@ -965,6 +965,7 @@ class VisitorsCotroller extends Controller
                 'comment' => 'nullable|string|max:500',
                 'create_permit' => 'nullable|boolean',
                 'create_weighing' => 'nullable|boolean',
+                'open_barrier' => 'nullable|boolean',
             ]);
 
             $checkpoint = Checkpoint::findOrFail($validate['checkpoint_id']);
@@ -1062,12 +1063,29 @@ class VisitorsCotroller extends Controller
 
             $this->processConfirmedVisitor($visitor, $task, $yard->id);
 
+            $shouldOpenBarrier = !empty($validate['open_barrier']);
+            $barrierOpenResult = null;
+
+            if ($shouldOpenBarrier) {
+                if ($device?->id) {
+                    $barrierOpenResult = $this->dssParkingService->openBarrierForDevice($device->id);
+                } else {
+                    $barrierOpenResult = [
+                        'success' => false,
+                        'error' => 'На выбранном КПП не найдено устройство въезда для открытия шлагбаума.',
+                    ];
+                }
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Manual checkpoint visitor created',
                 'data' => [
                     'visitor_id' => $visitor->id,
                     'already_exists' => false,
+                    'barrier_open_requested' => $shouldOpenBarrier,
+                    'barrier_opened' => isset($barrierOpenResult['success']) && $barrierOpenResult['success'] === true,
+                    'barrier_open_error' => $barrierOpenResult['error'] ?? null,
                 ],
             ], 201);
         } catch (\Exception $e) {
