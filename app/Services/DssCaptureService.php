@@ -135,6 +135,11 @@ class DssCaptureService extends DssBaseService
         $vehicleCaptureId = $result['vehicle_capture_ids'][0] ?? null;
         $vehicleCapture = $vehicleCaptureId ? VehicleCapture::find($vehicleCaptureId) : null;
 
+        if ($vehicleCapture && $vehicleCapture->capturePicture && !$vehicleCapture->local_capturePicture) {
+            $this->mediaService->downloadVehicleCaptureImage($vehicleCapture);
+            $vehicleCapture->refresh();
+        }
+
         event(new DssUnknownVehicleDetected($alarmPayload, $detail, $vehicleCapture, $result));
 
         $this->structuredLogger->info('alarm_event_processed', [

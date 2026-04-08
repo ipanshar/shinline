@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Camera, Clock3, Radio, ShieldAlert, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
+import { ArrowRightLeft, Camera, Clock3, LogIn, LogOut, Radio, ShieldAlert, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -61,12 +61,25 @@ const getSubscriptionErrorMessage = (error: unknown) => {
   return 'Нет доступа к приватному каналу DSS. Проверьте авторизацию пользователя и permission integrations.dss.';
 };
 
+const getEventDirection = (event: DssUnknownVehicleDetectedEvent): 'entry' | 'exit' | 'unknown' => {
+  const captureDirection = (event.capture_direction || '').toLowerCase();
+  if (captureDirection.includes('entry') || captureDirection.includes('in') || captureDirection.includes('entrance')) return 'entry';
+  if (captureDirection.includes('exit') || captureDirection.includes('out')) return 'exit';
+
+  const deviceType = (event.device_type || '').toLowerCase();
+  if (deviceType.includes('entry')) return 'entry';
+  if (deviceType.includes('exit')) return 'exit';
+
+  return 'unknown';
+};
+
 export default function DssCheckpointDesk() {
   const [connectionState, setConnectionState] = useState<string>('initialized');
   const [subscriptionState, setSubscriptionState] = useState<DssChannelSubscriptionState>('idle');
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const [lastSignalAt, setLastSignalAt] = useState<string | null>(null);
   const [events, setEvents] = useState<DssUnknownVehicleDetectedEvent[]>([]);
+  const [selectedCheckpointKey, setSelectedCheckpointKey] = useState<string>('all');
   const [imagePreview, setImagePreview] = useState<{ open: boolean; src: string; title: string }>({ open: false, src: '', title: '' });
 
   useEffect(() => {
@@ -101,18 +114,131 @@ export default function DssCheckpointDesk() {
     };
   }, []);
 
-  const latestEvent = useMemo(() => events[0] ?? null, [events]);
+  const checkpointOptions = useMemo(() => {
+    const map = new Map<string, { key: string; label: string }>();
+
+    for (const event of events) {
+      const key = event.checkpoint_id != null ? String(event.checkpoint_id) : `unknown:${event.point_name || event.channel_name || event.device_name || 'no-checkpoint'}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: event.checkpoint_name || event.point_name || event.channel_name || event.device_name || 'Без привязки к КПП',
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }, [events]);
+
+  const filteredEvents = useMemo(() => {
+    if (selectedCheckpointKey === 'all') return events;
+
+    return events.filter((event) => {
+      const eventKey = event.checkpoint_id != null ? String(event.checkpoint_id) : `unknown:${event.point_name || event.channel_name || event.device_name || 'no-checkpoint'}`;
+      return eventKey === selectedCheckpointKey;
+    });
+  }, [events, selectedCheckpointKey]);
+
+  const entryEvents = useMemo(() => filteredEvents.filter((event) => getEventDirection(event) === 'entry'), [filteredEvents]);
+  const exitEvents = useMemo(() => filteredEvents.filter((event) => getEventDirection(event) === 'exit'), [filteredEvents]);
+  const latestEntryEvent = useMemo(() => entryEvents[0] ?? null, [entryEvents]);
+  const latestExitEvent = useMemo(() => exitEvents[0] ?? null, [exitEvents]);
   const openImagePreview = (src: string, title: string) => setImagePreview({ open: true, src, title });
   const closeImagePreview = () => setImagePreview({ open: false, src: '', title: '' });
+
+  const renderEventCard = (event: DssUnknownVehicleDetectedEvent | null, emptyText: string, accent: 'entry' | 'exit') => {
+    if (!event) {
+      return (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {emptyText}
+        </div>
+      );
+    }
+
+    return (
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="grid gap-4 p-4 xl:grid-cols-[240px_minmax(0,1fr)]">
+          <div className="group relative overflow-hidden rounded-lg border bg-muted/30">
+            {event.capture_picture ? (
+              <button type="button" onClick={() => openImagePreview(event.capture_picture!, `ТС ${event.plate_no || event.alarm_code}`)} className="block h-full w-full cursor-zoom-in">
+                <img src={event.capture_picture} alt={event.plate_no || event.alarm_code} className="h-56 w-full object-cover transition-transform duration-300 group-hover:scale-110" />
+              </button>
+            ) : (
+              <div className="flex h-56 items-center justify-center text-muted-foreground">
+                <Camera className="h-8 w-8" />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-2xl font-bold tracking-wide">{event.plate_no || 'Без номера'}</span>
+              <Badge className={accent === 'entry' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}>
+                {accent === 'entry' ? 'Въезд' : 'Выезд'}
+              </Badge>
+              <Badge variant="outline">capture #{event.vehicle_capture_id ?? '—'}</Badge>
+            </div>
+
+            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+              <div>
+                <span className="font-medium text-foreground">КПП:</span> {event.checkpoint_name || 'Без привязки'}
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Источник:</span> {event.source_name || event.source_code || '—'}
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Точка:</span> {event.point_name || event.channel_name || event.device_name || '—'}
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Время фиксации:</span> {formatDateTime(event.capture_time || event.created_at)}
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Поступило:</span> {formatRelativeSeconds(event.created_at)}
+              </div>
+              <div>
+                <span className="font-medium text-foreground">alarmCode:</span> {event.alarm_code || '—'}
+              </div>
+            </div>
+
+            {event.plate_picture && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Фото номера</div>
+                <button type="button" onClick={() => openImagePreview(event.plate_picture!, `Номер ${event.plate_no || event.alarm_code}`)} className="group relative block overflow-hidden rounded-lg border bg-muted/30 text-left">
+                  <img src={event.plate_picture} alt={event.plate_no || event.alarm_code} className="h-28 w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
       <Card className="gap-0 py-0">
         <CardContent className="px-4 py-4 sm:px-6">
-          <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium">Live-поток ТС из DSS-событий</div>
-            <div className="text-sm text-muted-foreground">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-col gap-2">
+              <div className="text-sm font-medium">Live-поток ТС из DSS-событий</div>
+              <div className="text-sm text-muted-foreground">
               Экран не подгружает очередь и не делает snapshot-запросы. Показываются только машины, которые реально пришли в websocket-событии.
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-muted-foreground">КПП</label>
+              <select
+                value={selectedCheckpointKey}
+                onChange={(event) => setSelectedCheckpointKey(event.target.value)}
+                className="h-10 min-w-56 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="all">Все КПП</option>
+                {checkpointOptions.map((checkpoint) => (
+                  <option key={checkpoint.key} value={checkpoint.key}>
+                    {checkpoint.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </CardContent>
@@ -128,7 +254,7 @@ export default function DssCheckpointDesk() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-4">
+      <div className="grid gap-4 xl:grid-cols-5">
         <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-gray-400">
             <Wifi className="h-4 w-4" />
@@ -164,110 +290,42 @@ export default function DssCheckpointDesk() {
             <Clock3 className="h-4 w-4" />
             Событий в ленте
           </div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{events.length}</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{filteredEvents.length}</div>
+        </div>
+
+        <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            <ArrowRightLeft className="h-4 w-4" />
+            Въезд / Выезд
+          </div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entryEvents.length} / {exitEvents.length}</div>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card className="gap-0 py-0">
           <CardHeader className="border-b px-4 py-4 sm:px-6">
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Radio className="h-5 w-5 text-blue-600" />
-              Последнее ТС из события
+              <LogIn className="h-5 w-5 text-emerald-600" />
+              Въезд
             </CardTitle>
-            <CardDescription>На экране только фактические срабатывания websocket DSS, без фоновой подгрузки данных.</CardDescription>
+            <CardDescription>Последнее входящее событие по выбранному КПП.</CardDescription>
           </CardHeader>
           <CardContent className="px-4 py-4 sm:px-6">
-            {!latestEvent ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                События ещё не приходили. Оставьте вкладку открытой и дождитесь alarmType 10708.
-              </div>
-            ) : (
-              <div className="overflow-hidden rounded-xl border bg-card">
-                <div className="grid gap-4 p-4 xl:grid-cols-[240px_minmax(0,1fr)]">
-                  <div className="group relative overflow-hidden rounded-lg border bg-muted/30">
-                    {latestEvent.capture_picture ? (
-                      <button type="button" onClick={() => openImagePreview(latestEvent.capture_picture!, `ТС ${latestEvent.plate_no || latestEvent.alarm_code}`)} className="block h-full w-full cursor-zoom-in">
-                        <img src={latestEvent.capture_picture} alt={latestEvent.plate_no || latestEvent.alarm_code} className="h-56 w-full object-cover transition-transform duration-300 group-hover:scale-110" />
-                      </button>
-                    ) : (
-                      <div className="flex h-56 items-center justify-center text-muted-foreground">
-                        <Camera className="h-8 w-8" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-2xl font-bold tracking-wide">{latestEvent.plate_no || 'Без номера'}</span>
-                      <Badge className="bg-blue-100 text-blue-700">{latestEvent.alarm_type_name || `Тип ${latestEvent.alarm_type}`}</Badge>
-                      <Badge variant="outline">capture #{latestEvent.vehicle_capture_id ?? '—'}</Badge>
-                    </div>
-
-                    <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-                      <div>
-                        <span className="font-medium text-foreground">Источник:</span> {latestEvent.source_name || latestEvent.source_code || '—'}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">Точка:</span> {latestEvent.point_name || latestEvent.channel_name || '—'}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">Время фиксации:</span> {formatDateTime(latestEvent.capture_time || latestEvent.created_at)}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">Поступило:</span> {formatRelativeSeconds(latestEvent.created_at)}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">alarmCode:</span> {latestEvent.alarm_code || '—'}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">parkingLot:</span> {latestEvent.parking_lot_name || '—'}
-                      </div>
-                    </div>
-
-                    {latestEvent.plate_picture && (
-                      <div className="space-y-2">
-                        <div className="text-sm font-medium">Фото номера</div>
-                        <button type="button" onClick={() => openImagePreview(latestEvent.plate_picture!, `Номер ${latestEvent.plate_no || latestEvent.alarm_code}`)} className="group relative block overflow-hidden rounded-lg border bg-muted/30 text-left">
-                          <img src={latestEvent.plate_picture} alt={latestEvent.plate_no || latestEvent.alarm_code} className="h-28 w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            {renderEventCard(latestEntryEvent, 'По выбранному КПП входящих событий пока не было.', 'entry')}
           </CardContent>
         </Card>
 
         <Card className="gap-0 py-0">
           <CardHeader className="border-b px-4 py-4 sm:px-6">
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Clock3 className="h-5 w-5 text-orange-600" />
-              Последние события
+              <LogOut className="h-5 w-5 text-orange-600" />
+              Выезд
             </CardTitle>
-            <CardDescription>Храним только локальную ленту из websocket, максимум {MAX_EVENTS} записей.</CardDescription>
+            <CardDescription>Последнее исходящее событие по выбранному КПП.</CardDescription>
           </CardHeader>
           <CardContent className="px-4 py-4 sm:px-6">
-            {events.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Лента пока пустая.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {events.map((event) => (
-                  <button key={event.alarm_code || event.created_at} type="button" onClick={() => event.capture_picture && openImagePreview(event.capture_picture, event.plate_no || event.alarm_code)} className="w-full rounded-lg border p-3 text-left transition hover:bg-muted/40">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono font-semibold">{event.plate_no || 'Без номера'}</span>
-                      <Badge variant="outline">{event.point_name || event.channel_name || 'Без точки'}</Badge>
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      {formatDateTime(event.capture_time || event.created_at)}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+            {renderEventCard(latestExitEvent, 'По выбранному КПП исходящих событий пока не было.', 'exit')}
           </CardContent>
         </Card>
       </div>

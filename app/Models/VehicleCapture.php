@@ -22,6 +22,7 @@ class VehicleCapture extends Model
         'views',
         'imageDownload',
         'local_capturePicture',
+        'local_plateNoPicture',
         'processed_at',
         'dss_alarm_code',
         'dss_alarm_type',

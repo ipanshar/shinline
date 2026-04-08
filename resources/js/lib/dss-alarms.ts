@@ -15,6 +15,11 @@ export interface DssUnknownVehicleDetectedEvent {
   capture_picture: string | null;
   plate_picture: string | null;
   vehicle_capture_id: number | null;
+  capture_direction: string | null;
+  checkpoint_id: number | null;
+  checkpoint_name: string | null;
+  device_name: string | null;
+  device_type: string | null;
   processed: number;
   duplicates_skipped: number;
   created_at: string;

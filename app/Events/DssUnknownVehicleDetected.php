@@ -2,6 +2,8 @@
 
 namespace App\Events;
 
+use App\Models\Checkpoint;
+use App\Models\Devaice;
 use App\Models\VehicleCapture;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -35,6 +37,17 @@ class DssUnknownVehicleDetected implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
+        $device = null;
+        $checkpoint = null;
+
+        if ($this->vehicleCapture?->devaice_id) {
+            $device = Devaice::query()->find($this->vehicleCapture->devaice_id);
+
+            if ($device?->checkpoint_id) {
+                $checkpoint = Checkpoint::query()->find($device->checkpoint_id);
+            }
+        }
+
         return [
             'alarm_code' => (string) ($this->alarmDetail['alarmCode'] ?? $this->alarmPayload['alarmCode'] ?? ''),
             'alarm_type' => (string) ($this->alarmDetail['alarmType'] ?? $this->alarmPayload['alarmType'] ?? ''),
@@ -47,12 +60,35 @@ class DssUnknownVehicleDetected implements ShouldBroadcastNow
             'channel_id' => $this->alarmDetail['channelId'] ?? null,
             'channel_name' => $this->alarmDetail['channelName'] ?? null,
             'capture_time' => $this->vehicleCapture?->captureTime,
-            'capture_picture' => $this->vehicleCapture?->capturePicture,
-            'plate_picture' => $this->vehicleCapture?->plateNoPicture,
+            'capture_picture' => $this->buildCapturePictureUrl($this->vehicleCapture),
+            'plate_picture' => $this->buildPlatePictureUrl($this->vehicleCapture),
             'vehicle_capture_id' => $this->vehicleCapture?->id,
+            'capture_direction' => $this->vehicleCapture?->capture_direction,
+            'checkpoint_id' => $checkpoint?->id,
+            'checkpoint_name' => $checkpoint?->name,
+            'device_name' => $device?->channelName,
+            'device_type' => $device?->type,
             'processed' => (int) ($this->processingResult['processed'] ?? 0),
             'duplicates_skipped' => (int) ($this->processingResult['duplicates_skipped'] ?? 0),
             'created_at' => now()->toIso8601String(),
         ];
+    }
+
+    private function buildCapturePictureUrl(?VehicleCapture $capture): ?string
+    {
+        if (!$capture || !$capture->local_capturePicture) {
+            return null;
+        }
+
+        return '/storage/' . ltrim($capture->local_capturePicture, '/');
+    }
+
+    private function buildPlatePictureUrl(?VehicleCapture $capture): ?string
+    {
+        if (!$capture || !$capture->local_plateNoPicture) {
+            return null;
+        }
+
+        return '/storage/' . ltrim($capture->local_plateNoPicture, '/');
     }
 }

@@ -36,6 +36,7 @@ class DssRetentionService
                             'vehicleColorName',
                             'vehicleModelName',
                             'local_capturePicture',
+                            'local_plateNoPicture',
                             'imageDownload',
                             'views',
                             'created_at',
@@ -47,6 +48,10 @@ class DssRetentionService
                 foreach ($captures as $capture) {
                     if ($capture->local_capturePicture && Storage::disk('public')->exists($capture->local_capturePicture)) {
                         Storage::disk('public')->delete($capture->local_capturePicture);
+                    }
+
+                    if ($capture->local_plateNoPicture && Storage::disk('public')->exists($capture->local_plateNoPicture)) {
+                        Storage::disk('public')->delete($capture->local_plateNoPicture);
                     }
 
                     $capture->delete();
