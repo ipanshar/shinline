@@ -150,10 +150,39 @@ const getAuthHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+const parseDateValue = (value?: string | number | null) => {
+  if (value == null) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === 'number') {
+    const normalized = value < 1_000_000_000_000 ? value * 1000 : value;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const normalizedValue = value.trim();
+  if (!normalizedValue) return null;
+
+  if (/^\d+$/.test(normalizedValue)) {
+    const numericValue = Number(normalizedValue);
+    if (!Number.isNaN(numericValue)) {
+      const normalized = normalizedValue.length <= 10 ? numericValue * 1000 : numericValue;
+      const date = new Date(normalized);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
+  const date = new Date(normalizedValue);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const formatDateTime = (value?: string | null) => {
   if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateValue(value);
+  if (!date) return value;
   return date.toLocaleString('ru-RU', {
     day: '2-digit',
     month: '2-digit',
@@ -166,8 +195,8 @@ const formatDateTime = (value?: string | null) => {
 
 const formatRelativeSeconds = (value?: string | null) => {
   if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+  const date = parseDateValue(value);
+  if (!date) return '—';
   const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
   const minutes = Math.floor(diffSec / 60);
   const seconds = diffSec % 60;
@@ -177,9 +206,8 @@ const formatRelativeSeconds = (value?: string | null) => {
 const normalizePlateNumber = (value?: string | null) => value?.replace(/[\s-]+/g, '').toUpperCase() ?? '';
 
 const toEpoch = (value?: string | null) => {
-  if (!value) return null;
-  const timestamp = new Date(value).getTime();
-  return Number.isNaN(timestamp) ? null : timestamp;
+  const date = parseDateValue(value);
+  return date ? date.getTime() : null;
 };
 
 const getSubscriptionBadgeClass = (state: DssChannelSubscriptionState) => {
@@ -1139,9 +1167,9 @@ export default function DssCheckpointDesk() {
             <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
               {renderInfoRow('КПП', checkpointLabel)}
               {renderInfoRow('Устройство', deviceLabel)}
-              {renderInfoRow('Площадка', yardLabel)}
-              {renderInfoRow('Время фиксации', captureLabel)}
-              {renderInfoRow('Поступило', event ? formatRelativeSeconds(event.created_at) : 'Загружено из очереди КПП')}
+              {renderInfoRow('Территория', yardLabel)}
+              {renderInfoRow('Время фиксации', formatDateTime(captureLabel))}
+              {renderInfoRow('Поступило', event ? formatRelativeSeconds(event.created_at) : 'Загружено из истории КПП')}
               {renderInfoRow('Причина', item?.pending_reason_text || 'Ожидает сопоставления с очередью КПП')}
               {renderInfoRow('Задание', item?.task_name || 'Не назначено')}
               {renderInfoRow('Весовой контроль', item?.weighing_reason || (item?.has_weighing_task ? 'Назначен' : 'Не требуется'))}
@@ -1220,15 +1248,15 @@ export default function DssCheckpointDesk() {
             <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
               {renderInfoRow('КПП', checkpointLabel)}
               {renderInfoRow('Устройство', deviceLabel)}
-              {renderInfoRow('Площадка', yardLabel)}
-              {renderInfoRow('Время фиксации', captureLabel)}
-              {renderInfoRow('Поступило', event ? formatRelativeSeconds(event.created_at) : 'Загружено из очереди КПП')}
+              {renderInfoRow('Территория', yardLabel)}
+              {renderInfoRow('Время фиксации', formatDateTime(captureLabel))}
+              {renderInfoRow('Поступило', event ? formatRelativeSeconds(event.created_at) : 'Загружено из истории КПП')}
               {renderInfoRow('Комментарий', item?.note || 'Нет')}
             </div>
 
             {item?.candidate_visitors?.length ? (
               <div className="space-y-2">
-                <div className="text-sm font-medium">Кандидаты на закрытие визита</div>
+                <div className="text-sm font-medium">Не закрытые визиты</div>
                 <div className="flex flex-wrap gap-2">
                   {item.candidate_visitors.slice(0, 4).map((candidate) => (
                     <Badge key={candidate.visitor_id} variant="outline" className="gap-1">

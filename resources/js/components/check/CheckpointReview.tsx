@@ -118,10 +118,35 @@ const getConfidenceBadgeClass = (confidence?: number | null) => {
   return 'bg-red-100 text-red-700';
 };
 
+const parseDateValue = (value?: string | number | null) => {
+  if (value == null) return null;
+
+  if (typeof value === 'number') {
+    const normalized = value < 1_000_000_000_000 ? value * 1000 : value;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const normalizedValue = value.trim();
+  if (!normalizedValue) return null;
+
+  if (/^\d+$/.test(normalizedValue)) {
+    const numericValue = Number(normalizedValue);
+    if (!Number.isNaN(numericValue)) {
+      const normalized = normalizedValue.length <= 10 ? numericValue * 1000 : numericValue;
+      const date = new Date(normalized);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
+  const date = new Date(normalizedValue);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const formatDateTime = (value?: string | null) => {
   if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateValue(value);
+  if (!date) return value;
   return date.toLocaleString('ru-RU', {
     day: '2-digit',
     month: '2-digit',
@@ -134,8 +159,8 @@ const formatDateTime = (value?: string | null) => {
 
 const formatRelativeSeconds = (value?: string | null) => {
   if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+  const date = parseDateValue(value);
+  if (!date) return '—';
 
   const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
   const minutes = Math.floor(diffSec / 60);
