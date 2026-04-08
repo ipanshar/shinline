@@ -54,11 +54,15 @@ class DssDaemon extends Command
                 $heartbeat->touch('running');
 
                 // Историческая подкачка VehicleCapture по расписанию
-                if ((time() - $lastVehicleCapture) >= $vehicleCaptureInterval) {
+                // if ((time() - $lastVehicleCapture) >= $vehicleCaptureInterval) {
+                // Вызов VehicleCapture каждые 3 секунды
+                if ((time() - $lastVehicleCapture) >= 3) {
                     try {
                         $heartbeat->touch('vehicle_capture');
-                        $VehicleCaptureResult = $this->executeWithRetry(function() use ($service, $vehicleCaptureLookback) {
-                            return $service->dssVehicleCapture($vehicleCaptureLookback);
+                         $VehicleCaptureResult = $this->executeWithRetry(function() use ($service) {
+                            return $service->dssVehicleCapture();
+                        // $VehicleCaptureResult = $this->executeWithRetry(function() use ($service, $vehicleCaptureLookback) {
+                        //     return $service->dssVehicleCapture($vehicleCaptureLookback);
                         });
                         
                         if ($VehicleCaptureResult) {
