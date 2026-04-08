@@ -1110,6 +1110,7 @@ class VisitorsCotroller extends Controller
                     'status' => $review->status,
                     'resolved_at' => $review->resolved_at?->format('Y-m-d H:i:s'),
                     'resolved_visitor_id' => $review->resolved_visitor_id,
+                    'capture_id' => $capture?->id,
                     'plate_number' => $review->plate_number,
                     'capture_time' => $review->capture_time,
                     'recognition_confidence' => $review->recognition_confidence,
