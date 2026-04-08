@@ -1747,11 +1747,11 @@ class VisitorsCotroller extends Controller
 
     private function buildPlatePictureUrl(?VehicleCapture $capture): ?string
     {
-        if (!$capture || !$capture->plateNoPicture) {
+        if (!$capture || !$capture->local_plateNoPicture) {
             return null;
         }
 
-        return $capture->plateNoPicture;
+        return '/storage/' . ltrim($capture->local_plateNoPicture, '/');
     }
 
     private function getExitReviewVisitors(CheckpointExitReview $review): array
