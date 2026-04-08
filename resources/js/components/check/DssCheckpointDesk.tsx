@@ -138,6 +138,13 @@ type ConfirmResolvedTruck = {
   isNew: boolean;
 };
 
+type CheckpointOption = {
+  id: number;
+  name: string;
+  yard_id?: number | null;
+  yard_name?: string | null;
+};
+
 const getAuthHeaders = () => {
   const token = localStorage.getItem('auth_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -284,12 +291,15 @@ const matchEntryReviewItem = (event: DssUnknownVehicleDetectedEvent | null, item
     || normalizePlateNumber(item.matched_plate_number) === normalizedPlate
   ));
 
-  if (candidates.length <= 1) return candidates[0] ?? items[0] ?? null;
+  const pendingCandidates = candidates.filter((item) => item.confirmation_status === 'pending');
+  const prioritizedCandidates = pendingCandidates.length > 0 ? pendingCandidates : candidates;
+
+  if (prioritizedCandidates.length <= 1) return prioritizedCandidates[0] ?? items[0] ?? null;
 
   const eventEpoch = toEpoch(event.capture_time || event.created_at);
-  if (eventEpoch == null) return candidates[0];
+  if (eventEpoch == null) return prioritizedCandidates[0];
 
-  return candidates.reduce((best, current) => {
+  return prioritizedCandidates.reduce((best, current) => {
     const bestEpoch = toEpoch(best.capture_time || best.entry_date) ?? 0;
     const currentEpoch = toEpoch(current.capture_time || current.entry_date) ?? 0;
     return Math.abs(currentEpoch - eventEpoch) < Math.abs(bestEpoch - eventEpoch) ? current : best;
@@ -332,6 +342,7 @@ export default function DssCheckpointDesk() {
   const [lastSignalAt, setLastSignalAt] = useState<string | null>(null);
   const [lastReviewSyncAt, setLastReviewSyncAt] = useState<string | null>(null);
   const [events, setEvents] = useState<DssUnknownVehicleDetectedEvent[]>([]);
+  const [checkpoints, setCheckpoints] = useState<CheckpointOption[]>([]);
   const [selectedCheckpointKey, setSelectedCheckpointKey] = useState<string>('all');
   const [entryQueuesByCheckpoint, setEntryQueuesByCheckpoint] = useState<Record<number, CheckpointQueueItem[]>>({});
   const [exitQueuesByCheckpoint, setExitQueuesByCheckpoint] = useState<Record<number, ExitReviewItem[]>>({});
@@ -427,8 +438,31 @@ export default function DssCheckpointDesk() {
     };
   }, []);
 
+  useEffect(() => {
+    const loadCheckpoints = async () => {
+      try {
+        const response = await axios.post('/entrance-permit/getallcheckpoints', {}, {
+          headers: getAuthHeaders(),
+        });
+
+        setCheckpoints(response.data?.data ?? []);
+      } catch (error) {
+        console.error('Ошибка загрузки списка КПП для DSS desk:', error);
+      }
+    };
+
+    void loadCheckpoints();
+  }, []);
+
   const checkpointOptions = useMemo(() => {
     const map = new Map<string, { key: string; label: string }>();
+
+    for (const checkpoint of checkpoints) {
+      map.set(String(checkpoint.id), {
+        key: String(checkpoint.id),
+        label: checkpoint.yard_name ? `${checkpoint.name} - ${checkpoint.yard_name}` : checkpoint.name,
+      });
+    }
 
     for (const event of events) {
       const key = getCheckpointKey(event);
@@ -441,12 +475,18 @@ export default function DssCheckpointDesk() {
     }
 
     return Array.from(map.values());
-  }, [events]);
+  }, [checkpoints, events]);
 
   const filteredEvents = useMemo(() => {
     if (selectedCheckpointKey === 'all') return events;
     return events.filter((event) => getCheckpointKey(event) === selectedCheckpointKey);
   }, [events, selectedCheckpointKey]);
+
+  const selectedCheckpointId = useMemo(() => {
+    if (selectedCheckpointKey === 'all') return null;
+    const parsed = Number(selectedCheckpointKey);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [selectedCheckpointKey]);
 
   const entryEvents = useMemo(() => filteredEvents.filter((event) => getEventDirection(event) === 'entry'), [filteredEvents]);
   const exitEvents = useMemo(() => filteredEvents.filter((event) => getEventDirection(event) === 'exit'), [filteredEvents]);
@@ -514,31 +554,35 @@ export default function DssCheckpointDesk() {
   }, [latestEntryEvent?.vehicle_capture_id, latestEntryEvent?.checkpoint_id, latestExitEvent?.vehicle_capture_id, latestExitEvent?.checkpoint_id, refreshCheckpointContext]);
 
   useEffect(() => {
-    const checkpointIds = Array.from(new Set([
-      latestEntryEvent?.checkpoint_id ?? null,
-      latestExitEvent?.checkpoint_id ?? null,
-    ].filter((value): value is number => typeof value === 'number' && value > 0)));
+    if (!selectedCheckpointId) return;
+    if (entryQueuesByCheckpoint[selectedCheckpointId] || exitQueuesByCheckpoint[selectedCheckpointId]) return;
 
-    if (checkpointIds.length === 0) return undefined;
-
-    const interval = window.setInterval(() => {
-      checkpointIds.forEach((checkpointId) => {
-        void refreshCheckpointContext(checkpointId);
-      });
-    }, 4000);
-
-    return () => window.clearInterval(interval);
-  }, [latestEntryEvent?.checkpoint_id, latestExitEvent?.checkpoint_id, refreshCheckpointContext]);
+    void refreshCheckpointContext(selectedCheckpointId);
+  }, [entryQueuesByCheckpoint, exitQueuesByCheckpoint, refreshCheckpointContext, selectedCheckpointId]);
 
   const entryReviewItem = useMemo(() => {
-    if (!latestEntryEvent?.checkpoint_id) return null;
-    return matchEntryReviewItem(latestEntryEvent, entryQueuesByCheckpoint[latestEntryEvent.checkpoint_id] ?? []);
-  }, [entryQueuesByCheckpoint, latestEntryEvent]);
+    if (latestEntryEvent?.checkpoint_id) {
+      return matchEntryReviewItem(latestEntryEvent, entryQueuesByCheckpoint[latestEntryEvent.checkpoint_id] ?? []);
+    }
+
+    if (selectedCheckpointId) {
+      return entryQueuesByCheckpoint[selectedCheckpointId]?.[0] ?? null;
+    }
+
+    return null;
+  }, [entryQueuesByCheckpoint, latestEntryEvent, selectedCheckpointId]);
 
   const exitReviewItem = useMemo(() => {
-    if (!latestExitEvent?.checkpoint_id) return null;
-    return matchExitReviewItem(latestExitEvent, exitQueuesByCheckpoint[latestExitEvent.checkpoint_id] ?? []);
-  }, [exitQueuesByCheckpoint, latestExitEvent]);
+    if (latestExitEvent?.checkpoint_id) {
+      return matchExitReviewItem(latestExitEvent, exitQueuesByCheckpoint[latestExitEvent.checkpoint_id] ?? []);
+    }
+
+    if (selectedCheckpointId) {
+      return exitQueuesByCheckpoint[selectedCheckpointId]?.[0] ?? null;
+    }
+
+    return null;
+  }, [exitQueuesByCheckpoint, latestExitEvent, selectedCheckpointId]);
 
   const selectedManualTruck = useMemo(
     () => manualTruckResults.find((truck) => truck.plate_number.toUpperCase() === manualDialog.plateNumber.trim().toUpperCase()) ?? null,
@@ -1045,8 +1089,9 @@ export default function DssCheckpointDesk() {
   const renderEntryCard = () => {
     const event = latestEntryEvent;
     const item = entryReviewItem;
+    const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
 
-    if (!event) {
+    if (!event && !item) {
       return (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           По выбранному КПП входящих событий пока не было.
@@ -1054,23 +1099,32 @@ export default function DssCheckpointDesk() {
       );
     }
 
-    const imageSrc = item?.capture_picture_url || event.capture_picture;
-    const plateImageSrc = item?.capture_plate_picture_url || event.plate_picture;
-    const checkpointId = event.checkpoint_id ?? item?.checkpoint_id ?? null;
+    const imageSrc = item?.capture_picture_url || event?.capture_picture;
+    const plateImageSrc = item?.capture_plate_picture_url || event?.plate_picture;
+    const checkpointId = event?.checkpoint_id ?? item?.checkpoint_id ?? selectedCheckpointId ?? null;
     const isLoadingReview = checkpointId ? !!loadingEntryByCheckpoint[checkpointId] : false;
     const canManualAdd = checkpointId != null;
+    const canConfirmEntry = !!item && item.confirmation_status === 'pending';
+    const canRejectEntry = !!item && item.confirmation_status === 'pending';
+    const checkpointLabel = event?.checkpoint_name || selectedCheckpoint?.name || (item?.checkpoint_id ? String(item.checkpoint_id) : 'Без привязки');
+    const yardLabel = item?.yard_name || selectedCheckpoint?.yard_name || event?.parking_lot_name || event?.source_name;
+    const deviceLabel = item?.device_name || event?.device_name || event?.point_name || event?.channel_name;
+    const plateLabel = event?.plate_no || item?.plate_number || 'Без номера';
+    const captureLabel = item?.capture_time || event?.capture_time || event?.created_at || item?.entry_date;
+    const imageTitle = `ТС ${plateLabel}`;
 
     return (
       <div className="overflow-hidden rounded-xl border bg-card">
         <div className="grid gap-4 p-4 xl:grid-cols-[240px_minmax(0,1fr)]">
-          {renderCaptureMedia(imageSrc, `ТС ${event.plate_no || event.alarm_code}`, plateImageSrc, `Номер ${event.plate_no || event.alarm_code}`)}
+          {renderCaptureMedia(imageSrc, imageTitle, plateImageSrc, `Номер ${plateLabel}`)}
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-2xl font-bold tracking-wide">{event.plate_no || item?.plate_number || 'Без номера'}</span>
+              <span className="font-mono text-2xl font-bold tracking-wide">{plateLabel}</span>
               <Badge className="bg-emerald-100 text-emerald-700">Въезд</Badge>
               {item ? <Badge className={getEntryStatusBadgeClass(item.confirmation_status)}>{getEntryStatusLabel(item.confirmation_status)}</Badge> : <Badge variant="outline">Нет review-контекста</Badge>}
               {item?.recognition_confidence != null && <Badge className={getConfidenceBadgeClass(item.recognition_confidence)}>Точность {item.recognition_confidence}%</Badge>}
+              {!event && item && <Badge variant="outline">Из очереди КПП</Badge>}
               {isLoadingReview && <Badge variant="outline"><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Синхронизация</Badge>}
             </div>
 
@@ -1083,28 +1137,28 @@ export default function DssCheckpointDesk() {
             </div>
 
             <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-              {renderInfoRow('КПП', event.checkpoint_name || (item?.checkpoint_id ? String(item.checkpoint_id) : 'Без привязки'))}
-              {renderInfoRow('Устройство', item?.device_name || event.device_name || event.point_name || event.channel_name)}
-              {renderInfoRow('Площадка', item?.yard_name || event.parking_lot_name || event.source_name)}
-              {renderInfoRow('Время фиксации', item?.capture_time || event.capture_time || event.created_at)}
-              {renderInfoRow('Поступило', formatRelativeSeconds(event.created_at))}
+              {renderInfoRow('КПП', checkpointLabel)}
+              {renderInfoRow('Устройство', deviceLabel)}
+              {renderInfoRow('Площадка', yardLabel)}
+              {renderInfoRow('Время фиксации', captureLabel)}
+              {renderInfoRow('Поступило', event ? formatRelativeSeconds(event.created_at) : 'Загружено из очереди КПП')}
               {renderInfoRow('Причина', item?.pending_reason_text || 'Ожидает сопоставления с очередью КПП')}
               {renderInfoRow('Задание', item?.task_name || 'Не назначено')}
               {renderInfoRow('Весовой контроль', item?.weighing_reason || (item?.has_weighing_task ? 'Назначен' : 'Не требуется'))}
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={() => openManualDialog(checkpointId, event.plate_no)} disabled={!canManualAdd}>
+              <Button type="button" variant="secondary" onClick={() => openManualDialog(checkpointId, event?.plate_no || item?.plate_number)} disabled={!canManualAdd}>
                 <Plus className="h-4 w-4" />
                 Добавить ТС
               </Button>
 
-              <Button type="button" onClick={() => item ? openConfirmDialog(item) : openManualDialog(checkpointId, event.plate_no)} disabled={!canManualAdd || processingVisitorId === item?.visitor_id}>
+              <Button type="button" onClick={() => canConfirmEntry && item ? openConfirmDialog(item) : openManualDialog(checkpointId, event?.plate_no || item?.plate_number)} disabled={(!canManualAdd && !canConfirmEntry) || !canConfirmEntry || processingVisitorId === item?.visitor_id}>
                 {processingVisitorId === item?.visitor_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 Разрешить проезд
               </Button>
 
-              <Button type="button" variant="destructive" onClick={() => item && handleRejectEntry(item)} disabled={!item || processingVisitorId === item.visitor_id}>
+              <Button type="button" variant="destructive" onClick={() => item && handleRejectEntry(item)} disabled={!canRejectEntry || processingVisitorId === item?.visitor_id}>
                 {processingVisitorId === item?.visitor_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
                 Отклонить
               </Button>
@@ -1122,8 +1176,9 @@ export default function DssCheckpointDesk() {
   const renderExitCard = () => {
     const event = latestExitEvent;
     const item = exitReviewItem;
+    const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
 
-    if (!event) {
+    if (!event && !item) {
       return (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           По выбранному КПП исходящих событий пока не было.
@@ -1131,22 +1186,28 @@ export default function DssCheckpointDesk() {
       );
     }
 
-    const imageSrc = item?.capture_picture_url || event.capture_picture;
-    const plateImageSrc = item?.capture_plate_picture_url || event.plate_picture;
-    const checkpointId = event.checkpoint_id ?? item?.checkpoint_id ?? null;
+    const imageSrc = item?.capture_picture_url || event?.capture_picture;
+    const plateImageSrc = item?.capture_plate_picture_url || event?.plate_picture;
+    const checkpointId = event?.checkpoint_id ?? item?.checkpoint_id ?? selectedCheckpointId ?? null;
     const isLoadingReview = checkpointId ? !!loadingExitByCheckpoint[checkpointId] : false;
+    const checkpointLabel = event?.checkpoint_name || item?.checkpoint_name || selectedCheckpoint?.name || 'Без привязки';
+    const yardLabel = item?.yard_name || selectedCheckpoint?.yard_name || event?.parking_lot_name || event?.source_name;
+    const deviceLabel = item?.device_name || event?.device_name || event?.point_name || event?.channel_name;
+    const plateLabel = event?.plate_no || item?.plate_number || 'Без номера';
+    const captureLabel = item?.capture_time || event?.capture_time || event?.created_at;
 
     return (
       <div className="overflow-hidden rounded-xl border bg-card">
         <div className="grid gap-4 p-4 xl:grid-cols-[240px_minmax(0,1fr)]">
-          {renderCaptureMedia(imageSrc, `Выезд ${event.plate_no || event.alarm_code}`, plateImageSrc, `Номер ${event.plate_no || event.alarm_code}`)}
+          {renderCaptureMedia(imageSrc, `Выезд ${plateLabel}`, plateImageSrc, `Номер ${plateLabel}`)}
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-2xl font-bold tracking-wide">{event.plate_no || item?.plate_number || 'Без номера'}</span>
+              <span className="font-mono text-2xl font-bold tracking-wide">{plateLabel}</span>
               <Badge className="bg-orange-100 text-orange-700">Выезд</Badge>
               {item ? <Badge className={getExitStatusBadgeClass(item.status)}>{getExitStatusLabel(item.status)}</Badge> : <Badge variant="outline">Нет exit-review контекста</Badge>}
               {item?.recognition_confidence != null && <Badge className={getConfidenceBadgeClass(item.recognition_confidence)}>Точность {item.recognition_confidence}%</Badge>}
+              {!event && item && <Badge variant="outline">Из очереди КПП</Badge>}
               {isLoadingReview && <Badge variant="outline"><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Синхронизация</Badge>}
             </div>
 
@@ -1157,11 +1218,11 @@ export default function DssCheckpointDesk() {
             </div>
 
             <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-              {renderInfoRow('КПП', event.checkpoint_name || item?.checkpoint_name || 'Без привязки')}
-              {renderInfoRow('Устройство', item?.device_name || event.device_name || event.point_name || event.channel_name)}
-              {renderInfoRow('Площадка', item?.yard_name || event.parking_lot_name || event.source_name)}
-              {renderInfoRow('Время фиксации', item?.capture_time || event.capture_time || event.created_at)}
-              {renderInfoRow('Поступило', formatRelativeSeconds(event.created_at))}
+              {renderInfoRow('КПП', checkpointLabel)}
+              {renderInfoRow('Устройство', deviceLabel)}
+              {renderInfoRow('Площадка', yardLabel)}
+              {renderInfoRow('Время фиксации', captureLabel)}
+              {renderInfoRow('Поступило', event ? formatRelativeSeconds(event.created_at) : 'Загружено из очереди КПП')}
               {renderInfoRow('Комментарий', item?.note || 'Нет')}
             </div>
 
