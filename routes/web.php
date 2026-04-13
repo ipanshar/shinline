@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
 use App\Http\Controllers\Api\YardCotroller;
 use App\Http\Controllers\DssController;
+use App\Http\Controllers\DssTelegramController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\RouteController;
 use App\Http\Controllers\Settings\ProfileController;
@@ -83,6 +84,11 @@ Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHisto
 Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone'])->middleware('permission:integrations.dss|history.view');
 Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview'])->middleware('permission:integrations.dss');
 Route::post('/dss/events-journal', [DssController::class, 'eventsJournal'])->middleware('permission:integrations.dss');
+Route::post('/dss/telegram/config', [DssTelegramController::class, 'config'])->middleware('permission:integrations.dss');
+Route::post('/dss/telegram/chats/save', [DssTelegramController::class, 'saveChat'])->middleware('permission:integrations.dss');
+Route::post('/dss/telegram/chats/delete', [DssTelegramController::class, 'deleteChat'])->middleware('permission:integrations.dss');
+Route::post('/dss/telegram/chats/test', [DssTelegramController::class, 'testChat'])->middleware('permission:integrations.dss');
+Route::post('/dss/telegram/notifications/save', [DssTelegramController::class, 'saveNotifications'])->middleware('permission:integrations.dss');
 
 // Справочники
 Route::get('/references', [RouteController::class, 'references']);

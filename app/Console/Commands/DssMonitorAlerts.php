@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Services\DssNotificationService;
 use App\Services\DssObservabilityService;
+use App\Services\DssTelegramEventRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 
@@ -36,7 +37,11 @@ class DssMonitorAlerts extends Command
                 continue;
             }
 
-            $notificationService->send($this->formatAlertMessage($alert, $result['overview']));
+            $notificationService->send(
+                DssTelegramEventRegistry::EVENT_DSS_MONITOR_ALERT,
+                $this->formatAlertMessage($alert, $result['overview']),
+                ['alert_key' => $alert['key'] ?? null]
+            );
             Cache::put($cooldownKey, true, now()->addMinutes($cooldownMinutes));
             $this->warn('Alert sent: ' . $alert['key']);
         }

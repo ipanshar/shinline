@@ -20,23 +20,24 @@ use App\Models\Yard;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Constraint\Count;
 use App\Events\MessageSent;
-use App\Http\Controllers\TelegramController;
 use App\Models\EntryPermit;
 use App\Models\Visitor;
 use App\Models\Weighing;
 use App\Models\WeighingRequirement;
 use App\Services\DssPermitVehicleService;
+use App\Services\DssTelegramEventRegistry;
+use App\Services\DssTelegramNotificationManager;
 use App\Services\EntryPermitReplacementService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Telegram\Bot\Laravel\Facades\Telegram;
 
 class TaskCotroller extends Controller
 {
     public function __construct(
         private DssPermitVehicleService $permitVehicleService,
         private EntryPermitReplacementService $permitReplacementService,
+        private DssTelegramNotificationManager $telegramNotifications,
     ) {
     }
 
@@ -796,7 +797,8 @@ class TaskCotroller extends Controller
                     'task_id' => $task->id,
                 ]);
                 $ActualWarehouse = Warehouse::whereIn('id', $warehouseActive)->get();
-                    (new TelegramController())->sendNotification(
+                    $this->telegramNotifications->queue(
+                    DssTelegramEventRegistry::EVENT_VISITOR_TASK_ALREADY_ON_TERRITORY,
                     '<b>🚛 Уже на территории ' . e($yard->name) .  "</b>\n\n" .
                         '<b>🏷️ ТС:</b> '  . e($request->plate_number) . "\n" .
                         '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
@@ -804,7 +806,8 @@ class TaskCotroller extends Controller
                         '<b>👤 Водитель:</b> ' . ($task->user_id ? e(DB::table('users')->where('id', $task->user_id)->value('name')) .
                             ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
                         '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
-                        '<b>🏬 Склады:</b> ' . e($ActualWarehouse->pluck('name')->implode(', ')) . "\n" 
+                        '<b>🏬 Склады:</b> ' . e($ActualWarehouse->pluck('name')->implode(', ')) . "\n",
+                        ['task_id' => $task->id]
                 );
                 }
                
@@ -877,12 +880,14 @@ class TaskCotroller extends Controller
                 ->first();
 
             if (!$task) {
-                (new TelegramController())->sendNotification(
+                $this->telegramNotifications->queue(
+                    DssTelegramEventRegistry::EVENT_TASK_SCAN_FAILED,
                     '<b>⚠️ Ошибка сканирования</b>' . "\n\n" .
                         '<b>👤 Пользователь:</b> ' . e($user->name) . "\n" .
                         '<b>🏠 Склад:</b> ' . e($warehouse->name) . "\n" .
                         '<b>🚪 Ворота:</b> ' . e($warehouse_gate->name) . "\n" .
-                        '<i>❗ Рейс не найден</i>'
+                        '<i>❗ Рейс не найден</i>',
+                    ['task_id' => $request->task_id, 'user_id' => $request->user_id]
                 );
                 MessageSent::dispatch('Пользователь:' . $user->name . '\nСканирование: склад - ' . $warehouse->name . ' ворота' . $warehouse_gate->name . ', рейс не найден');
                 return response()->json([
@@ -890,12 +895,14 @@ class TaskCotroller extends Controller
                     'message' => 'Task not found',
                 ], 404);
             }
-            (new TelegramController())->sendNotification(
+            $this->telegramNotifications->queue(
+                DssTelegramEventRegistry::EVENT_TASK_SCAN_SUCCESS,
                 '<b>🚚 Новое сканирование!</b>' . "\n\n" .
                     '<b>👤 Пользователь:</b> ' . e($user->name) . "\n" .
                     '<b>🏠 Склад:</b> ' . e($warehouse->name) . "\n" .
                     '<b>🚪 Ворота:</b> ' . e($warehouse_gate->name) . "\n" .
-                    '<b>📦 Рейс:</b> ' . e($task->name)
+                    '<b>📦 Рейс:</b> ' . e($task->name),
+                ['task_id' => $task->id, 'warehouse_id' => $warehouse->id]
             );
             MessageSent::dispatch('Пользователь:' . $user->name . '\nСканирование: склад - ' . $warehouse->name . ' ворота' . $warehouse_gate->name . ', для выполнения рейса ' . $task->name);
             $task_loading = TaskLoading::where('task_id', $task->id)
@@ -909,11 +916,13 @@ class TaskCotroller extends Controller
                     'staus_id' => $waiting_loading->id,
                 ]);
             } else {
-                (new TelegramController())->sendNotification(
+                $this->telegramNotifications->queue(
+                    DssTelegramEventRegistry::EVENT_TASK_SCAN_WAREHOUSE_MISMATCH,
                     '<b>⚠️ Внимание!</b>' . "\n\n" .
                         '<b>👤 Пользователь:</b> ' . e($user->name) . "\n" .
                         '<b>🏠 Сканирование:</b> склад — ' . e($warehouse->name) . ', ворота — ' . e($warehouse_gate->name) . "\n" .
-                        '<i>❗ Этот склад не найден в задании</i>'
+                        '<i>❗ Этот склад не найден в задании</i>',
+                    ['task_id' => $task->id, 'warehouse_id' => $warehouse->id]
                 );
 
                 MessageSent::dispatch('Пользователь:' . $user->name . '\nСканирование: склад - ' . $warehouse->name . ' ворота' . $warehouse_gate->name . ', в задании нет этого склада');
@@ -1857,13 +1866,15 @@ class TaskCotroller extends Controller
             $warehouse = $taskLoading->warehouse;
             $user = $taskLoading->arrivalUser;
 
-            (new TelegramController())->sendNotification(
+            $this->telegramNotifications->queue(
+                DssTelegramEventRegistry::EVENT_TASK_LOADING_ARRIVAL,
                 '<b>🚛 Прибытие на склад</b>' . "\n\n" .
                 '<b>📦 Рейс:</b> ' . e($taskLoading->task->name) . "\n" .
                 '<b>🚗 ТС:</b> ' . e($truck ? $truck->plate_number : 'N/A') . "\n" .
                 '<b>🏭 Склад:</b> ' . e($warehouse->name) . "\n" .
                 '<b>⏰ Время:</b> ' . $arrivalTime->format('d.m.Y H:i:s') . "\n" .
-                '<b>👤 Оператор:</b> ' . e($user ? $user->name : 'N/A')
+                '<b>👤 Оператор:</b> ' . e($user ? $user->name : 'N/A'),
+                ['task_id' => $taskLoading->task_id, 'warehouse_id' => $warehouse->id]
             );
 
             return response()->json([
@@ -1950,7 +1961,8 @@ class TaskCotroller extends Controller
             $user = $taskLoading->departureUser;
 
             // Уведомление в Telegram
-            (new TelegramController())->sendNotification(
+            $this->telegramNotifications->queue(
+                DssTelegramEventRegistry::EVENT_TASK_LOADING_DEPARTURE,
                 '<b>🚛 Убытие со склада</b>' . "\n\n" .
                 '<b>📦 Рейс:</b> ' . e($taskLoading->task->name) . "\n" .
                 '<b>🚗 ТС:</b> ' . e($truck ? $truck->plate_number : 'N/A') . "\n" .
@@ -1958,7 +1970,8 @@ class TaskCotroller extends Controller
                 '<b>⏰ Прибытие:</b> ' . $taskLoading->arrival_at->format('d.m.Y H:i:s') . "\n" .
                 '<b>⏰ Убытие:</b> ' . $departureTime->format('d.m.Y H:i:s') . "\n" .
                 '<b>⏱ Время на складе:</b> ' . $duration . "\n" .
-                '<b>👤 Оператор:</b> ' . e($user ? $user->name : 'N/A')
+                '<b>👤 Оператор:</b> ' . e($user ? $user->name : 'N/A'),
+                ['task_id' => $taskLoading->task_id, 'warehouse_id' => $warehouse->id]
             );
 
             return response()->json([

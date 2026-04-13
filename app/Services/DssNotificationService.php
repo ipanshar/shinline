@@ -2,28 +2,28 @@
 
 namespace App\Services;
 
-use App\Jobs\SendTelegramNotificationJob;
-use App\Http\Controllers\TelegramController;
 use Illuminate\Support\Facades\Log;
 
 class DssNotificationService
 {
-    public function send(string $message): bool
+    public function __construct(private DssTelegramNotificationManager $telegramNotifications)
     {
-        SendTelegramNotificationJob::dispatch($message);
-
-        return true;
     }
 
-    public function sendNow(string $message): bool
+    public function send(string $eventKey, string $message, array $context = []): bool
+    {
+        return $this->telegramNotifications->queue($eventKey, $message, $context);
+    }
+
+    public function sendNow(string $eventKey, string $message, array $context = []): bool
     {
         try {
-            (new TelegramController())->sendNotification($message);
-
-            return true;
+            return $this->telegramNotifications->sendNow($eventKey, $message, $context);
         } catch (\Throwable $exception) {
             Log::error('DSS: Не удалось отправить уведомление', [
+                'event_key' => $eventKey,
                 'error' => $exception->getMessage(),
+                'context' => $context,
             ]);
 
             return false;

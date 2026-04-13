@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\TelegramController;
 use App\Models\Checkpoint;
 use App\Models\CheckpointExitReview;
 use App\Models\Devaice;
@@ -18,6 +17,8 @@ use App\Models\Visitor;
 use App\Models\Yard;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssParkingService;
+use App\Services\DssTelegramEventRegistry;
+use App\Services\DssTelegramNotificationManager;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\DssVisitorFlowService;
 use App\Services\EntryPermitReplacementService;
@@ -35,6 +36,7 @@ class VisitorsCotroller extends Controller
         private DssVisitorConfirmationService $confirmationService,
         private DssVisitorFlowService $visitorFlowService,
         private WeighingService $weighingService,
+        private DssTelegramNotificationManager $telegramNotifications,
     ) {
     }
 
@@ -164,7 +166,8 @@ class VisitorsCotroller extends Controller
                     'status_id' => $status,
                 ]);
                 $warehouse = DB::table('task_loadings')->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')->where('task_loadings.task_id', $task->id)->where('warehouses.yard_id', $request->yard_id)->select('warehouses.name as name')->get();
-                (new TelegramController())->sendNotification(
+                $this->telegramNotifications->queue(
+                    DssTelegramEventRegistry::EVENT_VISITOR_ENTRY_CONFIRMED,
                     '<b>🚛 Въезд на территорию ' . e($yard->name) .  "</b>\n\n" .
                         '<b>🏷️ ТС:</b> '  . e($request->plate_number) . "\n" .
                         '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
@@ -173,7 +176,8 @@ class VisitorsCotroller extends Controller
                             ' (' . e(DB::table('users')->where('id', $task->user_id)->value('phone')) . ')' : 'Не указан') . "\n" .
                         '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n" .
                         '<b>🏬 Склады:</b> ' . e($warehouse->pluck('name')->implode(', ')) . "\n" .
-                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>'
+                        '<b>🛂 Разрешение на въезд:</b> <i>' . e($PermitText) . '</i>',
+                    ['task_id' => $task->id, 'yard_id' => $request->yard_id]
                 );
 
                 // MessageSent::dispatch('На територию въехало транспортное средство ' . $request->plate_number . ', для рейса ' . $task->name);
@@ -2048,7 +2052,8 @@ class VisitorsCotroller extends Controller
 
             $permitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
 
-            (new TelegramController())->sendNotification(
+            $this->telegramNotifications->queue(
+                DssTelegramEventRegistry::EVENT_VISITOR_ENTRY_CONFIRMED,
                 '<b>🚛 Въезд на территорию ' . e($yard->name) . "</b>\n\n" .
                 '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n" .
                 '<b>📦 Задание:</b> ' . e($task->name) . "\n" .
@@ -2062,7 +2067,8 @@ class VisitorsCotroller extends Controller
                 '<b>🛂 Разрешение:</b> <i>' . e($permitText) . '</i>' .
                 ($visitor->original_plate_number !== $visitor->plate_number
                     ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . " → " . e($visitor->plate_number)
-                    : '')
+                    : ''),
+                ['task_id' => $task->id, 'yard_id' => $yardId]
             );
         }
 

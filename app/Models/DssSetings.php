@@ -34,4 +34,14 @@ class DssSetings extends Model
     {
         return $this->hasMany(DssApi::class);
     }
+
+    public function telegramChats()
+    {
+        return $this->hasMany(DssTelegramChat::class, 'dss_setings_id');
+    }
+
+    public function telegramNotifications()
+    {
+        return $this->hasMany(DssTelegramNotification::class, 'dss_setings_id');
+    }
 }

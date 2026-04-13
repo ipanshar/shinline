@@ -262,7 +262,11 @@ class DssVisitorFlowService
                 . '<b>⏱️ Прошло времени:</b> ' . $elapsedTimeText . "\n\n"
                 . '<i>Камера выезда не зафиксировала выезд. Предыдущий визит автоматически закрыт.</i>';
 
-            $this->notificationService->send($notificationText);
+            $this->notificationService->send(
+                DssTelegramEventRegistry::EVENT_DSS_MISSED_EXIT,
+                $notificationText,
+                ['truck_id' => $truck->id, 'yard_id' => $zone->yard_id]
+            );
         }
 
         $visitor = Visitor::create([
@@ -309,6 +313,7 @@ class DssVisitorFlowService
 
             $checkpointName = Checkpoint::where('id', $device->checkpoint_id)->value('name');
             $this->notificationService->send(
+                DssTelegramEventRegistry::EVENT_DSS_PENDING_ENTRY_CONFIRMATION,
                 '<b>⚠️ Требуется подтверждение въезда</b>' . "\n\n"
                 . '<b>🏷️ Распознанный номер:</b> ' . e($plateNo) . "\n"
                 . '<b>🎫 Разрешение:</b> ' . $permitText . "\n"
@@ -317,7 +322,8 @@ class DssVisitorFlowService
                 . '<b>🔒 Режим двора:</b> ' . ($isStrictMode ? '🔴 Строгий' : '🟢 Свободный') . "\n"
                 . ($confidence !== null ? '<b>🎯 Уверенность:</b> ' . $confidence . "%\n" : '')
                 . '<b>❓ Причина:</b> ' . $reason . "\n\n"
-                . '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>'
+                . '<i>Оператору КПП необходимо подтвердить или отклонить въезд</i>',
+                ['truck_id' => $truck?->id, 'yard_id' => $zone->yard_id]
             );
         }
     }

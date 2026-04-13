@@ -7,6 +7,7 @@ use App\Models\TruckZoneHistory;
 use App\Models\Visitor;
 use App\Services\DssNotificationService;
 use App\Services\DssStructuredLogger;
+use App\Services\DssTelegramEventRegistry;
 use App\Services\DssVisitorFlowService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -121,12 +122,18 @@ class DssVisitorFlowServiceTest extends TestCase
         $truck = $this->createTruck(['plate_number' => '667ACJ02']);
 
         $notificationService = Mockery::mock(DssNotificationService::class);
-        $notificationService->shouldReceive('send')->once()->with(Mockery::on(function (string $message) {
-            return str_contains($message, 'Требуется подтверждение въезда')
-                && str_contains($message, '667ACJ02')
-                && str_contains($message, '🎫 Разрешение:')
-                && str_contains($message, 'Нет активного разрешения');
-        }));
+        $notificationService->shouldReceive('send')->once()->with(
+            DssTelegramEventRegistry::EVENT_DSS_PENDING_ENTRY_CONFIRMATION,
+            Mockery::on(function (string $message) {
+                return str_contains($message, 'Требуется подтверждение въезда')
+                    && str_contains($message, '667ACJ02')
+                    && str_contains($message, '🎫 Разрешение:')
+                    && str_contains($message, 'Нет активного разрешения');
+            }),
+            Mockery::on(function (array $context) use ($yard) {
+                return ($context['yard_id'] ?? null) === $yard->id;
+            })
+        );
         $this->app->instance(DssNotificationService::class, $notificationService);
 
         $structuredLogger = Mockery::mock(DssStructuredLogger::class);
