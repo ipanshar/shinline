@@ -48,7 +48,7 @@ class DssTelegramEventRegistry
             [
                 'key' => self::EVENT_TASK_SCAN_SUCCESS,
                 'title' => 'Успешное сканирование',
-                'description' => 'Оператор успешно отсканировал склад и ворота для рейса.',
+                'description' => 'Водитель успешно отсканировал склад и ворота для рейса.',
                 'category' => 'Операции',
                 'default_enabled' => false,
                 'default_cooldown_minutes' => 0,
@@ -57,7 +57,7 @@ class DssTelegramEventRegistry
             [
                 'key' => self::EVENT_TASK_SCAN_WAREHOUSE_MISMATCH,
                 'title' => 'Склад не найден в задании',
-                'description' => 'ТС отсканировано на складе, которого нет в составе задания.',
+                'description' => 'Водитель отсканировал склад, которого нет в составе задания.',
                 'category' => 'Исключения',
                 'default_enabled' => true,
                 'default_cooldown_minutes' => 0,
@@ -66,7 +66,7 @@ class DssTelegramEventRegistry
             [
                 'key' => self::EVENT_TASK_LOADING_ARRIVAL,
                 'title' => 'Прибытие на склад',
-                'description' => 'Зафиксировано прибытие ТС на склад.',
+                'description' => 'Зафиксировано прибытие ТС на склад, по заданию.',
                 'category' => 'Операции',
                 'default_enabled' => false,
                 'default_cooldown_minutes' => 0,
@@ -75,7 +75,7 @@ class DssTelegramEventRegistry
             [
                 'key' => self::EVENT_TASK_LOADING_DEPARTURE,
                 'title' => 'Убытие со склада',
-                'description' => 'Зафиксировано убытие ТС со склада.',
+                'description' => 'Зафиксировано убытие ТС со склада, по заданию.',
                 'category' => 'Операции',
                 'default_enabled' => false,
                 'default_cooldown_minutes' => 0,
