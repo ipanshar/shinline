@@ -42,14 +42,7 @@ class DssVisitorFlowService
         }
 
         $activeStatusId = $this->statusCache->getId('active') ?? 0;
-        $permit = $truck ? EntryPermit::where('truck_id', $truck->id)
-            ->where('yard_id', $zone->yard_id)
-            ->where('status_id', '=', $activeStatusId)
-            ->where(function ($query) {
-                $query->whereNull('end_date')
-                    ->orWhere('end_date', '>=', now()->startOfDay());
-            })
-            ->first() : null;
+        $permit = $truck ? $this->findActivePermit($truck->id, $zone->yard_id, $activeStatusId) : null;
 
         $task = $permit ? Task::find($permit->task_id) : null;
         $captureTime = now();
@@ -93,8 +86,8 @@ class DssVisitorFlowService
             );
         }
 
-        if ($visitor->task_id && $completedStatus) {
-            $task = Task::find($visitor->task_id);
+        if ($completedStatus) {
+            $task = $this->resolveTaskForVisitor($visitor);
             if ($task) {
                 $task->status_id = $completedStatus->id;
                 $task->end_date = $exitTime ?? now();
@@ -291,6 +284,7 @@ class DssVisitorFlowService
 
         if ($autoConfirm) {
             $visitor->load(['yard', 'truck', 'task']);
+            $this->processConfirmedVisitorEntry($visitor, $task, $zone->yard_id);
             $this->weighingService->createRequirement($visitor);
         }
 
@@ -369,6 +363,52 @@ class DssVisitorFlowService
     private function normalizePlate(string $plateNumber): string
     {
         return strtolower(str_replace([' ', '-'], '', $plateNumber));
+    }
+
+    private function findActivePermit(int $truckId, int $yardId, int $activeStatusId): ?EntryPermit
+    {
+        return EntryPermit::query()
+            ->where('truck_id', $truckId)
+            ->where('yard_id', $yardId)
+            ->where('status_id', $activeStatusId)
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now()->startOfDay());
+            })
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    private function processConfirmedVisitorEntry(Visitor $visitor, ?Task $task, int $yardId): void
+    {
+        $task ??= $this->resolveTaskForVisitor($visitor);
+        $statusOnTerritory = $this->statusCache->get('on_territory');
+
+        if (!$task || !$statusOnTerritory) {
+            return;
+        }
+
+        $task->begin_date = $visitor->entry_date ?? now();
+        $task->yard_id = $yardId;
+        $task->status_id = $statusOnTerritory->id;
+        $task->save();
+    }
+
+    private function resolveTaskForVisitor(Visitor $visitor): ?Task
+    {
+        if ($visitor->task_id) {
+            return Task::find($visitor->task_id);
+        }
+
+        if ($visitor->entry_permit_id) {
+            $permit = EntryPermit::find($visitor->entry_permit_id);
+            if ($permit?->task_id) {
+                return Task::find($permit->task_id);
+            }
+        }
+
+        return null;
     }
 
     private function formatDurationHumanReadable($from, $to): string

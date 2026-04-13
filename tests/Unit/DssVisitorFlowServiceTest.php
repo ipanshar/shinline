@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Models\Task;
 use App\Models\TruckZoneHistory;
 use App\Models\Visitor;
 use App\Services\DssNotificationService;
@@ -145,5 +146,94 @@ class DssVisitorFlowServiceTest extends TestCase
         $this->assertNotNull($visitor);
         $this->assertSame(Visitor::CONFIRMATION_PENDING, $visitor->confirmation_status);
         $this->assertNull($visitor->confirmed_at);
+    }
+
+    public function test_auto_confirmed_entry_updates_task_status_using_latest_active_permit(): void
+    {
+        Queue::fake();
+        $statuses = $this->seedDssStatuses();
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Entry');
+        $truck = $this->createTruck(['plate_number' => 'A888BC']);
+        $task = Task::create([
+            'name' => 'DSS Task Entry',
+            'status_id' => $statuses['left_territory']->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+        ]);
+
+        $this->createPermit($truck, $yard, [
+            'task_id' => null,
+            'created_at' => now()->subMinutes(10),
+            'updated_at' => now()->subMinutes(10),
+        ]);
+
+        $latestPermit = $this->createPermit($truck, $yard, [
+            'task_id' => $task->id,
+            'created_at' => now()->subMinute(),
+            'updated_at' => now()->subMinute(),
+        ]);
+
+        app(DssVisitorFlowService::class)->handleCapture($device, $truck, [
+            'plateNo' => $truck->plate_number,
+            'captureTime' => now()->timestamp,
+        ]);
+
+        $task->refresh();
+        $visitor = Visitor::where('truck_id', $truck->id)->latest('id')->first();
+
+        $this->assertNotNull($visitor);
+        $this->assertSame($latestPermit->id, $visitor->entry_permit_id);
+        $this->assertSame($task->id, $visitor->task_id);
+        $this->assertSame($statuses['on_territory']->id, $task->status_id);
+        $this->assertNotNull($task->begin_date);
+    }
+
+    public function test_exit_updates_task_status_from_permit_when_visitor_task_id_is_missing(): void
+    {
+        Queue::fake();
+        $statuses = $this->seedDssStatuses();
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Exit');
+        $truck = $this->createTruck(['plate_number' => 'A999BC']);
+        $task = Task::create([
+            'name' => 'DSS Task Exit',
+            'status_id' => $statuses['on_territory']->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'begin_date' => now()->subHour(),
+        ]);
+        $permit = $this->createPermit($truck, $yard, [
+            'task_id' => $task->id,
+        ]);
+
+        $visitor = $this->createVisitor([
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'entry_date' => now()->subMinutes(30),
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_at' => now()->subMinutes(30),
+            'entrance_device_id' => $device->id,
+            'entry_permit_id' => $permit->id,
+            'task_id' => null,
+        ]);
+
+        app(DssVisitorFlowService::class)->closeVisitorExit($visitor, $device, now());
+
+        $task->refresh();
+        $visitor->refresh();
+
+        $this->assertNotNull($visitor->exit_date);
+        $this->assertSame($statuses['completed']->id, $task->status_id);
+        $this->assertNotNull($task->end_date);
     }
 }
