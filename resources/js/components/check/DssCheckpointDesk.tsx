@@ -150,7 +150,7 @@ const getAuthHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const parseDateValue = (value?: string | number | null) => {
+const parseDateValue = (value?: string | number | Date | null) => {
   if (value == null) return null;
 
   if (value instanceof Date) {

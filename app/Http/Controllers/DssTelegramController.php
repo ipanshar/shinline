@@ -9,6 +9,7 @@ use App\Services\DssTelegramEventRegistry;
 use App\Services\DssTelegramNotificationManager;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Telegram\Bot\Laravel\Facades\Telegram;
 
 class DssTelegramController extends Controller
 {
@@ -22,12 +23,68 @@ class DssTelegramController extends Controller
     {
         $this->notificationManager->syncDefaultNotificationsForAllChats();
 
+        $webhookUrl = (string) config('telegram.bots.mybot.webhook_url');
+
         return response()->json([
             'status' => true,
             'data' => [
                 'definitions' => $this->eventRegistry->definitions(),
                 'chats' => DssTelegramChat::query()->orderBy('sort_order')->orderBy('id')->get(),
                 'notifications' => DssTelegramNotification::query()->orderBy('telegram_chat_id')->orderBy('event_key')->get(),
+                'webhook' => [
+                    'url' => $webhookUrl,
+                    'configured' => $this->isWebhookConfigured($webhookUrl),
+                ],
+            ],
+        ]);
+    }
+
+    public function setWebhook()
+    {
+        $webhookUrl = (string) config('telegram.bots.mybot.webhook_url');
+
+        if (!$this->isWebhookConfigured($webhookUrl)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Укажите TELEGRAM_WEBHOOK_URL в .env перед установкой webhook.',
+            ], 422);
+        }
+
+        Telegram::setWebhook(['url' => $webhookUrl]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Webhook Telegram установлен.',
+            'data' => [
+                'url' => $webhookUrl,
+            ],
+        ]);
+    }
+
+    public function deleteWebhook()
+    {
+        Telegram::removeWebhook();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Webhook Telegram удалён.',
+        ]);
+    }
+
+    public function webhookInfo()
+    {
+        $info = Telegram::getWebhookInfo();
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'url' => $info->url,
+                'has_custom_certificate' => $info->hasCustomCertificate ?? false,
+                'pending_update_count' => $info->pendingUpdateCount ?? 0,
+                'last_error_date' => $info->lastErrorDate ?? null,
+                'last_error_message' => $info->lastErrorMessage ?? null,
+                'max_connections' => $info->maxConnections ?? null,
+                'ip_address' => $info->ipAddress ?? null,
             ],
         ]);
     }
@@ -133,5 +190,10 @@ class DssTelegramController extends Controller
             'status' => true,
             'message' => 'Test message sent successfully',
         ]);
+    }
+
+    private function isWebhookConfigured(string $webhookUrl): bool
+    {
+        return $webhookUrl !== '' && $webhookUrl !== 'YOUR-BOT-WEBHOOK-URL';
     }
 }

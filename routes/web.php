@@ -87,6 +87,9 @@ Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZo
 Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview'])->middleware('permission:integrations.dss');
 Route::post('/dss/events-journal', [DssController::class, 'eventsJournal'])->middleware('permission:integrations.dss');
 Route::post('/dss/telegram/config', [DssTelegramController::class, 'config'])->middleware('permission:integrations.dss');
+Route::get('/dss/telegram/webhook/info', [DssTelegramController::class, 'webhookInfo'])->middleware('permission:integrations.dss');
+Route::post('/dss/telegram/webhook/set', [DssTelegramController::class, 'setWebhook'])->middleware('permission:integrations.dss');
+Route::delete('/dss/telegram/webhook', [DssTelegramController::class, 'deleteWebhook'])->middleware('permission:integrations.dss');
 Route::post('/dss/telegram/chats/save', [DssTelegramController::class, 'saveChat'])->middleware('permission:integrations.dss');
 Route::post('/dss/telegram/chats/delete', [DssTelegramController::class, 'deleteChat'])->middleware('permission:integrations.dss');
 Route::post('/dss/telegram/chats/test', [DssTelegramController::class, 'testChat'])->middleware('permission:integrations.dss');

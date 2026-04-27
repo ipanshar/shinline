@@ -45,6 +45,21 @@ type TelegramNotificationRule = {
   last_error_at?: string | null;
 };
 
+type TelegramWebhookConfig = {
+  url: string;
+  configured: boolean;
+};
+
+type TelegramWebhookInfo = {
+  url?: string | null;
+  has_custom_certificate?: boolean;
+  pending_update_count?: number;
+  last_error_date?: number | string | null;
+  last_error_message?: string | null;
+  max_connections?: number | null;
+  ip_address?: string | null;
+};
+
 type ChatForm = {
   id?: number;
   name: string;
@@ -79,10 +94,15 @@ export default function DSSTelegramSettings() {
   const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
   const [chatForm, setChatForm] = useState<ChatForm>(emptyChatForm);
   const [ruleForm, setRuleForm] = useState<RuleForm>({});
+  const [webhook, setWebhook] = useState<TelegramWebhookConfig>({ url: '', configured: false });
   const [loading, setLoading] = useState(true);
   const [savingChat, setSavingChat] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
+  const [settingWebhook, setSettingWebhook] = useState(false);
+  const [deletingWebhook, setDeletingWebhook] = useState(false);
+  const [checkingWebhook, setCheckingWebhook] = useState(false);
+  const [webhookInfo, setWebhookInfo] = useState<TelegramWebhookInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedChat = useMemo(
@@ -100,11 +120,13 @@ export default function DSSTelegramSettings() {
       const nextDefinitions: TelegramEventDefinition[] = payload.definitions ?? [];
       const nextChats: TelegramChat[] = payload.chats ?? [];
       const nextRules: TelegramNotificationRule[] = payload.notifications ?? [];
+      const nextWebhook: TelegramWebhookConfig = payload.webhook ?? { url: '', configured: false };
       const nextSelectedChatId = preferredChatId ?? selectedChatId ?? nextChats[0]?.id ?? null;
 
       setDefinitions(nextDefinitions);
       setChats(nextChats);
       setRules(nextRules);
+      setWebhook(nextWebhook);
       setSelectedChatId(nextSelectedChatId);
 
       const chat = nextChats.find((item) => item.id === nextSelectedChatId) ?? null;
@@ -236,6 +258,45 @@ export default function DSSTelegramSettings() {
     }
   };
 
+  const handleSetWebhook = async () => {
+    try {
+      setSettingWebhook(true);
+      const response = await axios.post('/dss/telegram/webhook/set');
+      toast.success(response.data?.message || 'Webhook Telegram установлен');
+      await loadConfig(selectedChatId);
+    } catch (setWebhookError: any) {
+      toast.error(setWebhookError.response?.data?.message || setWebhookError.response?.data?.error || 'Не удалось установить webhook');
+    } finally {
+      setSettingWebhook(false);
+    }
+  };
+
+  const handleDeleteWebhook = async () => {
+    try {
+      setDeletingWebhook(true);
+      const response = await axios.delete('/dss/telegram/webhook');
+      toast.success(response.data?.message || 'Webhook Telegram удалён');
+      await loadConfig(selectedChatId);
+    } catch (deleteWebhookError: any) {
+      toast.error(deleteWebhookError.response?.data?.message || deleteWebhookError.response?.data?.error || 'Не удалось удалить webhook');
+    } finally {
+      setDeletingWebhook(false);
+    }
+  };
+
+  const handleCheckWebhook = async () => {
+    try {
+      setCheckingWebhook(true);
+      const response = await axios.get('/dss/telegram/webhook/info');
+      setWebhookInfo(response.data?.data ?? null);
+      toast.success('Информация о webhook обновлена');
+    } catch (webhookInfoError: any) {
+      toast.error(webhookInfoError.response?.data?.message || webhookInfoError.response?.data?.error || 'Не удалось получить состояние webhook');
+    } finally {
+      setCheckingWebhook(false);
+    }
+  };
+
   if (loading) {
     return (
       <Card>
@@ -264,6 +325,70 @@ export default function DSSTelegramSettings() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
+
+          <div className="mb-6 rounded-xl border p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Webhook Telegram</div>
+                <div className="text-sm text-muted-foreground">
+                  Для Bot API будет использоваться адрес из TELEGRAM_WEBHOOK_URL.
+                </div>
+              </div>
+              <Badge variant={webhook.configured ? 'default' : 'secondary'}>
+                {webhook.configured ? 'URL настроен' : 'URL не настроен'}
+              </Badge>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="telegram-webhook-url">Webhook URL</Label>
+              <Input id="telegram-webhook-url" value={webhook.url || 'TELEGRAM_WEBHOOK_URL не задан'} readOnly />
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button onClick={handleSetWebhook} disabled={settingWebhook || !webhook.configured}>
+                <Send className="mr-2 h-4 w-4" />
+                {settingWebhook ? 'Установка...' : 'Установить webhook'}
+              </Button>
+              <Button variant="secondary" onClick={handleCheckWebhook} disabled={checkingWebhook}>
+                <Bell className="mr-2 h-4 w-4" />
+                {checkingWebhook ? 'Проверка...' : 'Проверить webhook'}
+              </Button>
+              <Button variant="outline" onClick={handleDeleteWebhook} disabled={deletingWebhook}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                {deletingWebhook ? 'Удаление...' : 'Удалить webhook'}
+              </Button>
+            </div>
+
+            {webhookInfo && (
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">Активный URL</div>
+                  <div className="mt-1 break-all text-sm">{webhookInfo.url || 'Не задан'}</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">Pending updates</div>
+                  <div className="mt-1 text-sm font-medium">{webhookInfo.pending_update_count ?? 0}</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">IP Telegram</div>
+                  <div className="mt-1 text-sm">{webhookInfo.ip_address || '—'}</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">Сертификат</div>
+                  <div className="mt-1 text-sm">{webhookInfo.has_custom_certificate ? 'Пользовательский' : 'Стандартный'}</div>
+                </div>
+                <div className="rounded-lg border p-3 md:col-span-2 xl:col-span-4">
+                  <div className="text-xs text-muted-foreground">Последняя ошибка</div>
+                  <div className="mt-1 text-sm">{webhookInfo.last_error_message || 'Нет ошибок'}</div>
+                  {webhookInfo.last_error_date != null && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {formatDateTime(webhookInfo.last_error_date)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             <div className="space-y-4">
@@ -510,11 +635,12 @@ function buildRuleForm(
   return form;
 }
 
-function formatDateTime(value?: string | null): string {
+function formatDateTime(value?: string | number | null): string {
   if (!value) {
     return '—';
   }
 
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  const normalizedValue = typeof value === 'number' && value < 1_000_000_000_000 ? value * 1000 : value;
+  const date = new Date(normalizedValue);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('ru-RU');
 }
