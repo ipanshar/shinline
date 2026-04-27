@@ -7,12 +7,14 @@ use App\Models\GuestVisitPermit;
 use App\Models\GuestVisitVehicle;
 use App\Models\Task;
 use App\Models\TruckZoneHistory;
+use App\Models\User;
 use App\Models\Visitor;
 use App\Services\DssNotificationService;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssStructuredLogger;
 use App\Services\DssTelegramEventRegistry;
 use App\Services\DssVisitorFlowService;
+use App\Services\GuestVisitTelegramNotifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
@@ -253,6 +255,10 @@ class DssVisitorFlowServiceTest extends TestCase
         Queue::fake();
         $statuses = $this->seedDssStatuses();
 
+        $notifier = Mockery::mock(GuestVisitTelegramNotifier::class);
+        $notifier->shouldReceive('notifyArrival')->once();
+        $this->app->instance(GuestVisitTelegramNotifier::class, $notifier);
+
         $yard = $this->createYard(false);
         $zone = $this->createZone($yard);
         $checkpoint = $this->createCheckpoint($yard);
@@ -260,6 +266,14 @@ class DssVisitorFlowServiceTest extends TestCase
         $truck = $this->createTruck(['plate_number' => 'B101CD']);
         $permit = $this->createPermit($truck, $yard, [
             'status_id' => $statuses['active']->id,
+        ]);
+
+        $user = User::create([
+            'name' => 'Guest Visit Owner',
+            'login' => 'guest.owner',
+            'email' => 'guest-owner@example.com',
+            'password' => 'password',
+            'phone' => '+77005556677',
         ]);
 
         $guestVisit = GuestVisit::create([
@@ -275,6 +289,7 @@ class DssVisitorFlowServiceTest extends TestCase
             'workflow_status' => GuestVisit::STATUS_ACTIVE,
             'has_vehicle' => true,
             'source' => GuestVisit::SOURCE_OPERATOR,
+            'created_by_user_id' => $user->id,
         ]);
 
         $guestVehicle = GuestVisitVehicle::create([

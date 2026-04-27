@@ -3,10 +3,15 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Services\TelegramBotService;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 class TelegramController extends Controller
 {
+    public function __construct(private TelegramBotService $telegramBotService)
+    {
+    }
+
    public function sendMessage(Request $request)
     {
         $text = $request->input('message', 'Тестовое сообщение из Laravel');
@@ -21,10 +26,7 @@ class TelegramController extends Controller
     }
     public function webhook(Request $request)
     {
-        // Обработка входящих сообщений
-        $update = Telegram::commandsHandler(true);
-
-        // Дополнительная логика обработки сообщений, если необходимо
+        $this->telegramBotService->handleUpdate($request->all());
 
         return response()->json(['status' => 'Webhook received']);
     }

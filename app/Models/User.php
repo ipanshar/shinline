@@ -161,4 +161,9 @@ class User extends Authenticatable
     public function trucks() {
         return $this->belongsToMany(Truck::class, 'truck_user','user_id', 'truck_id' )->withPivot('assigned_date');;
     }
+
+    public function telegramBotChat()
+    {
+        return $this->hasOne(TelegramBotChat::class);
+    }
 }

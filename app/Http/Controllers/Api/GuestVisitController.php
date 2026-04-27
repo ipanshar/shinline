@@ -124,16 +124,15 @@ class GuestVisitController extends Controller
     public function checkIn(CheckInGuestVisitRequest $request, GuestVisitService $service)
     {
         $guestVisit = GuestVisit::findOrFail($request->integer('id'));
-
         $guestVisit->forceFill([
-            'last_entry_at' => now(),
             'last_exit_at'  => null,
         ])->save();
+        $guestVisit = $service->markArrived($guestVisit, now());
 
         return response()->json([
             'status'  => true,
             'message' => 'Приход гостя отмечен',
-            'data'    => $service->show($guestVisit->fresh()),
+            'data'    => $guestVisit,
         ]);
     }
 

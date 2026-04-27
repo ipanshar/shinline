@@ -14,6 +14,7 @@ class GuestVisitService
     public function __construct(
         private GuestVisitVehicleService $vehicleService,
         private GuestVisitPermitService $permitService,
+        private GuestVisitTelegramNotifier $telegramNotifier,
     ) {
     }
 
@@ -84,6 +85,24 @@ class GuestVisitService
     public function show(GuestVisit $guestVisit): GuestVisit
     {
         return $guestVisit->load(['yard:id,name', 'createdBy:id,name', 'approvedBy:id,name', 'cancelledBy:id,name', 'vehicles', 'permitLinks.entryPermit.status']);
+    }
+
+    public function markArrived(GuestVisit $guestVisit, $arrivedAt = null, $visitor = null): GuestVisit
+    {
+        $arrivedAt ??= now();
+
+        if ($guestVisit->last_entry_at !== null && !$arrivedAt->gt($guestVisit->last_entry_at)) {
+            return $this->show($guestVisit);
+        }
+
+        $guestVisit->forceFill([
+            'last_entry_at' => $arrivedAt,
+        ])->save();
+
+        $guestVisit = $guestVisit->fresh();
+        $this->telegramNotifier->notifyArrival($guestVisit, $visitor);
+
+        return $this->show($guestVisit);
     }
 
     public function cancel(GuestVisit $guestVisit, User $user): GuestVisit

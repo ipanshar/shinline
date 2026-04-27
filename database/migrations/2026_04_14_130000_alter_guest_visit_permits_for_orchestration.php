@@ -9,6 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        $supportsModify = DB::getDriverName() !== 'sqlite';
         $hasGuestVisitSupportIndex = Schema::hasIndex('guest_visit_permits', 'guest_visit_permits_guest_visit_id_support_idx');
         $hasEntryPermitSupportIndex = Schema::hasIndex('guest_visit_permits', 'guest_visit_permits_entry_permit_id_support_idx');
         $hasEntryPermitForeign = $this->hasForeignKey('guest_visit_permits', ['entry_permit_id']);
@@ -34,7 +35,9 @@ return new class extends Migration
             }
         });
 
-        DB::statement('ALTER TABLE guest_visit_permits MODIFY entry_permit_id BIGINT UNSIGNED NULL');
+        if ($supportsModify) {
+            DB::statement('ALTER TABLE guest_visit_permits MODIFY entry_permit_id BIGINT UNSIGNED NULL');
+        }
 
         $hasRevokedAtColumn = Schema::hasColumn('guest_visit_permits', 'revoked_at');
         $hasEntryPermitForeign = $this->hasForeignKey('guest_visit_permits', ['entry_permit_id']);
@@ -57,6 +60,7 @@ return new class extends Migration
 
     public function down(): void
     {
+        $supportsModify = DB::getDriverName() !== 'sqlite';
         $hasEntryPermitForeign = $this->hasForeignKey('guest_visit_permits', ['entry_permit_id']);
         $hasSubjectIndex = Schema::hasIndex('guest_visit_permits', 'guest_visit_permits_subject_idx');
         $hasGuestVisitSupportIndex = Schema::hasIndex('guest_visit_permits', 'guest_visit_permits_guest_visit_id_support_idx');
@@ -85,7 +89,9 @@ return new class extends Migration
             }
         });
 
-        DB::statement('ALTER TABLE guest_visit_permits MODIFY entry_permit_id BIGINT UNSIGNED NOT NULL');
+        if ($supportsModify) {
+            DB::statement('ALTER TABLE guest_visit_permits MODIFY entry_permit_id BIGINT UNSIGNED NOT NULL');
+        }
 
         $hasEntryPermitForeign = $this->hasForeignKey('guest_visit_permits', ['entry_permit_id']);
         $hasUniqueConstraint = Schema::hasIndex('guest_visit_permits', 'guest_visit_permits_unique', 'unique');

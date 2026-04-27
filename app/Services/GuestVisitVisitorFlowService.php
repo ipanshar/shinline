@@ -10,6 +10,7 @@ class GuestVisitVisitorFlowService
 {
     public function __construct(
         private GuestVisitPermitService $permitService,
+        private GuestVisitService $guestVisitService,
     ) {
     }
 
@@ -33,13 +34,8 @@ class GuestVisitVisitorFlowService
             $visitor->save();
         }
 
-        if ($guestVisit->last_entry_at === null || $entryTime->gt($guestVisit->last_entry_at)) {
-            $guestVisit->forceFill([
-                'last_entry_at' => $entryTime,
-            ])->save();
-        }
-
-        return $guestVisit->fresh(['vehicles', 'permitLinks.entryPermit.status']);
+        return $this->guestVisitService->markArrived($guestVisit, $entryTime, $visitor)
+            ->load(['vehicles', 'permitLinks.entryPermit.status']);
     }
 
     public function handleVisitorExit(Visitor $visitor, $exitTime = null): ?GuestVisit
