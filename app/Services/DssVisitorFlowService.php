@@ -21,6 +21,7 @@ class DssVisitorFlowService
     public function __construct(
         private DssNotificationService $notificationService,
         private DssVisitorConfirmationService $confirmationService,
+        private GuestVisitVisitorFlowService $guestVisitVisitorFlowService,
         private DssZoneHistoryService $zoneHistoryService,
         private DssStatusCacheService $statusCache,
         private DssStructuredLogger $structuredLogger,
@@ -124,6 +125,8 @@ class DssVisitorFlowService
                 }
             }
         }
+
+        $this->guestVisitVisitorFlowService->handleVisitorExit($visitor, $exitTime ?? now());
     }
 
     private function createOrUpdateVisitor(
@@ -285,6 +288,8 @@ class DssVisitorFlowService
             'truck_category_id' => $truck?->truck_category_id,
             'truck_brand_id' => $truck?->truck_brand_id,
         ]);
+
+        $this->guestVisitVisitorFlowService->attachToVisitor($visitor);
 
         if ($autoConfirm) {
             $visitor->load(['yard', 'truck', 'task']);

@@ -29,6 +29,7 @@ class Visitor extends Model
         'entrance_device_id',
         'exit_device_id',
         'entry_permit_id',
+        'guest_visit_id',
         'comment',
     ];
 
@@ -110,6 +111,11 @@ class Visitor extends Model
     public function task()
     {
         return $this->belongsTo(Task::class);
+    }
+
+    public function guestVisit()
+    {
+        return $this->belongsTo(GuestVisit::class);
     }
 
     /**

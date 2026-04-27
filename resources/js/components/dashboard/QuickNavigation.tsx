@@ -13,6 +13,7 @@ import {
     History,
     BookOpen,
     Ticket,
+    UserRound,
     BarChart3,
     ChevronRight,
     type LucideIcon
@@ -79,10 +80,19 @@ const quickLinks: QuickLink[] = [
         title: 'Разрешения',
         href: '/permits',
         icon: Ticket,
-        description: 'Гостевые пропуска',
+        description: 'Транспортные пропуска',
         permission: 'permits.view',
         color: 'text-pink-600',
         bgColor: 'bg-pink-100 dark:bg-pink-900/30'
+    },
+    {
+        title: 'Гости',
+        href: '/guests',
+        icon: UserRound,
+        description: 'Гостевые визиты и сопровождение',
+        permission: 'guest_visits.view',
+        color: 'text-orange-600',
+        bgColor: 'bg-orange-100 dark:bg-orange-900/30'
     },
     {
         title: 'Взвешивание',

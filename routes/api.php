@@ -17,6 +17,7 @@ use App\Http\Controllers\DssController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\GuestVisitController;
 use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\WeighingController;
@@ -67,6 +68,19 @@ Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivateP
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit'])->middleware('auth:sanctum'); //Удалить разрешение
 Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck'])->middleware('auth:sanctum'); //Получить разрешения для ТС
 Route::post('/security/import-permits', [PermitImportController::class, 'import'])->middleware('auth:sanctum'); //Массовый импорт ТС и разрешений
+
+Route::post('/security/guest-visits/list', [GuestVisitController::class, 'list'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/create', [GuestVisitController::class, 'create'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/update', [GuestVisitController::class, 'update'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/show', [GuestVisitController::class, 'show'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/cancel', [GuestVisitController::class, 'cancel'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/close', [GuestVisitController::class, 'close'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/check-in', [GuestVisitController::class, 'checkIn'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/check-out', [GuestVisitController::class, 'checkOut'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/add-vehicle', [GuestVisitController::class, 'addVehicle'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/remove-vehicle', [GuestVisitController::class, 'removeVehicle'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/issue-permits', [GuestVisitController::class, 'issuePermits'])->middleware('auth:sanctum');
+Route::post('/security/guest-visits/revoke-permits', [GuestVisitController::class, 'revokePermits'])->middleware('auth:sanctum');
 
 // Visitor Confirmation routes (полуавтоматическое подтверждение от камер DSS)
 Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
@@ -202,6 +216,9 @@ Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRole
 Route::post('/regions/getregions', [RegionController::class, 'getRegions'])->middleware('auth:sanctum'); // Получить все регионы
 Route::post('/regions/createupdate', [RegionController::class, 'createUpdateRegion'])->middleware('auth:sanctum'); // Создать или обновить регион
 
+Route::post('/telegram/webhook', [TelegramController::class, 'webhook']); // Webhook для Telegram бота
+Route::post('/telegram/set-webhook', [TelegramController::class, 'setWebhook'])->middleware('auth:sanctum'); // Установить webhook Telegram
+Route::delete('/telegram/webhook', [TelegramController::class, 'deleteWebhook'])->middleware('auth:sanctum'); // Удалить webhook Telegram
 Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
 
 // WhatsApp routes

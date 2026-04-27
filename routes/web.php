@@ -23,6 +23,7 @@ use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\GuestVisitController;
 use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\WhatsAppController;
@@ -53,6 +54,7 @@ Route::get('/tasks/operator-workplace', [RouteController::class, 'operatorWorkpl
 Route::get('/weighing', [RouteController::class, 'weighing']);
 Route::get('/check', [RouteController::class, 'check']);
 Route::get('/permits', [RouteController::class, 'permits']);
+Route::get('/guests', [RouteController::class, 'guests'])->middleware('permission:guest_visits.view');
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss'])->middleware('permission:integrations.dss');
@@ -160,6 +162,18 @@ Route::post('/security/deactivateexpired', [VisitorsCotroller::class,'deactivate
 Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit']); //Удалить разрешение
 Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck']); //Получить разрешения для ТС
 Route::post('/security/import-permits', [PermitImportController::class, 'import']); // Массовый импорт ТС и разрешений
+
+// Гостевые визиты
+Route::post('/security/guest-visits/list', [GuestVisitController::class, 'list']);
+Route::post('/security/guest-visits/create', [GuestVisitController::class, 'create']);
+Route::post('/security/guest-visits/update', [GuestVisitController::class, 'update']);
+Route::post('/security/guest-visits/show', [GuestVisitController::class, 'show']);
+Route::post('/security/guest-visits/cancel', [GuestVisitController::class, 'cancel']);
+Route::post('/security/guest-visits/close', [GuestVisitController::class, 'close']);
+Route::post('/security/guest-visits/add-vehicle', [GuestVisitController::class, 'addVehicle']);
+Route::post('/security/guest-visits/remove-vehicle', [GuestVisitController::class, 'removeVehicle']);
+Route::post('/security/guest-visits/issue-permits', [GuestVisitController::class, 'issuePermits']);
+Route::post('/security/guest-visits/revoke-permits', [GuestVisitController::class, 'revokePermits']);
 
 // Весовой контроль (Weighing)
 Route::post('/weighing/pending', [WeighingController::class, 'getPending']); // Ожидающие взвешивания

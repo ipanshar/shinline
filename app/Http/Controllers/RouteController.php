@@ -88,4 +88,8 @@ class RouteController extends Controller
         return Inertia::render('permits');
     }
 
+    public function guests(){
+        return Inertia::render('guests');
+    }
+
 }

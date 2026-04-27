@@ -22,6 +22,7 @@ use App\Services\DssTelegramNotificationManager;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\DssVisitorFlowService;
 use App\Services\EntryPermitReplacementService;
+use App\Services\GuestVisitVisitorFlowService;
 use App\Services\WeighingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,6 +36,7 @@ class VisitorsCotroller extends Controller
         private EntryPermitReplacementService $permitReplacementService,
         private DssVisitorConfirmationService $confirmationService,
         private DssVisitorFlowService $visitorFlowService,
+        private GuestVisitVisitorFlowService $guestVisitVisitorFlowService,
         private WeighingService $weighingService,
         private DssTelegramNotificationManager $telegramNotifications,
     ) {
@@ -137,6 +139,8 @@ class VisitorsCotroller extends Controller
                 'task_id' => $task ? $task->id : null,
             ]);
             $Visitor->save();
+
+            $this->guestVisitVisitorFlowService->attachToVisitor($Visitor);
 
             // Загружаем связи для корректной работы WeighingService
             $Visitor->load(['yard', 'truck', 'task']);
@@ -719,6 +723,8 @@ class VisitorsCotroller extends Controller
                 'truck_brand_id' => $truck?->truck_brand_id,
             ]);
 
+            $this->guestVisitVisitorFlowService->attachToVisitor($visitor);
+
             // Если автоподтверждение - выполняем постобработку confirmed visitor,
             // включая создание требования на взвешивание по разрешению/двору/ТС.
             if ($autoConfirm) {
@@ -1053,6 +1059,8 @@ class VisitorsCotroller extends Controller
                     $visitor->update(['entry_permit_id' => $newPermit->id]);
                 }
             }
+
+            $this->guestVisitVisitorFlowService->attachToVisitor($visitor->fresh());
 
             // Ручное создание задания на взвешивание (если нет пропуска с weighing)
             if (!empty($validate['create_weighing']) && empty($validate['create_permit'])) {
@@ -1523,6 +1531,8 @@ class VisitorsCotroller extends Controller
                 'confirmed_at' => now(),
                 'comment' => $validate['comment'] ?? null,
             ]);
+
+            $this->guestVisitVisitorFlowService->attachToVisitor($visitor->fresh());
 
             // Обработка подтверждённого посетителя, даже если задача отсутствует:
             // это нужно для создания требования на взвешивание по разрешению или политике двора.

@@ -75,4 +75,9 @@ class EntryPermit extends Model
     {
         return $this->hasOne(DssParkingPermit::class);
     }
+
+    public function guestVisitLinks()
+    {
+        return $this->hasMany(GuestVisitPermit::class);
+    }
 }

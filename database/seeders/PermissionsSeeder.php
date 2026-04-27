@@ -27,6 +27,14 @@ class PermissionsSeeder extends Seeder
             ['name' => 'permits.create', 'description' => 'Создание разрешений', 'group' => 'permits'],
             ['name' => 'permits.edit', 'description' => 'Редактирование разрешений', 'group' => 'permits'],
             ['name' => 'permits.delete', 'description' => 'Удаление разрешений', 'group' => 'permits'],
+
+            // Гостевые визиты
+            ['name' => 'guest_visits.view', 'description' => 'Просмотр гостевых визитов', 'group' => 'guest_visits'],
+            ['name' => 'guest_visits.create', 'description' => 'Создание гостевых визитов', 'group' => 'guest_visits'],
+            ['name' => 'guest_visits.update', 'description' => 'Редактирование гостевых визитов', 'group' => 'guest_visits'],
+            ['name' => 'guest_visits.close', 'description' => 'Закрытие гостевых визитов', 'group' => 'guest_visits'],
+            ['name' => 'guest_visits.cancel', 'description' => 'Отмена гостевых визитов', 'group' => 'guest_visits'],
+            ['name' => 'guest_visits.issue_permits', 'description' => 'Выпуск пропусков для гостевых визитов', 'group' => 'guest_visits'],
             
             // Весовой контроль
             ['name' => 'weighing.view', 'description' => 'Просмотр взвешиваний', 'group' => 'weighing'],
@@ -123,6 +131,7 @@ class PermissionsSeeder extends Seeder
                 'yards.view', 'yards.manage',
                 'references.view', 'references.manage',
                 'permits.view', 'permits.create', 'permits.edit', 'permits.delete',
+                'guest_visits.view', 'guest_visits.create', 'guest_visits.update', 'guest_visits.close', 'guest_visits.cancel', 'guest_visits.issue_permits',
                 'chat.view', 'chat.send',
                 'statistics.view',
             ]);
@@ -134,6 +143,7 @@ class PermissionsSeeder extends Seeder
             $this->syncPermissions($security, [
                 'visitors.view', 'visitors.create', 'visitors.exit', 'visitors.history', 'visitors.shift_report',
                 'permits.view', 'permits.create', 'permits.edit',
+                'guest_visits.view',
                 'weighing.view', 'weighing.manage',
                 'trucks.view',
                 'tasks.view',
