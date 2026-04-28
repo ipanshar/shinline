@@ -190,6 +190,8 @@ Route::post('/security/guest-visits/update', [GuestVisitController::class, 'upda
 Route::post('/security/guest-visits/show', [GuestVisitController::class, 'show']);
 Route::post('/security/guest-visits/cancel', [GuestVisitController::class, 'cancel']);
 Route::post('/security/guest-visits/close', [GuestVisitController::class, 'close']);
+Route::post('/security/guest-visits/check-in', [GuestVisitController::class, 'checkIn']);
+Route::post('/security/guest-visits/check-out', [GuestVisitController::class, 'checkOut']);
 Route::post('/security/guest-visits/add-vehicle', [GuestVisitController::class, 'addVehicle']);
 Route::post('/security/guest-visits/remove-vehicle', [GuestVisitController::class, 'removeVehicle']);
 Route::post('/security/guest-visits/issue-permits', [GuestVisitController::class, 'issuePermits']);
