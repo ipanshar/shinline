@@ -2,6 +2,9 @@ import { Head } from '@inertiajs/react';
 import { useState, useEffect, useCallback, FormEvent } from 'react';
 import axios from 'axios';
 
+// Настройка axios для Telegram Mini App
+axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+
 declare global {
     interface Window {
         Telegram?: {
@@ -77,24 +80,69 @@ export default function TelegramMiniApp() {
     const [visits, setVisits] = useState<VisitItem[]>([]);
 
     useEffect(() => {
-        const tg = window.Telegram?.WebApp;
-        tg?.ready();
-        tg?.expand();
+        // Инициализация Telegram WebApp SDK
+        const initTelegram = async () => {
+            try {
+                // Ждем когда SDK загрузится (особенно важно на мобильном Android)
+                let waitCount = 0;
+                while (!window.Telegram && waitCount < 10) {
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+                    waitCount++;
+                }
 
-        const data = tg?.initData ?? '';
-        setInitData(data);
+                const tg = window.Telegram?.WebApp;
+                if (!tg) {
+                    setLoading(false);
+                    setError('Telegram WebApp SDK не доступен. Откройте это из Telegram бота.');
+                    console.error('[TG] WebApp SDK not found after waiting');
+                    return;
+                }
 
-        if (!data) {
-            setLoading(false);
-            setError('Mini App доступен только из Telegram.');
-            return;
-        }
+                // Инициализируем SDK
+                tg.ready?.();
+                tg.expand?.();
+                document.body.style.margin = '0';
+                document.body.style.padding = '0';
+                document.body.style.backgroundColor = '#fff';
 
-        axios
-            .post('/api/telegram/miniapp/session', { init_data: data })
-            .then((r) => setSession(r.data.data))
-            .catch((e) => setError(e.response?.data?.message ?? 'Ошибка сессии'))
-            .finally(() => setLoading(false));
+                const data = tg.initData ?? '';
+                console.log('[TG] initData:', data ? data.substring(0, 50) + '...' : 'empty');
+                setInitData(data);
+
+                if (!data) {
+                    setLoading(false);
+                    setError('Mini App доступен только из Telegram.');
+                    console.warn('[TG] No initData available');
+                    return;
+                }
+
+                // Загружаем сессию - отправляем initData в headers и body для надежности
+                const response = await axios.post(
+                    '/api/telegram/miniapp/session',
+                    { init_data: data },
+                    {
+                        headers: {
+                            'X-Telegram-Init-Data': data,
+                            'Content-Type': 'application/json',
+                        },
+                    }
+                );
+                console.log('[TG] Session loaded:', response.data.data);
+                setSession(response.data.data);
+            } catch (err: any) {
+                console.error('[TG] Initialization error:', err);
+                const errorMsg = 
+                    err.response?.data?.message ?? 
+                    err.response?.status ? `HTTP ${err.response.status}` :
+                    err.message ?? 
+                    'Ошибка инициализации';
+                setError(errorMsg);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        initTelegram();
     }, []);
 
     const reload = useCallback(async () => {
@@ -112,7 +160,27 @@ export default function TelegramMiniApp() {
     }, [view, initData]);
 
     if (loading) return <Wrap><p>Загрузка…</p></Wrap>;
-    if (error) return <Wrap><p style={{ color: 'crimson' }}>{error}</p></Wrap>;
+    if (error) return (
+        <Wrap>
+            <div style={{ 
+                padding: 16, 
+                background: '#ffe0e0', 
+                borderRadius: 8, 
+                marginBottom: 16 
+            }}>
+                <p style={{ color: '#c0392b', margin: 0, fontWeight: 'bold' }}>Ошибка</p>
+                <p style={{ color: '#c0392b', margin: '8px 0 0 0' }}>{error}</p>
+                <details style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+                    <summary>Диагностика</summary>
+                    <pre style={{ overflow: 'auto', background: '#fff', padding: 8, borderRadius: 4 }}>
+Telegram SDK: {typeof window.Telegram !== 'undefined' ? 'загружен' : 'не найден'}
+WebApp: {typeof window.Telegram?.WebApp !== 'undefined' ? 'доступен' : 'не доступен'}
+initData: {initData ? 'присутствует' : 'отсутствует'}
+                    </pre>
+                </details>
+            </div>
+        </Wrap>
+    );
     if (!session) return <Wrap><p>Нет данных</p></Wrap>;
 
     const status = session.approval_status;

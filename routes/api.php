@@ -222,11 +222,13 @@ Route::delete('/telegram/webhook', [TelegramController::class, 'deleteWebhook'])
 Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
 
 // Telegram Mini App (валидируется initData в контроллере)
-Route::post('/telegram/miniapp/session', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'session']);
-Route::post('/telegram/miniapp/register', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'register']);
-Route::get('/telegram/miniapp/yards', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'yards']);
-Route::get('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'visits']);
-Route::post('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createVisit']);
+Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(function () {
+    Route::post('/telegram/miniapp/session', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'session']);
+    Route::post('/telegram/miniapp/register', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'register']);
+    Route::get('/telegram/miniapp/yards', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'yards']);
+    Route::get('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'visits']);
+    Route::post('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createVisit']);
+});
 
 // Telegram users администрирование
 Route::middleware(['auth:sanctum'])->prefix('admin/telegram-users')->group(function () {
