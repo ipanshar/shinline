@@ -14,4 +14,18 @@ class TelegramMessagingService
             'parse_mode' => 'HTML',
         ], $options));
     }
+
+    /**
+     * Отправить сообщение с inline-кнопкой, открывающей Telegram Mini App.
+     */
+    public function sendWithMiniAppButton(string $chatId, string $text, string $buttonText, string $miniAppUrl): void
+    {
+        $this->sendText($chatId, $text, [
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => $buttonText, 'web_app' => ['url' => $miniAppUrl]],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+    }
 }

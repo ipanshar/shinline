@@ -147,6 +147,12 @@ export function AppSidebar() {
                     icon: UserRound,
                     permission: 'guest_visits.view',
                 },
+                {
+                    title: 'Telegram-пользователи',
+                    href: '/telegram-users',
+                    icon: UserRound,
+                    permission: 'telegram_users.view',
+                },
             ],
         },
         {

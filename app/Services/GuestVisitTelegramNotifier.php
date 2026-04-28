@@ -19,6 +19,18 @@ class GuestVisitTelegramNotifier
         $chat = $guestVisit->createdBy?->telegramBotChat;
 
         if (!$chat) {
+            // fallback: пользователь мог быть создан через approve и связан как approved_user_id
+            $chat = \App\Models\TelegramBotChat::query()
+                ->where('approved_user_id', $guestVisit->created_by_user_id)
+                ->first();
+        }
+
+        if (!$chat) {
+            return;
+        }
+
+        // Уведомления о прибытии гостя отправляем только одобренным/привязанным чатам.
+        if ($chat->approval_status !== \App\Models\TelegramBotChat::APPROVAL_APPROVED && !$chat->user_id) {
             return;
         }
 

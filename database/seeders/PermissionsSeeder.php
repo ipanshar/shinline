@@ -83,6 +83,11 @@ class PermissionsSeeder extends Seeder
             ['name' => 'admin.users', 'description' => 'Управление пользователями', 'group' => 'admin'],
             ['name' => 'admin.permissions', 'description' => 'Управление разрешениями', 'group' => 'admin'],
             ['name' => 'admin.settings', 'description' => 'Системные настройки', 'group' => 'admin'],
+
+            // Telegram пользователи (приглашающие через бот)
+            ['name' => 'telegram_users.view', 'description' => 'Просмотр Telegram-пользователей бота', 'group' => 'telegram_users'],
+            ['name' => 'telegram_users.approve', 'description' => 'Одобрение Telegram-пользователей', 'group' => 'telegram_users'],
+            ['name' => 'telegram_users.block', 'description' => 'Блокировка Telegram-пользователей', 'group' => 'telegram_users'],
         ];
 
         // Создаём разрешения
@@ -167,6 +172,15 @@ class PermissionsSeeder extends Seeder
                 'visitors.history',
             ]);
         }
+
+        // Telegram приглашающий (роль для одобренных пользователей бота)
+        $tgInviter = Role::firstOrCreate(
+            ['name' => 'Telegram приглашающий'],
+            ['level' => 0]
+        );
+        $this->syncPermissions($tgInviter, [
+            'guest_visits.view', 'guest_visits.create',
+        ]);
     }
 
     /**

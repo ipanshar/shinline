@@ -5,6 +5,17 @@ use Telegram\Bot\Commands\HelpCommand;
 return [
     /*
     |--------------------------------------------------------------------------
+    | Mini App / Admin chats
+    |--------------------------------------------------------------------------
+    */
+    'mini_app' => [
+        'url' => env('TELEGRAM_MINI_APP_URL'),
+    ],
+    'admin_chat_ids' => array_filter(array_map('trim', explode(',', (string) env('TELEGRAM_ADMIN_CHAT_IDS', '')))),
+    'init_data_ttl' => (int) env('TELEGRAM_INIT_DATA_TTL', 86400),
+
+    /*
+    |--------------------------------------------------------------------------
     | Your Telegram Bots
     |--------------------------------------------------------------------------
     | You may use multiple bots at once using the manager class. Each bot

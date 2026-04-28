@@ -92,4 +92,12 @@ class RouteController extends Controller
         return Inertia::render('guests');
     }
 
+    public function telegramUsers(){
+        return Inertia::render('telegram_users');
+    }
+
+    public function telegramMiniApp(){
+        return Inertia::render('telegram/miniapp');
+    }
+
 }

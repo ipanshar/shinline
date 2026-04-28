@@ -55,6 +55,8 @@ Route::get('/weighing', [RouteController::class, 'weighing']);
 Route::get('/check', [RouteController::class, 'check']);
 Route::get('/permits', [RouteController::class, 'permits']);
 Route::get('/guests', [RouteController::class, 'guests'])->middleware('permission:guest_visits.view');
+Route::get('/telegram-users', [RouteController::class, 'telegramUsers'])->middleware('permission:telegram_users.view');
+Route::get('/telegram/app', [RouteController::class, 'telegramMiniApp']);
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss'])->middleware('permission:integrations.dss');
@@ -125,6 +127,20 @@ Route::prefix('rbac')->group(function () {
     Route::put('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'updateRole']); // Обновить роль
     Route::delete('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'deleteRole']); // Удалить роль
     Route::put('/roles/{role}/permissions', [\App\Http\Controllers\Api\RbacController::class, 'updateRolePermissions']); // Обновить разрешения роли
+});
+
+// Telegram users administration (session auth)
+Route::prefix('admin/telegram-users')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'index'])
+        ->middleware('permission:telegram_users.view');
+    Route::post('/{chat}/approve', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'approve'])
+        ->middleware('permission:telegram_users.approve');
+    Route::post('/{chat}/reject', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'reject'])
+        ->middleware('permission:telegram_users.approve');
+    Route::post('/{chat}/block', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'block'])
+        ->middleware('permission:telegram_users.block');
+    Route::post('/{chat}/yards', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'updateYards'])
+        ->middleware('permission:telegram_users.approve');
 });
 
 Route::get('/profile/user', [ProfileController::class, 'getUser']);

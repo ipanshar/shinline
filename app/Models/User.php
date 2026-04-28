@@ -26,6 +26,11 @@ class User extends Authenticatable
         'password',
         'phone',
         'whatsapp_number',
+        'is_telegram_guest_inviter',
+    ];
+
+    protected $attributes = [
+        'is_telegram_guest_inviter' => false,
     ];
 
     /**
@@ -48,6 +53,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_telegram_guest_inviter' => 'boolean',
         ];
     }
 

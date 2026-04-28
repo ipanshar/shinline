@@ -78,6 +78,7 @@ class TelegramBotService
             '/help' => $this->showHelp($chat),
             '/cancel' => $this->cancelFlow($chat),
             '/guest' => $this->startGuestFlow($chat),
+            '/login' => $this->beginLegacyLogin($chat),
             '/unlink' => $this->unlink($chat),
             default => false,
         };
@@ -87,18 +88,51 @@ class TelegramBotService
     {
         $chat->refresh();
 
-        if ($chat->user_id) {
+        if ($chat->user_id || $chat->isApproved()) {
             $this->clearState($chat);
             $this->sendMessage($chat->chat_id, $this->buildLinkedGreeting($chat));
 
             return true;
         }
 
-        $this->setState($chat, self::STATE_AWAITING_LOGIN);
-        $this->sendMessage(
-            $chat->chat_id,
-            "Здравствуйте. Я помогу оформить гостевой визит.\n\nВведите ваш логин из системы Shinline для привязки Telegram к учётной записи."
-        );
+        if ($chat->approval_status === TelegramBotChat::APPROVAL_AWAITING_REVIEW) {
+            $this->sendMessage($chat->chat_id, 'Ваша заявка отправлена администратору. Дождитесь подтверждения.');
+
+            return true;
+        }
+
+        if ($chat->approval_status === TelegramBotChat::APPROVAL_REJECTED) {
+            $this->sendMessage(
+                $chat->chat_id,
+                'Ваша предыдущая заявка была отклонена.' . ($chat->rejection_reason ? "\nПричина: " . $chat->rejection_reason : '')
+            );
+        }
+
+        if ($chat->approval_status === TelegramBotChat::APPROVAL_BLOCKED) {
+            $this->sendMessage($chat->chat_id, 'Доступ к боту заблокирован администратором.');
+
+            return true;
+        }
+
+        $miniAppUrl = (string) config('telegram.mini_app.url');
+        $intro = "Здравствуйте! Чтобы начать пользоваться ботом, представьтесь через мини-приложение.\n\n"
+            . 'Откройте кабинет, заполните ФИО и телефон. После одобрения администратором вы сможете оформлять гостевые визиты.';
+
+        if ($miniAppUrl !== '') {
+            $this->telegramMessaging->sendWithMiniAppButton(
+                $chat->chat_id,
+                $intro,
+                'Открыть кабинет',
+                $miniAppUrl
+            );
+        } else {
+            // Fallback: старая привязка по логину для сотрудников
+            $this->setState($chat, self::STATE_AWAITING_LOGIN);
+            $this->sendMessage(
+                $chat->chat_id,
+                "Здравствуйте. Введите ваш логин из системы Shinline для привязки Telegram к учётной записи."
+            );
+        }
 
         return true;
     }
@@ -137,17 +171,54 @@ class TelegramBotService
 
     private function startGuestFlow(TelegramBotChat $chat): bool
     {
-        if (!$chat->user_id) {
-            $this->setState($chat, self::STATE_AWAITING_LOGIN);
-            $this->sendMessage($chat->chat_id, 'Сначала привяжите Telegram к учётной записи через /start.');
+        $isLegacyLinked = (bool) $chat->user_id;
+
+        if (!$chat->isApproved() && !$isLegacyLinked) {
+            if ($chat->approval_status === TelegramBotChat::APPROVAL_AWAITING_REVIEW) {
+                $this->sendMessage($chat->chat_id, 'Ваша заявка ещё на рассмотрении. Дождитесь подтверждения администратора.');
+            } elseif ($chat->approval_status === TelegramBotChat::APPROVAL_REJECTED) {
+                $this->sendMessage($chat->chat_id, 'Ваша заявка отклонена. Создание гостевых визитов недоступно.');
+            } elseif ($chat->approval_status === TelegramBotChat::APPROVAL_BLOCKED) {
+                $this->sendMessage($chat->chat_id, 'Доступ заблокирован администратором.');
+            } else {
+                $miniAppUrl = (string) config('telegram.mini_app.url');
+                if ($miniAppUrl !== '') {
+                    $this->telegramMessaging->sendWithMiniAppButton(
+                        $chat->chat_id,
+                        'Сначала пройдите регистрацию в кабинете.',
+                        'Открыть кабинет',
+                        $miniAppUrl
+                    );
+                } else {
+                    $this->sendMessage($chat->chat_id, 'Сначала привяжите Telegram через /start.');
+                }
+            }
 
             return true;
         }
 
-        $yards = Yard::query()->orderBy('name')->get(['id', 'name']);
+        $miniAppUrl = (string) config('telegram.mini_app.url');
+        if ($chat->isApproved() && $miniAppUrl !== '') {
+            $this->telegramMessaging->sendWithMiniAppButton(
+                $chat->chat_id,
+                'Откройте кабинет, чтобы оформить гостевой визит.',
+                'Открыть кабинет',
+                $miniAppUrl
+            );
+
+            return true;
+        }
+
+        $allowedYardIds = $chat->isApproved() ? $chat->yards()->pluck('yards.id')->all() : null;
+
+        $yardsQuery = Yard::query()->orderBy('name');
+        if (is_array($allowedYardIds)) {
+            $yardsQuery->whereIn('id', $allowedYardIds);
+        }
+        $yards = $yardsQuery->get(['id', 'name']);
 
         if ($yards->isEmpty()) {
-            $this->sendMessage($chat->chat_id, 'В системе нет доступных площадок для оформления визита.');
+            $this->sendMessage($chat->chat_id, 'Нет доступных площадок для оформления визита.');
 
             return true;
         }
@@ -171,6 +242,20 @@ class TelegramBotService
             'yard_options' => $options,
         ]);
         $this->sendMessage($chat->chat_id, implode("\n", $lines));
+
+        return true;
+    }
+
+    private function beginLegacyLogin(TelegramBotChat $chat): bool
+    {
+        if ($chat->user_id) {
+            $this->sendMessage($chat->chat_id, 'Telegram уже привязан к учётной записи.');
+
+            return true;
+        }
+
+        $this->setState($chat, self::STATE_AWAITING_LOGIN);
+        $this->sendMessage($chat->chat_id, 'Введите ваш логин из системы Shinline для привязки Telegram к учётной записи.');
 
         return true;
     }
@@ -404,7 +489,7 @@ class TelegramBotService
 
     private function handleGuestComment(TelegramBotChat $chat, string $text): void
     {
-        $user = $chat->user;
+        $user = $chat->user ?? $chat->approvedUser;
 
         if (!$user) {
             $this->setState($chat, self::STATE_AWAITING_LOGIN);

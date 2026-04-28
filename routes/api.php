@@ -221,6 +221,27 @@ Route::post('/telegram/set-webhook', [TelegramController::class, 'setWebhook'])-
 Route::delete('/telegram/webhook', [TelegramController::class, 'deleteWebhook'])->middleware('auth:sanctum'); // Удалить webhook Telegram
 Route::post('/telegram/sendmessage', [TelegramController::class, 'sendMessage']); // Отправка сообщения в Telegram
 
+// Telegram Mini App (валидируется initData в контроллере)
+Route::post('/telegram/miniapp/session', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'session']);
+Route::post('/telegram/miniapp/register', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'register']);
+Route::get('/telegram/miniapp/yards', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'yards']);
+Route::get('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'visits']);
+Route::post('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createVisit']);
+
+// Telegram users администрирование
+Route::middleware(['auth:sanctum'])->prefix('admin/telegram-users')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'index'])
+        ->middleware('permission:telegram_users.view');
+    Route::post('/{chat}/approve', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'approve'])
+        ->middleware('permission:telegram_users.approve');
+    Route::post('/{chat}/reject', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'reject'])
+        ->middleware('permission:telegram_users.approve');
+    Route::post('/{chat}/block', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'block'])
+        ->middleware('permission:telegram_users.block');
+    Route::patch('/{chat}/yards', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'updateYards'])
+        ->middleware('permission:telegram_users.approve');
+});
+
 // WhatsApp routes
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'WhatsAppAlarmAdd']); // Логирование тревог из WhatsApp
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'verify']); // Верификация вебхука WhatsApp
