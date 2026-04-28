@@ -38,6 +38,8 @@ Route::get('/privacy', [RouteController::class, 'privacy']);
 // Публичная форма регистрации клиента (без авторизации)
 Route::get('/client-registration', [ClientRegistrationController::class, 'showForm'])->name('client.registration');
 Route::post('/client-registration', [ClientRegistrationController::class, 'store'])->name('client.registration.store');
+// Публичный вход для Telegram Mini App (без авторизации через сайт)
+Route::get('/telegram/app', [RouteController::class, 'telegramMiniApp']);
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');
@@ -56,7 +58,6 @@ Route::get('/check', [RouteController::class, 'check']);
 Route::get('/permits', [RouteController::class, 'permits']);
 Route::get('/guests', [RouteController::class, 'guests'])->middleware('permission:guest_visits.view');
 Route::get('/telegram-users', [RouteController::class, 'telegramUsers'])->middleware('permission:telegram_users.view');
-Route::get('/telegram/app', [RouteController::class, 'telegramMiniApp']);
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
 Route::get('/integration_dss', [RouteController::class, 'integration_dss'])->middleware('permission:integrations.dss');
