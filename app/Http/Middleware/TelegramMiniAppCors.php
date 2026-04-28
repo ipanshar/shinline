@@ -13,18 +13,23 @@ class TelegramMiniAppCors
      */
     public function handle(Request $request, Closure $next): Response
     {
+        $headers = [
+            'Access-Control-Allow-Origin'  => '*',
+            'Access-Control-Allow-Methods' => 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, X-Telegram-Init-Data, X-Requested-With',
+            'Access-Control-Max-Age'       => '3600',
+            // Намеренно НЕ устанавливаем Allow-Credentials, т.к. несовместимо с Allow-Origin: *
+        ];
+
+        // Preflight нужно обработать ДО вызова контроллера
+        if ($request->getMethod() === 'OPTIONS') {
+            return response('', 204, $headers);
+        }
+
         $response = $next($request);
 
-        // Разрешаем запросы из Telegram Mini App контекста
-        $response->headers->set('Access-Control-Allow-Origin', '*');
-        $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-        $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Telegram-Init-Data');
-        $response->headers->set('Access-Control-Max-Age', '3600');
-        $response->headers->set('Access-Control-Allow-Credentials', 'true');
-
-        // Для preflight запросов
-        if ($request->getMethod() === 'OPTIONS') {
-            return response('', 200)->withHeaders($response->headers->all());
+        foreach ($headers as $key => $value) {
+            $response->headers->set($key, $value);
         }
 
         return $response;

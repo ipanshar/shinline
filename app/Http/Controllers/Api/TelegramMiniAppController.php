@@ -107,7 +107,7 @@ class TelegramMiniAppController extends Controller
         $payload = array_merge($validated, [
             'host_name' => $user->name,
             'host_phone' => $user->phone ?: ($chat->display_phone ?? 'не указан'),
-            'source' => GuestVisit::SOURCE_OPERATOR,
+            'source' => GuestVisit::SOURCE_TELEGRAM_BOT,
             'visit_starts_at' => Carbon::parse($validated['visit_starts_at'])->toDateTimeString(),
             'visit_ends_at' => isset($validated['visit_ends_at']) ? Carbon::parse($validated['visit_ends_at'])->toDateTimeString() : null,
             'vehicles' => $validated['vehicles'] ?? [],

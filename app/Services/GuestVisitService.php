@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendGuestVisitArrivalNotificationJob;
 use App\Models\GuestVisit;
 use App\Models\GuestVisitVehicle;
 use App\Models\User;
@@ -95,12 +96,17 @@ class GuestVisitService
             return $this->show($guestVisit);
         }
 
+        // Считаем повторным входом, если ранее уже фиксировался приход
+        // (last_entry_at был выставлен) и сейчас гость возвращается после check-out.
+        $isReentry = $guestVisit->last_entry_at !== null;
+
         $guestVisit->forceFill([
             'last_entry_at' => $arrivedAt,
         ])->save();
 
         $guestVisit = $guestVisit->fresh();
-        $this->telegramNotifier->notifyArrival($guestVisit, $visitor);
+
+        SendGuestVisitArrivalNotificationJob::dispatch($guestVisit->id, $isReentry);
 
         return $this->show($guestVisit);
     }

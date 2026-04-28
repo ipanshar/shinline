@@ -19,6 +19,7 @@ class GuestVisit extends Model
     public const SOURCE_OPERATOR = 'operator';
     public const SOURCE_INTEGRATION = 'integration';
     public const SOURCE_IMPORT = 'import';
+    public const SOURCE_TELEGRAM_BOT = 'telegram_bot';
 
     protected $fillable = [
         'yard_id',

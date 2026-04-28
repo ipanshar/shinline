@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\GuestVisit;
+use App\Models\TelegramBotChat;
 use App\Models\Visitor;
 use Illuminate\Support\Facades\Log;
 
@@ -12,15 +13,20 @@ class GuestVisitTelegramNotifier
     {
     }
 
-    public function notifyArrival(GuestVisit $guestVisit, ?Visitor $visitor = null): void
+    public function notifyArrival(GuestVisit $guestVisit, ?Visitor $visitor = null, bool $isReentry = false): void
     {
-        $guestVisit->loadMissing(['yard:id,name', 'createdBy.telegramBotChat']);
+        // Уведомление шлём только по визитам, созданным через Telegram-бот.
+        if ($guestVisit->source !== GuestVisit::SOURCE_TELEGRAM_BOT) {
+            return;
+        }
+
+        $guestVisit->loadMissing(['yard:id,name', 'createdBy.telegramBotChat', 'vehicles']);
 
         $chat = $guestVisit->createdBy?->telegramBotChat;
 
         if (!$chat) {
             // fallback: пользователь мог быть создан через approve и связан как approved_user_id
-            $chat = \App\Models\TelegramBotChat::query()
+            $chat = TelegramBotChat::query()
                 ->where('approved_user_id', $guestVisit->created_by_user_id)
                 ->first();
         }
@@ -30,11 +36,11 @@ class GuestVisitTelegramNotifier
         }
 
         // Уведомления о прибытии гостя отправляем только одобренным/привязанным чатам.
-        if ($chat->approval_status !== \App\Models\TelegramBotChat::APPROVAL_APPROVED && !$chat->user_id) {
+        if ($chat->approval_status !== TelegramBotChat::APPROVAL_APPROVED && !$chat->user_id) {
             return;
         }
 
-        $message = $this->buildArrivalMessage($guestVisit, $visitor);
+        $message = $this->buildArrivalMessage($guestVisit, $visitor, $isReentry);
 
         try {
             $this->telegramMessaging->sendText($chat->chat_id, $message);
@@ -45,13 +51,19 @@ class GuestVisitTelegramNotifier
                 'chat_id' => $chat->chat_id,
                 'error' => $exception->getMessage(),
             ]);
+
+            throw $exception;
         }
     }
 
-    private function buildArrivalMessage(GuestVisit $guestVisit, ?Visitor $visitor = null): string
+    private function buildArrivalMessage(GuestVisit $guestVisit, ?Visitor $visitor, bool $isReentry): string
     {
+        $title = $isReentry
+            ? '<b>🔁 Повторный вход гостя на территорию</b>'
+            : '<b>✅ Гость прибыл на территорию</b>';
+
         $lines = [
-            '<b>Гость прибыл на территорию</b>',
+            $title,
             '',
             '<b>Гость:</b> ' . e($guestVisit->guest_full_name),
             '<b>Объект:</b> ' . e($guestVisit->yard?->name ?? 'Не указан'),
@@ -60,14 +72,54 @@ class GuestVisitTelegramNotifier
             '<b>Телефон гостя:</b> ' . e($guestVisit->guest_phone),
         ];
 
-        if ($visitor?->plate_number) {
-            $lines[] = '<b>Номер ТС:</b> ' . e($visitor->plate_number);
+        $vehicleLines = $this->buildVehicleLines($guestVisit, $visitor);
+        if ($vehicleLines !== []) {
+            $lines[] = '';
+            $lines = array_merge($lines, $vehicleLines);
         }
 
         if ($guestVisit->comment) {
+            $lines[] = '';
             $lines[] = '<b>Комментарий:</b> ' . e($guestVisit->comment);
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @return string[]
+     */
+    private function buildVehicleLines(GuestVisit $guestVisit, ?Visitor $visitor): array
+    {
+        $vehicles = $guestVisit->relationLoaded('vehicles')
+            ? $guestVisit->vehicles
+            : $guestVisit->vehicles()->get();
+
+        $lines = [];
+        $index = 1;
+        $count = $vehicles->count();
+
+        foreach ($vehicles as $vehicle) {
+            $parts = array_filter([
+                $vehicle->plate_number,
+                trim((string) ($vehicle->brand . ' ' . $vehicle->model)) ?: null,
+                $vehicle->color,
+            ]);
+
+            if ($parts === []) {
+                continue;
+            }
+
+            $prefix = $count > 1 ? '<b>ТС ' . $index . ':</b> ' : '<b>ТС:</b> ';
+            $lines[] = $prefix . e(implode(', ', $parts));
+            $index++;
+        }
+
+        // fallback: если у визита нет машин, но передан Visitor с гос.номером — выводим его.
+        if ($lines === [] && $visitor?->plate_number) {
+            $lines[] = '<b>ТС:</b> ' . e($visitor->plate_number);
+        }
+
+        return $lines;
     }
 }

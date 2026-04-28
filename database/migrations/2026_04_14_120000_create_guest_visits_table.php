@@ -27,7 +27,7 @@ return new class extends Migration
             $table->dateTime('last_entry_at')->nullable();
             $table->dateTime('last_exit_at')->nullable();
             $table->dateTime('closed_at')->nullable();
-            $table->enum('source', ['operator', 'integration', 'import'])->default('operator');
+            $table->enum('source', ['operator', 'integration', 'import', 'telegram_bot'])->default('operator');
             $table->foreignId('created_by_user_id')->constrained('users');
             $table->foreignId('approved_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('cancelled_by_user_id')->nullable()->constrained('users')->nullOnDelete();
