@@ -97,7 +97,7 @@ class RouteController extends Controller
     }
 
     public function telegramMiniApp(){
-        return Inertia::render('telegram/miniapp');
+        return view('telegram-miniapp');
     }
 
 }
