@@ -96,7 +96,7 @@ class TelegramMiniAppController extends Controller
             'visit_starts_at' => ['required', 'date'],
             'visit_ends_at' => ['nullable', 'date', 'after_or_equal:visit_starts_at'],
             'permit_kind' => ['required', Rule::in([GuestVisit::PERMIT_KIND_ONE_TIME, GuestVisit::PERMIT_KIND_MULTI_TIME])],
-            'comment' => ['nullable', 'string', 'max:500'],
+            'comment' => ['required', 'string', 'max:500'],
             'vehicles' => ['nullable', 'array'],
             'vehicles.*.plate_number' => ['required_with:vehicles', 'string', 'max:32'],
         ]);

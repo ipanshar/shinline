@@ -460,7 +460,7 @@ class TelegramBotService
         }
 
         $this->setState($chat, self::STATE_GUEST_COMMENT, $payload);
-        $this->sendMessage($chat->chat_id, 'Введите комментарий или отправьте - чтобы пропустить.');
+        $this->sendMessage($chat->chat_id, 'Введите цель визита.');
     }
 
     private function handleGuestEndAt(TelegramBotChat $chat, string $text): void
@@ -484,7 +484,7 @@ class TelegramBotService
 
         $payload['visit_ends_at'] = $date->toDateTimeString();
         $this->setState($chat, self::STATE_GUEST_COMMENT, $payload);
-        $this->sendMessage($chat->chat_id, 'Введите комментарий или отправьте - чтобы пропустить.');
+        $this->sendMessage($chat->chat_id, 'Введите цель визита.');
     }
 
     private function handleGuestComment(TelegramBotChat $chat, string $text): void
@@ -499,7 +499,14 @@ class TelegramBotService
         }
 
         $payload = $chat->state_payload ?? [];
-        $payload['comment'] = trim($text) === '-' ? null : trim($text);
+        $purpose = trim($text);
+        if ($purpose === '' || $purpose === '-') {
+            $this->sendMessage($chat->chat_id, 'Цель визита обязательна. Введите цель визита текстом.');
+
+            return;
+        }
+
+        $payload['comment'] = $purpose;
         $payload['host_name'] = $user->name;
         $payload['host_phone'] = $user->phone ?: 'не указан';
         $payload['source'] = GuestVisit::SOURCE_OPERATOR;

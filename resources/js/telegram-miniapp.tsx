@@ -24,6 +24,15 @@ declare global {
                 };
                 ready: () => void;
                 expand: () => void;
+                close?: () => void;
+                themeParams?: Record<string, string>;
+                MainButton?: {
+                    setText: (text: string) => void;
+                    show: () => void;
+                    hide: () => void;
+                    onClick: (callback: () => void) => void;
+                    offClick: (callback: () => void) => void;
+                };
             };
         };
     }
@@ -55,6 +64,7 @@ interface VisitItem {
     workflow_status: string;
     permit_kind: string;
     visit_starts_at: string;
+    comment: string | null;
     yard?: { id: number; name: string };
 }
 
@@ -218,7 +228,7 @@ function CreateVisitForm({
     const [startsAt, setStartsAt] = useState(() => new Date(Date.now() + 3600_000).toISOString().slice(0, 16));
     const [endsAt, setEndsAt] = useState('');
     const [permitKind, setPermitKind] = useState<'one_time' | 'multi_time'>('one_time');
-    const [comment, setComment] = useState('');
+    const [visitPurpose, setVisitPurpose] = useState('');
     const [plate, setPlate] = useState('');
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
@@ -226,6 +236,10 @@ function CreateVisitForm({
     const submit = async (e: FormEvent) => {
         e.preventDefault();
         if (!yardId) return;
+        if (visitPurpose.trim() === '') {
+            setErr('Укажите цель визита');
+            return;
+        }
         setBusy(true);
         setErr(null);
         try {
@@ -239,7 +253,7 @@ function CreateVisitForm({
                 visit_starts_at: startsAt,
                 visit_ends_at: permitKind === 'multi_time' ? endsAt || null : null,
                 permit_kind: permitKind,
-                comment: comment || null,
+                comment: visitPurpose.trim(),
                 vehicles: plate ? [{ plate_number: plate }] : [],
             });
             onDone();
@@ -282,8 +296,8 @@ function CreateVisitForm({
             )}
             <label>Гос. номер ТС (опционально)</label>
             <input style={inputStyle} value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} />
-            <label>Комментарий</label>
-            <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
+            <label>Цель визита</label>
+            <textarea style={{ ...inputStyle, minHeight: 60 }} value={visitPurpose} onChange={(e) => setVisitPurpose(e.target.value)} required />
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
             <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать визит'}</button>
             <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
@@ -302,6 +316,7 @@ function VisitList({ visits, onBack }: { visits: VisitItem[]; onBack: () => void
                     <div>Площадка: {v.yard?.name ?? '—'}</div>
                     <div>Начало: {new Date(v.visit_starts_at).toLocaleString()}</div>
                     <div>Тип: {v.permit_kind === 'multi_time' ? 'Многоразовый' : 'Разовый'}</div>
+                    {v.comment && <div>Цель визита: {v.comment}</div>}
                     <div>Статус: {v.workflow_status}</div>
                 </div>
             ))}

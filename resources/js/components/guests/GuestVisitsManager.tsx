@@ -299,6 +299,7 @@ const GuestVisitsManager: React.FC = () => {
             { value: formData.guest_phone, message: 'Укажите телефон гостя' },
             { value: formData.host_name, message: 'Укажите встречающую сторону' },
             { value: formData.host_phone, message: 'Укажите телефон встречающего' },
+            { value: formData.comment, message: 'Укажите цель визита' },
             { value: formData.visit_starts_at, message: 'Укажите время начала визита' },
         ];
 
@@ -328,7 +329,7 @@ const GuestVisitsManager: React.FC = () => {
                 host_name: formData.host_name.trim(),
                 host_phone: formData.host_phone.trim(),
                 visit_ends_at: formData.visit_ends_at || null,
-                comment: formData.comment.trim() || null,
+                comment: formData.comment.trim(),
                 vehicles: formData.vehicles.filter((vehicle) => vehicle.plate_number.trim() !== ''),
             };
 
@@ -550,6 +551,7 @@ const GuestVisitsManager: React.FC = () => {
                             <th className="px-4 py-3 text-left font-medium">Гость</th>
                             <th className="px-4 py-3 text-left font-medium">Компания / Должность</th>
                             <th className="px-4 py-3 text-left font-medium">Встречает</th>
+                            <th className="px-4 py-3 text-left font-medium">Цель визита</th>
                             <th className="px-4 py-3 text-left font-medium">Двор</th>
                             <th className="px-4 py-3 text-left font-medium">Период</th>
                             <th className="px-4 py-3 text-left font-medium">Тип</th>
@@ -562,11 +564,11 @@ const GuestVisitsManager: React.FC = () => {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Загрузка гостевых визитов...</td>
+                                <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">Загрузка гостевых визитов...</td>
                             </tr>
                         ) : guestVisits.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">По выбранным фильтрам записи не найдены.</td>
+                                <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">По выбранным фильтрам записи не найдены.</td>
                             </tr>
                         ) : (
                             guestVisits.map((visit) => {
@@ -588,6 +590,13 @@ const GuestVisitsManager: React.FC = () => {
                                         <td className="px-4 py-3">
                                             <div>{visit.host_name}</div>
                                             <div className="text-xs text-muted-foreground">{visit.host_phone}</div>
+                                        </td>
+                                        <td className="px-4 py-3 max-w-[220px]">
+                                            {visit.comment ? (
+                                                <div className="text-sm leading-snug text-foreground">{visit.comment}</div>
+                                            ) : (
+                                                <span className="text-muted-foreground">—</span>
+                                            )}
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             {visit.yard?.name || `Двор #${visit.yard_id}`}
@@ -795,8 +804,8 @@ const GuestVisitsManager: React.FC = () => {
                                 <Input type="datetime-local" value={formData.visit_ends_at} onChange={(event) => setFormData((prev) => ({ ...prev, visit_ends_at: event.target.value }))} />
                             </div>
                             <div className="grid gap-2">
-                                <Label>Комментарий</Label>
-                                <Textarea value={formData.comment} onChange={(event) => setFormData((prev) => ({ ...prev, comment: event.target.value }))} />
+                                <Label>Цель визита</Label>
+                                <Textarea value={formData.comment} onChange={(event) => setFormData((prev) => ({ ...prev, comment: event.target.value }))} required />
                             </div>
                         </div>
 

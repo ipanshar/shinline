@@ -27,7 +27,7 @@ class CreateGuestVisitRequest extends FormRequest
             'visit_starts_at' => ['required', 'date'],
             'visit_ends_at' => ['nullable', 'date', 'after_or_equal:visit_starts_at'],
             'permit_kind' => ['required', Rule::in([GuestVisit::PERMIT_KIND_ONE_TIME, GuestVisit::PERMIT_KIND_MULTI_TIME])],
-            'comment' => ['nullable', 'string', 'max:1000'],
+            'comment' => ['required', 'string', 'max:1000'],
             'source' => ['nullable', Rule::in([GuestVisit::SOURCE_OPERATOR, GuestVisit::SOURCE_INTEGRATION, GuestVisit::SOURCE_IMPORT])],
             'vehicles' => ['nullable', 'array'],
             'vehicles.*.id' => ['nullable', 'integer', 'exists:guest_visit_vehicles,id'],

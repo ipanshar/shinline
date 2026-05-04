@@ -20,10 +20,10 @@ declare global {
                 };
                 ready: () => void;
                 expand: () => void;
-                close: () => void;
+                close?: () => void;
                 themeParams?: Record<string, string>;
                 MainButton?: {
-                    setText: (t: string) => void;
+                    setText: (text: string) => void;
                     show: () => void;
                     hide: () => void;
                     onClick: (cb: () => void) => void;
@@ -379,6 +379,10 @@ function CreateVisitForm({
     const submit = async (e: FormEvent) => {
         e.preventDefault();
         if (!yardId) return;
+        if (comment.trim() === '') {
+            setErr('Укажите цель визита');
+            return;
+        }
         setBusy(true);
         setErr(null);
         try {
@@ -392,7 +396,7 @@ function CreateVisitForm({
                 visit_starts_at: startsAt,
                 visit_ends_at: permitKind === 'multi_time' ? endsAt || null : null,
                 permit_kind: permitKind,
-                comment: comment || null,
+                comment: comment.trim(),
                 vehicles: plate ? [{ plate_number: plate }] : [],
             });
             onDone();
@@ -435,8 +439,8 @@ function CreateVisitForm({
             )}
             <label>Гос. номер ТС (опционально)</label>
             <input style={input} value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} />
-            <label>Комментарий</label>
-            <textarea style={{ ...input, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
+            <label>Цель визита</label>
+            <textarea style={{ ...input, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} required />
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
             <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать визит'}</button>
             <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
