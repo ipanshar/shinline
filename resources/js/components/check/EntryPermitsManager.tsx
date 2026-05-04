@@ -177,7 +177,7 @@ const EntryPermitsManager: React.FC = () => {
     user_id: null,
     one_permission: false,
     weighing_required: null,
-    exit_permit_required: false,
+    exit_permit_required: true,
     begin_date: "",
     end_date: "",
     comment: "",
@@ -367,7 +367,7 @@ const EntryPermitsManager: React.FC = () => {
       user_id: null,
       one_permission: false,
       weighing_required: null,
-      exit_permit_required: false,
+      exit_permit_required: true,
       begin_date: format(new Date(), "yyyy-MM-dd"),
       end_date: "",
       comment: "",
@@ -394,7 +394,7 @@ const EntryPermitsManager: React.FC = () => {
       user_id: permit.user_id,
       one_permission: permit.one_permission,
       weighing_required: permit.weighing_required,
-      exit_permit_required: permit.exit_permit_required || false,
+      exit_permit_required: permit.exit_permit_required ?? true,
       begin_date: permit.begin_date ? format(new Date(permit.begin_date), "yyyy-MM-dd") : "",
       end_date: permit.end_date ? format(new Date(permit.end_date), "yyyy-MM-dd") : "",
       comment: permit.comment || "",
@@ -1572,13 +1572,13 @@ const EntryPermitsManager: React.FC = () => {
               <input
                 type="checkbox"
                 className="mt-1"
-                checked={formData.exit_permit_required}
-                onChange={(event) => setFormData((prev) => ({ ...prev, exit_permit_required: event.target.checked }))}
+                checked={!formData.exit_permit_required}
+                onChange={(event) => setFormData((prev) => ({ ...prev, exit_permit_required: !event.target.checked }))}
               />
               <span>
-                Требуется разрешение на выезд
+                Свободный выезд без Telegram-разрешения
                 <span className="block text-xs text-muted-foreground">
-                  ТС с этим пропуском сможет выехать только после создания разрешения в Telegram Mini App или ручного выпуска охраной с причиной.
+                  Включайте только для ТС, которым разрешено выезжать без заявки в Telegram Mini App. По умолчанию разрешение на выезд требуется.
                 </span>
               </span>
             </label>

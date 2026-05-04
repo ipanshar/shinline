@@ -2356,7 +2356,7 @@ class VisitorsCotroller extends Controller
                     'task_id' => $validate['task_id'] ?? null,
                     'one_permission' => $validate['one_permission'],
                     'weighing_required' => $validate['weighing_required'] ?? null,
-                    'exit_permit_required' => $validate['exit_permit_required'] ?? false,
+                    'exit_permit_required' => $validate['exit_permit_required'] ?? true,
                     'begin_date' => $validate['begin_date'],
                     'end_date' => $validate['end_date'],
                     'status_id' => $activeStatus->id,

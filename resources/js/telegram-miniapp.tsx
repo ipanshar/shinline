@@ -330,12 +330,24 @@ function ExitPermitList({
     const [err, setErr] = useState<string | null>(null);
 
     const normalizedSearch = search.trim().toLowerCase().replace(/[\s-]/g, '');
-    const filteredVisitors = visitors.filter((visitor) => {
-        if (yardId !== 'all' && visitor.yard_id !== yardId) return false;
-        if (!normalizedSearch) return true;
+    const filteredVisitors = visitors
+        .filter((visitor) => {
+            if (yardId !== 'all' && visitor.yard_id !== yardId) return false;
+            if (!normalizedSearch) return true;
 
-        return visitor.plate_number.toLowerCase().replace(/[\s-]/g, '').includes(normalizedSearch);
-    });
+            return visitor.plate_number.toLowerCase().replace(/[\s-]/g, '').includes(normalizedSearch);
+        })
+        .sort((left, right) => {
+            if (left.exit_permit_required !== right.exit_permit_required) {
+                return left.exit_permit_required ? -1 : 1;
+            }
+
+            if (left.has_active_exit_permit !== right.has_active_exit_permit) {
+                return left.has_active_exit_permit ? 1 : -1;
+            }
+
+            return new Date(left.entry_date).getTime() - new Date(right.entry_date).getTime();
+        });
 
     const createPermit = async (visitor: ActiveVisitorItem) => {
         setBusyVisitorId(visitor.id);
@@ -380,7 +392,7 @@ function ExitPermitList({
                     <div>Въезд: {new Date(visitor.entry_date).toLocaleString()}</div>
                     {visitor.company && <div>Компания: {visitor.company}</div>}
                     {!visitor.exit_permit_required ? (
-                        <div style={{ marginTop: 8, color: '#555' }}>Для этого ТС разрешение на выезд не требуется.</div>
+                        <div style={{ marginTop: 8, color: '#555' }}>Свободный выезд: Telegram-разрешение не требуется.</div>
                     ) : visitor.has_active_exit_permit ? (
                         <div style={{ marginTop: 8, color: '#2e8b2e' }}>
                             Разрешение активно до {visitor.exit_permit?.valid_until ? new Date(visitor.exit_permit.valid_until).toLocaleString() : 'без срока'}

@@ -16,7 +16,7 @@ class ExitPermitService
     {
         $permit = $this->resolveEntryPermitForVisitor($visitor);
 
-        return (bool) ($permit?->exit_permit_required ?? false);
+        return (bool) ($permit?->exit_permit_required ?? true);
     }
 
     public function findActiveForVisitor(Visitor $visitor): ?ExitPermit
