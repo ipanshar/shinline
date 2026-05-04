@@ -58,6 +58,23 @@ interface VisitItem {
     yard?: { id: number; name: string };
 }
 
+interface ActiveVisitorItem {
+    id: number;
+    yard_id: number;
+    yard?: { id: number; name: string } | null;
+    truck_id: number | null;
+    plate_number: string;
+    entry_date: string;
+    company: string | null;
+    name: string | null;
+    has_active_exit_permit: boolean;
+    exit_permit: {
+        id: number;
+        valid_until: string | null;
+        comment: string | null;
+    } | null;
+}
+
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
     none: 'Не зарегистрирован',
     awaiting_review: 'Ожидает подтверждения',
@@ -163,16 +180,19 @@ function Dashboard({
     session,
     onCreate,
     onVisits,
+    onExitPermits,
 }: {
     session: SessionPayload;
     onCreate: () => void;
     onVisits: () => void;
+    onExitPermits: () => void;
 }) {
     return (
         <>
             <p>Добро пожаловать, <strong>{session.user?.name ?? session.profile.full_name}</strong>!</p>
             <p>Площадки: {session.yards.length === 0 ? 'не назначены' : session.yards.map((y) => y.name).join(', ')}</p>
             <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
+            <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
             <button style={btnSecondary} onClick={onVisits}>Мои визиты</button>
         </>
     );
@@ -289,6 +309,96 @@ function VisitList({ visits, onBack }: { visits: VisitItem[]; onBack: () => void
     );
 }
 
+function ExitPermitList({
+    initData,
+    yards,
+    visitors,
+    onReload,
+    onBack,
+}: {
+    initData: string;
+    yards: YardOption[];
+    visitors: ActiveVisitorItem[];
+    onReload: () => void;
+    onBack: () => void;
+}) {
+    const [yardId, setYardId] = useState<number | 'all'>('all');
+    const [search, setSearch] = useState('');
+    const [comment, setComment] = useState('');
+    const [busyVisitorId, setBusyVisitorId] = useState<number | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+
+    const normalizedSearch = search.trim().toLowerCase().replace(/[\s-]/g, '');
+    const filteredVisitors = visitors.filter((visitor) => {
+        if (yardId !== 'all' && visitor.yard_id !== yardId) return false;
+        if (!normalizedSearch) return true;
+
+        return visitor.plate_number.toLowerCase().replace(/[\s-]/g, '').includes(normalizedSearch);
+    });
+
+    const createPermit = async (visitor: ActiveVisitorItem) => {
+        setBusyVisitorId(visitor.id);
+        setErr(null);
+        try {
+            await axios.post('/api/telegram/miniapp/exit-permits', {
+                init_data: initData,
+                visitor_id: visitor.id,
+                comment: comment || null,
+            }, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setComment('');
+            onReload();
+        } catch (e: any) {
+            setErr(e.response?.data?.message ?? 'Не удалось создать разрешение на выезд');
+        } finally {
+            setBusyVisitorId(null);
+        }
+    };
+
+    return (
+        <>
+            <h3>Разрешение на выезд</h3>
+            <label>Площадка</label>
+            <select style={inputStyle} value={yardId} onChange={(e) => setYardId(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+                <option value="all">Все площадки</option>
+                {yards.map((y) => (
+                    <option key={y.id} value={y.id}>{y.name}</option>
+                ))}
+            </select>
+            <label>Поиск по номеру</label>
+            <input style={inputStyle} value={search} onChange={(e) => setSearch(e.target.value.toUpperCase())} placeholder="Например, 123ABC" />
+            <label>Комментарий к разрешению</label>
+            <textarea style={{ ...inputStyle, minHeight: 56 }} value={comment} onChange={(e) => setComment(e.target.value)} />
+            {err && <p style={{ color: 'crimson' }}>{err}</p>}
+            {filteredVisitors.length === 0 && <p>Активных ТС не найдено.</p>}
+            {filteredVisitors.map((visitor) => (
+                <div key={visitor.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
+                    <strong>{visitor.plate_number || 'Без номера'}</strong>
+                    <div>Площадка: {visitor.yard?.name ?? '—'}</div>
+                    <div>Въезд: {new Date(visitor.entry_date).toLocaleString()}</div>
+                    {visitor.company && <div>Компания: {visitor.company}</div>}
+                    {visitor.has_active_exit_permit ? (
+                        <div style={{ marginTop: 8, color: '#2e8b2e' }}>
+                            Разрешение активно до {visitor.exit_permit?.valid_until ? new Date(visitor.exit_permit.valid_until).toLocaleString() : 'без срока'}
+                        </div>
+                    ) : (
+                        <button
+                            type="button"
+                            style={btn}
+                            disabled={busyVisitorId === visitor.id}
+                            onClick={() => createPermit(visitor)}
+                        >
+                            {busyVisitorId === visitor.id ? 'Создание…' : 'Разрешить выезд'}
+                        </button>
+                    )}
+                </div>
+            ))}
+            <button style={btnSecondary} onClick={onBack}>← Назад</button>
+        </>
+    );
+}
+
 // ── Главный компонент ─────────────────────────────────────────────────────────
 
 function TelegramMiniApp() {
@@ -296,8 +406,9 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'visits'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'visits' | 'exit-permits'>('home');
     const [visits, setVisits] = useState<VisitItem[]>([]);
+    const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
 
     useEffect(() => {
         const run = async () => {
@@ -368,6 +479,22 @@ function TelegramMiniApp() {
             .catch(() => setVisits([]));
     }, [view, initData]);
 
+    const loadActiveVisitors = useCallback(() => {
+        if (!initData) return;
+        axios
+            .get<{ data: ActiveVisitorItem[] }>('/api/telegram/miniapp/active-visitors', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            })
+            .then((r) => setActiveVisitors(r.data.data))
+            .catch(() => setActiveVisitors([]));
+    }, [initData]);
+
+    useEffect(() => {
+        if (view !== 'exit-permits') return;
+        loadActiveVisitors();
+    }, [view, loadActiveVisitors]);
+
     if (loading) {
         return (
             <Wrap>
@@ -424,7 +551,12 @@ function TelegramMiniApp() {
             )}
 
             {status === 'approved' && view === 'home' && (
-                <Dashboard session={session} onCreate={() => setView('create')} onVisits={() => setView('visits')} />
+                <Dashboard
+                    session={session}
+                    onCreate={() => setView('create')}
+                    onVisits={() => setView('visits')}
+                    onExitPermits={() => setView('exit-permits')}
+                />
             )}
 
             {status === 'approved' && view === 'create' && (
@@ -438,6 +570,16 @@ function TelegramMiniApp() {
 
             {status === 'approved' && view === 'visits' && (
                 <VisitList visits={visits} onBack={() => setView('home')} />
+            )}
+
+            {status === 'approved' && view === 'exit-permits' && (
+                <ExitPermitList
+                    initData={initData}
+                    yards={session.yards}
+                    visitors={activeVisitors}
+                    onReload={loadActiveVisitors}
+                    onBack={() => setView('home')}
+                />
             )}
         </Wrap>
     );

@@ -27,6 +27,7 @@ class DssVisitorFlowService
         private DssStructuredLogger $structuredLogger,
         private WeighingService $weighingService,
         private DssPermitVehicleService $permitVehicleService,
+        private ExitPermitService $exitPermitService,
     )
     {
     }
@@ -184,6 +185,21 @@ class DssVisitorFlowService
                     return;
                 }
 
+                if (!$this->exitPermitService->findActiveForVisitor($visitor)) {
+                    $this->createPendingExitReview(
+                        $device,
+                        $zone,
+                        $truck,
+                        $plateNo,
+                        $captureTime,
+                        $captureData,
+                        'Камера выезда зафиксировала ТС, но для активного визита нет разрешения на выезд.'
+                    );
+
+                    return;
+                }
+
+                $this->exitPermitService->markUsedForVisitor($visitor);
                 $this->closeVisitorExit($visitor, $device, $captureTime);
                 $this->createConfirmedExitReview($visitor, $device, $zone, $plateNo, $captureTime, $captureData);
             } else {

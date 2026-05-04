@@ -65,6 +65,7 @@ type ExitCandidate = {
   task_name?: string | null;
   confirmation_status: string;
   truck_id?: number | null;
+  has_active_exit_permit?: boolean;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
 };
@@ -172,11 +173,15 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
     item: ExitReviewItem | null;
     selectedVisitorId: number | null;
     correctedPlate: string;
+    overrideExitPermit: boolean;
+    overrideReason: string;
   }>({
     open: false,
     item: null,
     selectedVisitorId: null,
     correctedPlate: '',
+    overrideExitPermit: false,
+    overrideReason: '',
   });
   const [manualSearchResults, setManualSearchResults] = useState<ExitCandidate[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
@@ -312,6 +317,8 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
       item,
       selectedVisitorId: item.candidate_visitors.length === 1 ? item.candidate_visitors[0].visitor_id : null,
       correctedPlate: item.plate_number,
+      overrideExitPermit: false,
+      overrideReason: '',
     });
     setManualSearchResults(item.candidate_visitors);
   };
@@ -322,6 +329,8 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
       item: null,
       selectedVisitorId: null,
       correctedPlate: '',
+      overrideExitPermit: false,
+      overrideReason: '',
     });
     setManualSearchResults([]);
   };
@@ -384,6 +393,11 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
       return;
     }
 
+    if (confirmDialog.overrideExitPermit && confirmDialog.overrideReason.trim().length < 3) {
+      toast.error('Укажите причину выпуска без разрешения на выезд');
+      return;
+    }
+
     setProcessingReviewId(item.review_id);
     const userId = Number(localStorage.getItem('user_id') || '1');
 
@@ -392,6 +406,8 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
         review_id: item.review_id,
         operator_user_id: userId,
         visitor_id: confirmDialog.selectedVisitorId ?? undefined,
+        override_exit_permit: confirmDialog.overrideExitPermit,
+        override_reason: confirmDialog.overrideExitPermit ? confirmDialog.overrideReason : undefined,
       }, {
         headers: getAuthHeaders(),
       });
@@ -440,10 +456,21 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
       return;
     }
 
+    let overrideReason = '';
+    if (candidate.has_active_exit_permit === false) {
+      overrideReason = window.prompt('У этого визита нет разрешения на выезд. Укажите причину ручного выпуска:')?.trim() ?? '';
+      if (overrideReason.length < 3) {
+        toast.error('Для ручного выпуска без разрешения нужна причина');
+        return;
+      }
+    }
+
     setManualExitVisitorId(candidate.visitor_id);
     try {
       const response = await axios.post('/security/exitvisitor', {
         id: candidate.visitor_id,
+        override_exit_permit: overrideReason !== '',
+        override_reason: overrideReason || undefined,
       }, {
         headers: getAuthHeaders(),
       });
@@ -797,6 +824,7 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                         <span className="font-semibold">Визит #{candidate.visitor_id}</span>
                         <Badge variant="outline">{candidate.plate_number}</Badge>
                         <Badge variant="secondary">{getConfirmationStatusLabel(candidate.confirmation_status)}</Badge>
+                        {candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нет разрешения</Badge>}
                         {candidate.is_exact_truck_match && <Badge className="bg-emerald-100 text-emerald-700">Совпадает ТС</Badge>}
                         {candidate.is_exact_plate_match && <Badge className="bg-blue-100 text-blue-700">Совпадает номер</Badge>}
                       </div>
@@ -807,6 +835,29 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                     </button>
                   );
                 })}
+              </div>
+
+              <div className="rounded-lg border p-3 space-y-3">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={confirmDialog.overrideExitPermit}
+                    onChange={(event) => setConfirmDialog((prev) => ({ ...prev, overrideExitPermit: event.target.checked }))}
+                  />
+                  <span>
+                    Подтвердить выезд без разрешения
+                    <span className="block text-xs text-muted-foreground">Используйте только если охрана вручную принимает ответственность за выпуск.</span>
+                  </span>
+                </label>
+                {confirmDialog.overrideExitPermit && (
+                  <textarea
+                    className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={confirmDialog.overrideReason}
+                    onChange={(event) => setConfirmDialog((prev) => ({ ...prev, overrideReason: event.target.value }))}
+                    placeholder="Причина ручного выпуска без разрешения"
+                  />
+                )}
               </div>
             </div>
           )}

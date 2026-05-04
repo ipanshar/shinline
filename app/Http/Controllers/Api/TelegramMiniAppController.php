@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GuestVisit;
 use App\Models\TelegramBotChat;
+use App\Models\Visitor;
+use App\Services\ExitPermitService;
 use App\Services\GuestVisitService;
 use App\Services\Telegram\TelegramRegistrationService;
 use App\Services\Telegram\TelegramWebAppAuthService;
@@ -19,6 +21,7 @@ class TelegramMiniAppController extends Controller
         private TelegramWebAppAuthService $auth,
         private TelegramRegistrationService $registration,
         private GuestVisitService $guestVisitService,
+        private ExitPermitService $exitPermitService,
     ) {
     }
 
@@ -116,6 +119,94 @@ class TelegramMiniAppController extends Controller
         $guestVisit = $this->guestVisitService->create($payload, $user);
 
         return response()->json(['data' => $guestVisit], 201);
+    }
+
+    public function activeVisitors(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $allowedYardIds = $chat->yards()->pluck('yards.id')->all();
+        $yardId = $request->integer('yard_id') ?: null;
+
+        if ($yardId && !in_array($yardId, $allowedYardIds, true)) {
+            abort(403, 'Двор недоступен для вашего Telegram-пользователя.');
+        }
+
+        $visitors = Visitor::query()
+            ->with(['yard:id,name', 'truck:id,plate_number'])
+            ->whereIn('yard_id', $allowedYardIds)
+            ->when($yardId, fn ($query) => $query->where('yard_id', $yardId))
+            ->whereNull('exit_date')
+            ->where('confirmation_status', Visitor::CONFIRMATION_CONFIRMED)
+            ->orderByDesc('entry_date')
+            ->limit(100)
+            ->get()
+            ->map(function (Visitor $visitor) {
+                $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
+
+                return [
+                    'id' => $visitor->id,
+                    'yard_id' => $visitor->yard_id,
+                    'yard' => $visitor->yard ? ['id' => $visitor->yard->id, 'name' => $visitor->yard->name] : null,
+                    'truck_id' => $visitor->truck_id,
+                    'plate_number' => $visitor->plate_number ?: ($visitor->truck?->plate_number ?? ''),
+                    'entry_date' => $visitor->entry_date,
+                    'company' => $visitor->company,
+                    'name' => $visitor->name,
+                    'has_active_exit_permit' => $exitPermit !== null,
+                    'exit_permit' => $exitPermit ? [
+                        'id' => $exitPermit->id,
+                        'valid_until' => $exitPermit->valid_until,
+                        'comment' => $exitPermit->comment,
+                    ] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $visitors]);
+    }
+
+    public function createExitPermit(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $allowedYardIds = $chat->yards()->pluck('yards.id')->all();
+
+        $validated = $request->validate([
+            'visitor_id' => ['required', 'integer', 'exists:visitors,id'],
+            'valid_until' => ['nullable', 'date', 'after:now'],
+            'comment' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $visitor = Visitor::query()
+            ->with(['truck', 'yard'])
+            ->whereKey($validated['visitor_id'])
+            ->whereNull('exit_date')
+            ->where('confirmation_status', Visitor::CONFIRMATION_CONFIRMED)
+            ->firstOrFail();
+
+        if (!in_array((int) $visitor->yard_id, $allowedYardIds, true)) {
+            abort(403, 'Двор визита недоступен для вашего Telegram-пользователя.');
+        }
+
+        $user = $chat->approvedUser()->first();
+        if (!$user) {
+            abort(403, 'Связанный пользователь не найден.');
+        }
+
+        $exitPermit = $this->exitPermitService->createForVisitor(
+            $visitor,
+            $user,
+            $chat,
+            isset($validated['valid_until']) ? Carbon::parse($validated['valid_until']) : null,
+            $validated['comment'] ?? null,
+        );
+
+        return response()->json([
+            'data' => $exitPermit->fresh(['yard:id,name', 'truck:id,plate_number']),
+        ], 201);
     }
 
     private function authChat(Request $request): TelegramBotChat

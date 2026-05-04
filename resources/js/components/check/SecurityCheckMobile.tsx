@@ -366,15 +366,32 @@ const SecurityCheckMobile = () => {
     });
   };
 
-  const exitVisitor = (visitorId: number) => {
-    axios.post('/security/exitvisitor', { id: visitorId }, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    })
-      .then(() => {
-        toast.success('Выезд зафиксирован');
+  const exitVisitor = async (visitorId: number) => {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    try {
+      await axios.post('/security/exitvisitor', { id: visitorId }, { headers });
+      toast.success('Выезд зафиксирован');
+      loadVisitors();
+    } catch (error: any) {
+      if (error.response?.data?.code === 'exit_permit_required') {
+        const reason = window.prompt('У этого визита нет разрешения на выезд. Укажите причину ручного выпуска:')?.trim() ?? '';
+        if (reason.length < 3) {
+          toast.error('Для ручного выпуска без разрешения нужна причина');
+          return;
+        }
+
+        await axios.post('/security/exitvisitor', {
+          id: visitorId,
+          override_exit_permit: true,
+          override_reason: reason,
+        }, { headers });
+        toast.success('Выезд зафиксирован вручную');
         loadVisitors();
-      })
-      .catch(() => toast.error('Ошибка при выходе'));
+        return;
+      }
+
+      toast.error(error.response?.data?.message || 'Ошибка при выходе');
+    }
   };
 
   // Функции для сканирования номера камерой

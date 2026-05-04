@@ -106,6 +106,7 @@ type ExitCandidate = {
   task_name?: string | null;
   confirmation_status: string;
   truck_id?: number | null;
+  has_active_exit_permit?: boolean;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
 };
@@ -424,11 +425,15 @@ export default function DssCheckpointDesk() {
     item: ExitReviewItem | null;
     selectedVisitorId: number | null;
     correctedPlate: string;
+    overrideExitPermit: boolean;
+    overrideReason: string;
   }>({
     open: false,
     item: null,
     selectedVisitorId: null,
     correctedPlate: '',
+    overrideExitPermit: false,
+    overrideReason: '',
   });
   const [manualSearchResults, setManualSearchResults] = useState<ExitCandidate[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
@@ -867,6 +872,8 @@ export default function DssCheckpointDesk() {
       item,
       selectedVisitorId: item.candidate_visitors.length === 1 ? item.candidate_visitors[0].visitor_id : null,
       correctedPlate: item.plate_number,
+      overrideExitPermit: false,
+      overrideReason: '',
     });
     setManualSearchResults(item.candidate_visitors);
   };
@@ -877,6 +884,8 @@ export default function DssCheckpointDesk() {
       item: null,
       selectedVisitorId: null,
       correctedPlate: '',
+      overrideExitPermit: false,
+      overrideReason: '',
     });
     setManualSearchResults([]);
   };
@@ -1030,6 +1039,11 @@ export default function DssCheckpointDesk() {
       return;
     }
 
+    if (exitConfirmDialog.overrideExitPermit && exitConfirmDialog.overrideReason.trim().length < 3) {
+      toast.error('Укажите причину выпуска без разрешения на выезд');
+      return;
+    }
+
     const userId = Number(localStorage.getItem('user_id') || '1');
     setProcessingExitReviewId(item.review_id);
 
@@ -1038,6 +1052,8 @@ export default function DssCheckpointDesk() {
         review_id: item.review_id,
         operator_user_id: userId,
         visitor_id: exitConfirmDialog.selectedVisitorId,
+        override_exit_permit: exitConfirmDialog.overrideExitPermit,
+        override_reason: exitConfirmDialog.overrideExitPermit ? exitConfirmDialog.overrideReason : undefined,
       }, {
         headers: getAuthHeaders(),
       });
@@ -1635,6 +1651,7 @@ export default function DssCheckpointDesk() {
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {candidate.task_name && <Badge variant="outline">{candidate.task_name}</Badge>}
+                            {candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нет разрешения</Badge>}
                             <Badge variant={candidate.is_exact_plate_match || candidate.is_exact_truck_match ? 'default' : 'outline'}>
                               {getConfirmationStatusLabel(candidate.confirmation_status)}
                             </Badge>
@@ -1645,6 +1662,29 @@ export default function DssCheckpointDesk() {
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">Подходящих активных визитов не найдено.</div>
+                )}
+              </div>
+
+              <div className="space-y-3 rounded-lg border p-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={exitConfirmDialog.overrideExitPermit}
+                    onChange={(event) => setExitConfirmDialog((current) => ({ ...current, overrideExitPermit: event.target.checked }))}
+                  />
+                  <span>
+                    Подтвердить выезд без разрешения
+                    <span className="block text-xs text-muted-foreground">Причина будет сохранена в событии выезда.</span>
+                  </span>
+                </label>
+                {exitConfirmDialog.overrideExitPermit && (
+                  <textarea
+                    className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={exitConfirmDialog.overrideReason}
+                    onChange={(event) => setExitConfirmDialog((current) => ({ ...current, overrideReason: event.target.value }))}
+                    placeholder="Причина ручного выпуска без разрешения"
+                  />
                 )}
               </div>
             </div>

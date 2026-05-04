@@ -142,11 +142,30 @@ useEffect(() => {
     });
   };
 
-  const exitVisitor = (visitorId: number) => {
+  const exitVisitor = async (visitorId: number) => {
     if (!confirm('Подтвердите выход ТС?')) return;
-    axios.post('/security/exitvisitor', { id: visitorId })
-      .then(() => loadVisitors())
-      .catch(() => toast.error('Ошибка при выходе'));
+    try {
+      await axios.post('/security/exitvisitor', { id: visitorId });
+      loadVisitors();
+    } catch (error: any) {
+      if (error.response?.data?.code === 'exit_permit_required') {
+        const reason = window.prompt('У этого визита нет разрешения на выезд. Укажите причину ручного выпуска:')?.trim() ?? '';
+        if (reason.length < 3) {
+          toast.error('Для ручного выпуска без разрешения нужна причина');
+          return;
+        }
+
+        await axios.post('/security/exitvisitor', {
+          id: visitorId,
+          override_exit_permit: true,
+          override_reason: reason,
+        });
+        loadVisitors();
+        return;
+      }
+
+      toast.error(error.response?.data?.message || 'Ошибка при выходе');
+    }
   };
 
   const filteredVisitors = visitors.filter(v => {

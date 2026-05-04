@@ -22,6 +22,7 @@ use App\Services\DssTelegramNotificationManager;
 use App\Services\DssVisitorConfirmationService;
 use App\Services\DssVisitorFlowService;
 use App\Services\EntryPermitReplacementService;
+use App\Services\ExitPermitService;
 use App\Services\GuestVisitVisitorFlowService;
 use App\Services\WeighingService;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,7 @@ class VisitorsCotroller extends Controller
         private GuestVisitVisitorFlowService $guestVisitVisitorFlowService,
         private WeighingService $weighingService,
         private DssTelegramNotificationManager $telegramNotifications,
+        private ExitPermitService $exitPermitService,
     ) {
     }
 
@@ -515,6 +517,9 @@ class VisitorsCotroller extends Controller
         try {
             $validate = $request->validate([
                 'id' => 'required|integer',
+                'operator_user_id' => 'nullable|integer|exists:users,id',
+                'override_exit_permit' => 'nullable|boolean',
+                'override_reason' => 'nullable|string|max:500',
             ]);
             $visitor = Visitor::find($request->id);
             if (!$visitor) {
@@ -533,6 +538,34 @@ class VisitorsCotroller extends Controller
 
             if ($blockingRequirement = $this->weighingService->getBlockingExitRequirementForVisitor($visitor)) {
                 return $this->weighingExitBlockedResponse($blockingRequirement);
+            }
+
+            $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
+            $overrideExitPermit = $request->boolean('override_exit_permit');
+            $overrideReason = trim((string) ($validate['override_reason'] ?? ''));
+
+            if (!$exitPermit && !$overrideExitPermit) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Для выезда требуется разрешение на выезд.',
+                    'code' => 'exit_permit_required',
+                ], 422);
+            }
+
+            if (!$exitPermit && $overrideReason === '') {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Укажите причину ручного выпуска без разрешения на выезд.',
+                    'code' => 'exit_permit_override_reason_required',
+                ], 422);
+            }
+
+            if ($exitPermit) {
+                $this->exitPermitService->markUsedForVisitor($visitor, $validate['operator_user_id'] ?? $request->user()?->id);
+            } else {
+                $visitor->comment = ($visitor->comment ? $visitor->comment . "\n" : '')
+                    . '[EXIT PERMIT OVERRIDE] Выезд без разрешения: ' . $overrideReason;
+                $visitor->save();
             }
 
             $this->visitorFlowService->closeVisitorExit($visitor);
@@ -1180,6 +1213,8 @@ class VisitorsCotroller extends Controller
                 'review_id' => 'required|integer|exists:checkpoint_exit_reviews,id',
                 'operator_user_id' => 'required|integer|exists:users,id',
                 'visitor_id' => 'nullable|integer|exists:visitors,id',
+                'override_exit_permit' => 'nullable|boolean',
+                'override_reason' => 'nullable|string|max:500',
             ]);
 
             $review = CheckpointExitReview::findOrFail($validate['review_id']);
@@ -1212,6 +1247,26 @@ class VisitorsCotroller extends Controller
                 return $this->weighingExitBlockedResponse($blockingRequirement);
             }
 
+            $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
+            $overrideExitPermit = $request->boolean('override_exit_permit');
+            $overrideReason = trim((string) ($validate['override_reason'] ?? ''));
+
+            if (!$exitPermit && !$overrideExitPermit) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Для подтверждения выезда требуется разрешение на выезд.',
+                    'code' => 'exit_permit_required',
+                ], 422);
+            }
+
+            if (!$exitPermit && $overrideReason === '') {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Укажите причину ручного выпуска без разрешения на выезд.',
+                    'code' => 'exit_permit_override_reason_required',
+                ], 422);
+            }
+
             if ($visitor->confirmation_status === Visitor::CONFIRMATION_PENDING) {
                 $visitor->confirmation_status = Visitor::CONFIRMATION_CONFIRMED;
                 $visitor->confirmed_by_user_id = $validate['operator_user_id'];
@@ -1220,6 +1275,14 @@ class VisitorsCotroller extends Controller
             }
 
             $device = Devaice::find($review->device_id);
+
+            if ($exitPermit) {
+                $this->exitPermitService->markUsedForVisitor($visitor, $validate['operator_user_id'], $review->id);
+            } else {
+                $review->note = ($review->note ? $review->note . "\n" : '')
+                    . 'Охрана подтвердила выезд без разрешения. Причина: ' . $overrideReason;
+            }
+
             $this->visitorFlowService->closeVisitorExit($visitor, $device, $review->capture_time ?? now());
 
             $review->status = 'confirmed';
@@ -1330,6 +1393,7 @@ class VisitorsCotroller extends Controller
                         'task_name' => $visitor->task_name,
                         'confirmation_status' => $visitor->confirmation_status,
                         'truck_id' => $visitor->truck_id,
+                        'has_active_exit_permit' => $this->exitPermitService->findActiveForVisitor($visitor) !== null,
                         'is_exact_truck_match' => $truckPlate !== '' && $truckPlate === $normalizedPlate,
                         'is_exact_plate_match' => $visitorPlate === $normalizedPlate,
                     ];
@@ -1804,6 +1868,7 @@ class VisitorsCotroller extends Controller
                     'task_name' => $resolvedVisitor->task_name,
                     'confirmation_status' => $resolvedVisitor->confirmation_status,
                     'truck_id' => $resolvedVisitor->truck_id,
+                    'has_active_exit_permit' => $this->exitPermitService->findActiveForVisitor($resolvedVisitor) !== null,
                     'is_exact_truck_match' => $review->truck_id ? (int) $resolvedVisitor->truck_id === (int) $review->truck_id : false,
                     'is_exact_plate_match' => $this->normalizePlateNumber((string) $resolvedVisitor->plate_number) === $review->normalized_plate,
                 ]];
@@ -1850,6 +1915,7 @@ class VisitorsCotroller extends Controller
                     'task_name' => $visitor->task_name,
                     'confirmation_status' => $visitor->confirmation_status,
                     'truck_id' => $visitor->truck_id,
+                    'has_active_exit_permit' => $this->exitPermitService->findActiveForVisitor($visitor) !== null,
                     'is_exact_truck_match' => $review->truck_id ? (int) $visitor->truck_id === (int) $review->truck_id : false,
                     'is_exact_plate_match' => $this->normalizePlateNumber((string) $visitor->plate_number) === $review->normalized_plate,
                 ];
