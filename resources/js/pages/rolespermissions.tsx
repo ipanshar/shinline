@@ -117,6 +117,7 @@ interface Stats {
 const permissionGroupLabels: Record<string, string> = {
     visitors: 'Посетители',
     permits: 'Пропуска',
+    guest_visits: 'Гости',
     weighing: 'Взвешивание',
     tasks: 'Задачи',
     trucks: 'Грузовики',

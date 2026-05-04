@@ -148,7 +148,7 @@ class PermissionsSeeder extends Seeder
             $this->syncPermissions($security, [
                 'visitors.view', 'visitors.create', 'visitors.exit', 'visitors.history', 'visitors.shift_report',
                 'permits.view', 'permits.create', 'permits.edit',
-                'guest_visits.view',
+                'guest_visits.view', 'guest_visits.create', 'guest_visits.update', 'guest_visits.close', 'guest_visits.cancel', 'guest_visits.issue_permits',
                 'weighing.view', 'weighing.manage',
                 'trucks.view',
                 'tasks.view',
