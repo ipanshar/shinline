@@ -28,6 +28,7 @@ use App\Services\DssPermitVehicleService;
 use App\Services\DssTelegramEventRegistry;
 use App\Services\DssTelegramNotificationManager;
 use App\Services\EntryPermitReplacementService;
+use App\Services\ExitPermitService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -38,6 +39,7 @@ class TaskCotroller extends Controller
         private DssPermitVehicleService $permitVehicleService,
         private EntryPermitReplacementService $permitReplacementService,
         private DssTelegramNotificationManager $telegramNotifications,
+        private ExitPermitService $exitPermitService,
     ) {
     }
 
@@ -617,7 +619,7 @@ class TaskCotroller extends Controller
                     ? $request->end_date 
                     : ($validate['plan_date'] ?? now()->format('Y-m-d H:i:s'));
                 
-                $this->getPermitById(
+                $permit = $this->getPermitById(
                     $truck->id,
                     $yard->id,
                     $request->has('create_user_id') ? $request->create_user_id : null,
@@ -627,6 +629,8 @@ class TaskCotroller extends Controller
                     $endDate,
                     $integrationIssuerId,
                 );
+
+                $this->createAutomaticExitPermitForIntegrationVisitor($visitor, $permit, $integrationIssuerId);
             }
             //--
 
@@ -728,7 +732,7 @@ class TaskCotroller extends Controller
                         ? $request->end_date 
                         : ($validate['plan_date'] ?? now()->format('Y-m-d H:i:s'));
                     
-                    $this->getPermitById(
+                    $permit = $this->getPermitById(
                         $truck->id,
                         $yardId->id,
                         $request->has('create_user_id') ? $request->create_user_id : null,
@@ -738,6 +742,8 @@ class TaskCotroller extends Controller
                         $warehouseEndDate,
                         $integrationIssuerId,
                     );
+
+                    $this->createAutomaticExitPermitForIntegrationVisitor($visitor, $permit, $integrationIssuerId);
                 }
                 // Проверяем или создаем склад
                 $WareHauseController = new WarehouseCotroller;
@@ -1720,6 +1726,7 @@ class TaskCotroller extends Controller
             'granted_by_user_id' => $granted_by_user_id,
             'task_id' => $task_id,
             'one_permission' => $onePermission,
+            'exit_permit_required' => true,
             'begin_date' => $begin_date,
             'end_date' => $end_date,
             'status_id' => $status_id,
@@ -1734,10 +1741,19 @@ class TaskCotroller extends Controller
 
         $permit = $query->first();
 
-        if ($permit && $granted_by_user_id && !$permit->granted_by_user_id) {
-            $permit->update([
-                'granted_by_user_id' => $granted_by_user_id,
-            ]);
+        if ($permit && (($granted_by_user_id && !$permit->granted_by_user_id) || !$permit->exit_permit_required)) {
+            $updateData = [];
+
+            if ($granted_by_user_id && !$permit->granted_by_user_id) {
+                $updateData['granted_by_user_id'] = $granted_by_user_id;
+            }
+
+            if (!$permit->exit_permit_required) {
+                $updateData['exit_permit_required'] = true;
+            }
+
+            $permit->update($updateData);
+            $permit->refresh();
         }
 
         if (!$permit) {
@@ -1765,6 +1781,24 @@ class TaskCotroller extends Controller
         }
 
         return $permit;
+    }
+
+    private function createAutomaticExitPermitForIntegrationVisitor(?Visitor $visitor, ?EntryPermit $permit, ?int $integrationIssuerId): void
+    {
+        if (!$visitor || !$permit || !$permit->task_id) {
+            return;
+        }
+
+        if ((int) $visitor->yard_id !== (int) $permit->yard_id) {
+            return;
+        }
+
+        $this->exitPermitService->createSystemForVisitor(
+            $visitor,
+            $integrationIssuerId,
+            $permit->end_date,
+            'Автоматически создано по заданию 1С #' . $permit->task_id
+        );
     }
 
     private function getIntegrationIssuerId(): ?int

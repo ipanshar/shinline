@@ -9,6 +9,7 @@ use App\Models\EntryPermit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\Truck;
+use App\Models\User;
 use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
@@ -310,6 +311,7 @@ class DssVisitorFlowService
         if ($autoConfirm) {
             $visitor->load(['yard', 'truck', 'task']);
             $this->processConfirmedVisitorEntry($visitor, $task, $zone->yard_id);
+            $this->createAutomaticExitPermitForIntegrationPermit($visitor, $permit);
             $this->weighingService->createRequirement($visitor);
         }
 
@@ -420,6 +422,32 @@ class DssVisitorFlowService
         $task->yard_id = $yardId;
         $task->status_id = $statusOnTerritory->id;
         $task->save();
+    }
+
+    private function createAutomaticExitPermitForIntegrationPermit(Visitor $visitor, ?EntryPermit $permit): void
+    {
+        if (!$permit || !$permit->task_id || !$this->isIntegrationPermit($permit)) {
+            return;
+        }
+
+        $this->exitPermitService->createSystemForVisitor(
+            $visitor,
+            $permit->granted_by_user_id,
+            $permit->end_date,
+            'Автоматически создано по заданию 1С #' . $permit->task_id
+        );
+    }
+
+    private function isIntegrationPermit(EntryPermit $permit): bool
+    {
+        if (!$permit->granted_by_user_id) {
+            return true;
+        }
+
+        return User::query()
+            ->whereKey($permit->granted_by_user_id)
+            ->where('login', 'integration')
+            ->exists();
     }
 
     private function resolveTaskForVisitor(Visitor $visitor): ?Task

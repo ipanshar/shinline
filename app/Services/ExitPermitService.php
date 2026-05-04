@@ -51,6 +51,29 @@ class ExitPermitService
         });
     }
 
+    public function createSystemForVisitor(Visitor $visitor, ?int $requestedByUserId = null, ?Carbon $validUntil = null, ?string $comment = null): ExitPermit
+    {
+        return DB::transaction(function () use ($visitor, $requestedByUserId, $validUntil, $comment) {
+            $existing = $this->findActiveForVisitor($visitor);
+            if ($existing) {
+                return $existing;
+            }
+
+            return ExitPermit::create([
+                'yard_id' => $visitor->yard_id,
+                'truck_id' => $visitor->truck_id,
+                'visitor_id' => $visitor->id,
+                'plate_number' => $visitor->plate_number ?: ($visitor->truck?->plate_number ?? ''),
+                'status' => ExitPermit::STATUS_ACTIVE,
+                'valid_from' => now(),
+                'valid_until' => $validUntil ?: now()->endOfDay(),
+                'requested_by_user_id' => $requestedByUserId,
+                'requested_by_telegram_chat_id' => null,
+                'comment' => $comment,
+            ]);
+        });
+    }
+
     public function markUsedForVisitor(Visitor $visitor, ?int $usedByUserId = null, ?int $reviewId = null): ?ExitPermit
     {
         return DB::transaction(function () use ($visitor, $usedByUserId, $reviewId) {
