@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Car, Plus } from 'lucide-react';
+import { Car, Plus, Search, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -52,6 +52,7 @@ const SecurityCheck = () => {
   const [searchPlate, setSearchPlate] = useState('');
   const [foundTruck, setFoundTruck] = useState<Truck | null>(null);
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [territorySearch, setTerritorySearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'on_territory' | 'left'>('on_territory');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -170,10 +171,32 @@ useEffect(() => {
     }
   };
 
-  const filteredVisitors = visitors.filter(v => {
+  const visitorsByFilter = visitors.filter(v => {
     if (filter === 'on_territory') return !v.exit_date;
     if (filter === 'left') return !!v.exit_date;
     return true;
+  });
+
+  const normalizedTerritorySearch = territorySearch.trim().toUpperCase().replace(/[\s-]/g, '');
+  const filteredVisitors = visitorsByFilter.filter((visitor) => {
+    if (!normalizedTerritorySearch) return true;
+
+    const searchable = [
+      visitor.plate_number,
+      visitor.user_name,
+      visitor.user_phone,
+      visitor.truck_model_name,
+      visitor.name,
+      visitor.description,
+      visitor.entrance_device_name,
+      visitor.exit_device_name,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toUpperCase()
+      .replace(/[\s-]/g, '');
+
+    return searchable.includes(normalizedTerritorySearch);
   });
 
   return (
@@ -266,16 +289,43 @@ useEffect(() => {
 <div className="mt-6">
   <div className="flex justify-between items-center mb-2">
     <h3 className="font-semibold text-lg">ТС на территории</h3>
-    <select
-      value={filter}
-      onChange={(e) => setFilter(e.target.value as any)}
-      className="border rounded px-2 py-1 text-sm"
-    >
-      <option value="on_territory">На территории</option>
-      <option value="left">Вне территории</option>
-      <option value="all">Все</option>
-    </select>
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          value={territorySearch}
+          onChange={(e) => setTerritorySearch(e.target.value.toUpperCase())}
+          placeholder="Найти ТС на территории"
+          className="w-72 rounded border py-1 pl-8 pr-8 text-sm"
+        />
+        {territorySearch && (
+          <button
+            type="button"
+            onClick={() => setTerritorySearch('')}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            aria-label="Очистить поиск"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      <select
+        value={filter}
+        onChange={(e) => setFilter(e.target.value as any)}
+        className="border rounded px-2 py-1 text-sm"
+      >
+        <option value="on_territory">На территории</option>
+        <option value="left">Вне территории</option>
+        <option value="all">Все</option>
+      </select>
+    </div>
   </div>
+
+  {territorySearch && (
+    <div className="mb-2 text-xs text-gray-500">
+      Найдено: {filteredVisitors.length} из {visitorsByFilter.length}
+    </div>
+  )}
 
   {/* Заголовок "таблицы" */}
   <div className="grid grid-cols-11 gap-2 px-2 py-1 bg-gray-100 font-semibold text-sm rounded">

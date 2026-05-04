@@ -123,6 +123,7 @@ const SecurityCheckMobile = () => {
   const [searchPlate, setSearchPlate] = useState('');
   const [foundTruck, setFoundTruck] = useState<Truck | null>(null);
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [territorySearch, setTerritorySearch] = useState('');
   const [expectedTasks, setExpectedTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'on_territory' | 'left' | 'all' | 'with_task'>('on_territory');
@@ -551,11 +552,32 @@ const SecurityCheckMobile = () => {
     return null;
   };
 
-  const filteredVisitors = visitors.filter(v => {
+  const visitorsByFilter = visitors.filter(v => {
     if (filter === 'on_territory') return !v.exit_date;
     if (filter === 'left') return !!v.exit_date;
     if (filter === 'with_task') return !v.exit_date && v.name; // На территории + есть задание
     return true;
+  });
+
+  const normalizedTerritorySearch = territorySearch.trim().toUpperCase().replace(/[\s-]/g, '');
+  const filteredVisitors = visitorsByFilter.filter((visitor) => {
+    if (!normalizedTerritorySearch) return true;
+
+    const searchable = [
+      visitor.plate_number,
+      visitor.user_name,
+      visitor.user_phone,
+      visitor.truck_model_name,
+      visitor.name,
+      visitor.description,
+      visitor.entrance_checkpoint_name,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toUpperCase()
+      .replace(/[\s-]/g, '');
+
+    return searchable.includes(normalizedTerritorySearch);
   });
 
   // Название текущего фильтра
@@ -986,6 +1008,32 @@ const SecurityCheckMobile = () => {
             {/* Содержимое - скрывается при сворачивании */}
             {!isVisitorsCollapsed && (
               <div className="border-t">
+                <div className="border-b bg-gray-50 p-2 dark:bg-gray-900/40">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <Input
+                      value={territorySearch}
+                      onChange={(event) => setTerritorySearch(event.target.value.toUpperCase())}
+                      placeholder="Найти на территории: номер, водитель, телефон, задание"
+                      className="h-10 pl-9 pr-9 text-sm"
+                    />
+                    {territorySearch && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                        onClick={() => setTerritorySearch('')}
+                        aria-label="Очистить поиск"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {territorySearch && (
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Найдено: {filteredVisitors.length} из {visitorsByFilter.length}
+                    </div>
+                  )}
+                </div>
           {/* Список посетителей (карточки) */}
           <div className="p-2 space-y-2 max-h-[60vh] overflow-y-auto">
             {loading && visitors.length === 0 && (
@@ -998,7 +1046,7 @@ const SecurityCheckMobile = () => {
             {!loading && filteredVisitors.length === 0 && (
               <div className="text-center py-8 text-gray-500">
                 <Car className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                {filter === 'on_territory' ? 'Нет ТС на территории' : 'Нет записей'}
+                {territorySearch ? 'ТС не найдено' : filter === 'on_territory' ? 'Нет ТС на территории' : 'Нет записей'}
               </div>
             )}
 
