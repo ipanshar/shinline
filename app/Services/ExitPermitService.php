@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ExitPermit;
+use App\Models\EntryPermit;
 use App\Models\TelegramBotChat;
 use App\Models\User;
 use App\Models\Visitor;
@@ -11,6 +12,13 @@ use Illuminate\Support\Facades\DB;
 
 class ExitPermitService
 {
+    public function isRequiredForVisitor(Visitor $visitor): bool
+    {
+        $permit = $this->resolveEntryPermitForVisitor($visitor);
+
+        return (bool) ($permit?->exit_permit_required ?? false);
+    }
+
     public function findActiveForVisitor(Visitor $visitor): ?ExitPermit
     {
         return ExitPermit::query()
@@ -60,5 +68,30 @@ class ExitPermitService
 
             return $permit;
         });
+    }
+
+    private function resolveEntryPermitForVisitor(Visitor $visitor): ?EntryPermit
+    {
+        if ($visitor->entry_permit_id) {
+            $permit = EntryPermit::find($visitor->entry_permit_id);
+            if ($permit) {
+                return $permit;
+            }
+        }
+
+        if (!$visitor->truck_id || !$visitor->yard_id) {
+            return null;
+        }
+
+        return EntryPermit::query()
+            ->where('truck_id', $visitor->truck_id)
+            ->where('yard_id', $visitor->yard_id)
+            ->whereHas('status', fn ($query) => $query->where('key', 'active'))
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now()->startOfDay());
+            })
+            ->orderByDesc('created_at')
+            ->first();
     }
 }

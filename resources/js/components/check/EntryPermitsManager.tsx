@@ -69,6 +69,7 @@ interface EntryPermit {
   task_id: number | null;
   one_permission: boolean; // true = разовое, false = постоянное
   weighing_required: boolean | null; // Требуется ли взвешивание
+  exit_permit_required: boolean;
   begin_date: string | null;
   end_date: string | null;
   status_id: number;
@@ -106,6 +107,7 @@ interface FormData {
   user_id: number | null;
   one_permission: boolean;
   weighing_required: boolean | null;
+  exit_permit_required: boolean;
   begin_date: string;
   end_date: string;
   comment: string;
@@ -175,6 +177,7 @@ const EntryPermitsManager: React.FC = () => {
     user_id: null,
     one_permission: false,
     weighing_required: null,
+    exit_permit_required: false,
     begin_date: "",
     end_date: "",
     comment: "",
@@ -364,6 +367,7 @@ const EntryPermitsManager: React.FC = () => {
       user_id: null,
       one_permission: false,
       weighing_required: null,
+      exit_permit_required: false,
       begin_date: format(new Date(), "yyyy-MM-dd"),
       end_date: "",
       comment: "",
@@ -390,6 +394,7 @@ const EntryPermitsManager: React.FC = () => {
       user_id: permit.user_id,
       one_permission: permit.one_permission,
       weighing_required: permit.weighing_required,
+      exit_permit_required: permit.exit_permit_required || false,
       begin_date: permit.begin_date ? format(new Date(permit.begin_date), "yyyy-MM-dd") : "",
       end_date: permit.end_date ? format(new Date(permit.end_date), "yyyy-MM-dd") : "",
       comment: permit.comment || "",
@@ -474,6 +479,7 @@ const EntryPermitsManager: React.FC = () => {
             user_id: formData.user_id,
             one_permission: formData.one_permission,
             weighing_required: formData.weighing_required,
+            exit_permit_required: formData.exit_permit_required,
             begin_date: formData.begin_date,
             end_date: formData.end_date,
             comment: formData.comment || null,
@@ -499,6 +505,7 @@ const EntryPermitsManager: React.FC = () => {
             granted_by_user_id: currentUser?.id || null,
             one_permission: formData.one_permission,
             weighing_required: formData.weighing_required,
+            exit_permit_required: formData.exit_permit_required,
             begin_date: formData.begin_date,
             end_date: formData.end_date,
             comment: formData.comment || null,
@@ -766,6 +773,12 @@ const EntryPermitsManager: React.FC = () => {
               {permit.weighing_required === true && (
                 <Badge variant="outline" className="border-blue-300 text-blue-600 dark:text-blue-400">
                   <Scale className="w-3 h-3 mr-1" /> Взвешивание
+                </Badge>
+              )}
+
+              {permit.exit_permit_required && (
+                <Badge variant="outline" className="border-amber-300 text-amber-600 dark:text-amber-400">
+                  Разрешение на выезд
                 </Badge>
               )}
 
@@ -1554,6 +1567,21 @@ const EntryPermitsManager: React.FC = () => {
                 При въезде ТС автоматически создастся задача на взвешивание
               </p>
             </div>
+
+            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={formData.exit_permit_required}
+                onChange={(event) => setFormData((prev) => ({ ...prev, exit_permit_required: event.target.checked }))}
+              />
+              <span>
+                Требуется разрешение на выезд
+                <span className="block text-xs text-muted-foreground">
+                  ТС с этим пропуском сможет выехать только после создания разрешения в Telegram Mini App или ручного выпуска охраной с причиной.
+                </span>
+              </span>
+            </label>
 
             {/* Даты */}
             <div className="grid grid-cols-2 gap-4">

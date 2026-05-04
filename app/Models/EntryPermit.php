@@ -14,6 +14,7 @@ class EntryPermit extends Model
         'task_id',
         'one_permission',    // true = разовое, false = постоянное
         'weighing_required', // Требуется ли взвешивание по этому разрешению
+        'exit_permit_required', // Требуется ли отдельное разрешение на выезд
         'begin_date',
         'end_date',
         'status_id',
@@ -30,6 +31,7 @@ class EntryPermit extends Model
     protected $casts = [
         'one_permission' => 'boolean',
         'weighing_required' => 'boolean',
+        'exit_permit_required' => 'boolean',
         'is_guest' => 'boolean',
         'begin_date' => 'datetime',
         'end_date' => 'datetime',

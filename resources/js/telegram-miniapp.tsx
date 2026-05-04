@@ -67,6 +67,7 @@ interface ActiveVisitorItem {
     entry_date: string;
     company: string | null;
     name: string | null;
+    exit_permit_required: boolean;
     has_active_exit_permit: boolean;
     exit_permit: {
         id: number;
@@ -378,7 +379,9 @@ function ExitPermitList({
                     <div>Площадка: {visitor.yard?.name ?? '—'}</div>
                     <div>Въезд: {new Date(visitor.entry_date).toLocaleString()}</div>
                     {visitor.company && <div>Компания: {visitor.company}</div>}
-                    {visitor.has_active_exit_permit ? (
+                    {!visitor.exit_permit_required ? (
+                        <div style={{ marginTop: 8, color: '#555' }}>Для этого ТС разрешение на выезд не требуется.</div>
+                    ) : visitor.has_active_exit_permit ? (
                         <div style={{ marginTop: 8, color: '#2e8b2e' }}>
                             Разрешение активно до {visitor.exit_permit?.valid_until ? new Date(visitor.exit_permit.valid_until).toLocaleString() : 'без срока'}
                         </div>

@@ -185,7 +185,7 @@ class DssVisitorFlowService
                     return;
                 }
 
-                if (!$this->exitPermitService->findActiveForVisitor($visitor)) {
+                if ($this->exitPermitService->isRequiredForVisitor($visitor) && !$this->exitPermitService->findActiveForVisitor($visitor)) {
                     $this->createPendingExitReview(
                         $device,
                         $zone,

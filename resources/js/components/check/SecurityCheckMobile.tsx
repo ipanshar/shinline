@@ -78,6 +78,8 @@ interface Visitor {
   has_permit?: boolean;
   permit_id?: number;
   permit_type?: 'one_time' | 'permanent' | null;
+  exit_permit_required?: boolean;
+  has_active_exit_permit?: boolean;
   comment?: string;
 }
 
@@ -1037,6 +1039,21 @@ const SecurityCheckMobile = () => {
                                 : '♾️ Разрешение: есть'
                               : '🚫 Без разрешения'}
                           </span>
+                          {!visitor.exit_date && (
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                              visitor.exit_permit_required
+                                ? visitor.has_active_exit_permit
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}>
+                              {visitor.exit_permit_required
+                                ? visitor.has_active_exit_permit
+                                  ? '✅ Выезд разрешён'
+                                  : '⚠️ Нужно разрешение на выезд'
+                                : '🚗 Выезд свободный'}
+                            </span>
+                          )}
                         </div>
 
                         {/* Задание */}

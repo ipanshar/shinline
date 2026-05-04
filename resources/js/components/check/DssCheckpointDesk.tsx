@@ -106,6 +106,7 @@ type ExitCandidate = {
   task_name?: string | null;
   confirmation_status: string;
   truck_id?: number | null;
+  exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
@@ -1651,7 +1652,9 @@ export default function DssCheckpointDesk() {
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {candidate.task_name && <Badge variant="outline">{candidate.task_name}</Badge>}
-                            {candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нет разрешения</Badge>}
+                            {candidate.exit_permit_required ? (
+                              candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение</Badge>
+                            ) : <Badge variant="outline">Выезд свободный</Badge>}
                             <Badge variant={candidate.is_exact_plate_match || candidate.is_exact_truck_match ? 'default' : 'outline'}>
                               {getConfirmationStatusLabel(candidate.confirmation_status)}
                             </Badge>

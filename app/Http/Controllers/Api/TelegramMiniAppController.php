@@ -154,6 +154,7 @@ class TelegramMiniAppController extends Controller
                     'entry_date' => $visitor->entry_date,
                     'company' => $visitor->company,
                     'name' => $visitor->name,
+                    'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($visitor),
                     'has_active_exit_permit' => $exitPermit !== null,
                     'exit_permit' => $exitPermit ? [
                         'id' => $exitPermit->id,

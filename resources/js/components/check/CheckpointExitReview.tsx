@@ -65,6 +65,7 @@ type ExitCandidate = {
   task_name?: string | null;
   confirmation_status: string;
   truck_id?: number | null;
+  exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
@@ -457,7 +458,7 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
     }
 
     let overrideReason = '';
-    if (candidate.has_active_exit_permit === false) {
+    if (candidate.exit_permit_required && candidate.has_active_exit_permit === false) {
       overrideReason = window.prompt('У этого визита нет разрешения на выезд. Укажите причину ручного выпуска:')?.trim() ?? '';
       if (overrideReason.length < 3) {
         toast.error('Для ручного выпуска без разрешения нужна причина');
@@ -824,7 +825,9 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                         <span className="font-semibold">Визит #{candidate.visitor_id}</span>
                         <Badge variant="outline">{candidate.plate_number}</Badge>
                         <Badge variant="secondary">{getConfirmationStatusLabel(candidate.confirmation_status)}</Badge>
-                        {candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нет разрешения</Badge>}
+                        {candidate.exit_permit_required ? (
+                          candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение</Badge>
+                        ) : <Badge variant="outline">Выезд свободный</Badge>}
                         {candidate.is_exact_truck_match && <Badge className="bg-emerald-100 text-emerald-700">Совпадает ТС</Badge>}
                         {candidate.is_exact_plate_match && <Badge className="bg-blue-100 text-blue-700">Совпадает номер</Badge>}
                       </div>

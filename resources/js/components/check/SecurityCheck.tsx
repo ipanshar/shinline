@@ -42,6 +42,8 @@ interface Visitor {
   truck_vip_level?: number;
   entrance_device_name?: string;
   exit_device_name?: string;
+  exit_permit_required?: boolean;
+  has_active_exit_permit?: boolean;
 }
 
 const SecurityCheck = () => {
@@ -330,7 +332,16 @@ useEffect(() => {
           visitor.exit_date ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
         }`}
       >
-        {visitor.status_name}
+        <div>{visitor.status_name}</div>
+        {!visitor.exit_date && (
+          <div className={`mt-1 text-[11px] ${visitor.exit_permit_required ? visitor.has_active_exit_permit ? 'text-emerald-700' : 'text-amber-700' : 'text-slate-600'}`}>
+            {visitor.exit_permit_required
+              ? visitor.has_active_exit_permit
+                ? 'Выезд разрешён'
+                : 'Нужно разрешение на выезд'
+              : 'Выезд свободный'}
+          </div>
+        )}
       </div>
       <div><div>{visitor.entrance_device_name ? 'Камера входа: '+visitor.entrance_device_name : ''}</div><div>{visitor.entry_date ? visitor.entry_date.slice(0, 16) : '-'}</div></div>
       <div><div>{visitor.exit_device_name ? 'Камера выхода: '+visitor.exit_device_name : ''}</div><div>{visitor.exit_date ? visitor.exit_date.slice(0, 16) : '-'}</div></div>
