@@ -59,6 +59,21 @@ class ExitPermitService
                 return $existing;
             }
 
+            $reusable = $this->findReusableSystemPermit($visitor, $requestedByUserId, $comment);
+            if ($reusable) {
+                $reusable->forceFill([
+                    'yard_id' => $visitor->yard_id,
+                    'truck_id' => $visitor->truck_id,
+                    'plate_number' => $visitor->plate_number ?: ($visitor->truck?->plate_number ?? ''),
+                    'valid_until' => $validUntil ?: $reusable->valid_until ?: now()->endOfDay(),
+                    'requested_by_user_id' => $requestedByUserId,
+                    'requested_by_telegram_chat_id' => null,
+                    'comment' => $comment,
+                ])->save();
+
+                return $reusable;
+            }
+
             return ExitPermit::create([
                 'yard_id' => $visitor->yard_id,
                 'truck_id' => $visitor->truck_id,
@@ -72,6 +87,32 @@ class ExitPermitService
                 'comment' => $comment,
             ]);
         });
+    }
+
+    private function findReusableSystemPermit(Visitor $visitor, ?int $requestedByUserId = null, ?string $comment = null): ?ExitPermit
+    {
+        $query = ExitPermit::query()
+            ->where('visitor_id', $visitor->id)
+            ->where('status', ExitPermit::STATUS_ACTIVE);
+
+        if ($requestedByUserId === null) {
+            $query->whereNull('requested_by_user_id');
+        } else {
+            $query->where('requested_by_user_id', $requestedByUserId);
+        }
+
+        if ($comment === null || trim($comment) === '') {
+            $query->where(function ($builder) {
+                $builder->whereNull('comment')
+                    ->orWhere('comment', '');
+            });
+        } else {
+            $query->where('comment', $comment);
+        }
+
+        return $query
+            ->orderByDesc('id')
+            ->first();
     }
 
     public function markUsedForVisitor(Visitor $visitor, ?int $usedByUserId = null, ?int $reviewId = null): ?ExitPermit

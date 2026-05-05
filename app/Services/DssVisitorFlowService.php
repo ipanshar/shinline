@@ -422,6 +422,48 @@ class DssVisitorFlowService
         $task->yard_id = $yardId;
         $task->status_id = $statusOnTerritory->id;
         $task->save();
+        
+        $yard = Yard::find($yardId);
+        $warehouses = DB::table('task_loadings')
+            ->leftJoin('warehouses', 'task_loadings.warehouse_id', '=', 'warehouses.id')
+            ->where('task_loadings.task_id', $task->id)
+            ->select('warehouses.name')
+            ->get();
+        
+        $permit = $visitor->entry_permit_id
+            ? EntryPermit::find($visitor->entry_permit_id)
+            : ($visitor->truck_id
+                ? $this->findActivePermit(
+                    $visitor->truck_id,
+                    $yardId,
+                    $this->statusCache->getId('active') ?? 0
+                )
+                : null);
+        
+        $permitText = $permit ? ($permit->one_permission ? 'Одноразовое' : 'Многоразовое') : 'Нет разрешения';
+        $driverText = 'Не указан';
+        
+        if ($task->user_id) {
+            $driverName = DB::table('users')->where('id', $task->user_id)->value('name');
+            $driverPhone = DB::table('users')->where('id', $task->user_id)->value('phone');
+            $driverText = trim(($driverName ?? '') . ($driverPhone ? ' (' . $driverPhone . ')' : '')) ?: 'Не указан';
+        }
+        
+        $this->notificationService->send(
+            DssTelegramEventRegistry::EVENT_VISITOR_ENTRY_CONFIRMED,
+            '<b>🚛 Въезд на территорию ' . e($yard?->name ?? 'Неизвестный двор') . "</b>\n\n"
+            . '<b>🏷️ ТС:</b> ' . e($visitor->plate_number) . "\n"
+            . '<b>📦 Задание:</b> ' . e($task->name) . "\n"
+            . '<b>📝 Описание:</b> ' . e($task->description) . "\n"
+            . '<b>👤 Водитель:</b> ' . e($driverText) . "\n"
+            . '<b>✍️ Автор:</b> ' . e($task->avtor) . "\n"
+            . '<b>🏬 Склады:</b> ' . e($warehouses->pluck('name')->implode(', ')) . "\n"
+            . '<b>🛂 Разрешение:</b> <i>' . e($permitText) . '</i>'
+            . ($visitor->original_plate_number !== $visitor->plate_number
+                ? "\n<b>⚠️ Скорректировано:</b> " . e($visitor->original_plate_number) . ' → ' . e($visitor->plate_number)
+                : ''),
+            ['task_id' => $task->id, 'yard_id' => $yardId]
+        );
     }
 
     private function createAutomaticExitPermitForIntegrationPermit(Visitor $visitor, ?EntryPermit $permit): void

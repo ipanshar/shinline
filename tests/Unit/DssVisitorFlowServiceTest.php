@@ -205,6 +205,63 @@ class DssVisitorFlowServiceTest extends TestCase
         $this->assertNotNull($task->begin_date);
     }
 
+    public function test_auto_confirmed_dss_entry_with_task_sends_entry_notification(): void
+    {
+        Queue::fake();
+        $statuses = $this->seedDssStatuses();
+
+        $yard = $this->createYard(false, ['name' => 'Северный двор']);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Entry');
+        $truck = $this->createTruck(['plate_number' => 'A555BC']);
+        $task = Task::create([
+            'name' => 'Task Auto Confirm Telegram',
+            'description' => 'Маршрут для проверки уведомления',
+            'avtor' => '1C',
+            'status_id' => $statuses['left_territory']->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+        ]);
+
+        $this->createPermit($truck, $yard, [
+            'task_id' => $task->id,
+        ]);
+
+        $notificationService = Mockery::mock(DssNotificationService::class);
+        $notificationService->shouldReceive('send')->once()->with(
+            DssTelegramEventRegistry::EVENT_VISITOR_ENTRY_CONFIRMED,
+            Mockery::on(function (string $message) use ($yard, $truck, $task) {
+                return str_contains($message, 'Въезд на территорию ' . $yard->name)
+                    && str_contains($message, $truck->plate_number)
+                    && str_contains($message, $task->name)
+                    && str_contains($message, 'Многоразовое');
+            }),
+            Mockery::on(function (array $context) use ($yard, $task) {
+                return ($context['yard_id'] ?? null) === $yard->id
+                    && ($context['task_id'] ?? null) === $task->id;
+            })
+        );
+        $this->app->instance(DssNotificationService::class, $notificationService);
+
+        $structuredLogger = Mockery::mock(DssStructuredLogger::class);
+        $structuredLogger->shouldReceive('info')->atLeast()->once();
+        $structuredLogger->shouldReceive('warning')->with('missed_exit_detected', Mockery::any())->zeroOrMoreTimes();
+        $structuredLogger->shouldReceive('warning')->with('visitor_pending', Mockery::any())->never();
+        $this->app->instance(DssStructuredLogger::class, $structuredLogger);
+
+        app(DssVisitorFlowService::class)->handleCapture($device, $truck, [
+            'plateNo' => $truck->plate_number,
+            'captureTime' => now()->timestamp,
+        ]);
+
+        $visitor = Visitor::where('truck_id', $truck->id)->latest('id')->first();
+
+        $this->assertNotNull($visitor);
+        $this->assertSame(Visitor::CONFIRMATION_CONFIRMED, $visitor->confirmation_status);
+        $this->assertSame($task->id, $visitor->task_id);
+    }
+
     public function test_exit_updates_task_status_from_permit_when_visitor_task_id_is_missing(): void
     {
         Queue::fake();
