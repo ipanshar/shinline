@@ -3,9 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Models\EntryPermit;
+use App\Models\GuestVisitPermit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Services\DssPermitVehicleService;
+use App\Services\GuestVisitPermitService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +30,7 @@ class CleanupOldTasksAndPermits extends Command
      *
      * @var string
      */
-    protected $description = 'Завершает старые задачи со статусом "новый" и деактивирует одноразовые разрешения';
+    protected $description = 'Завершает старые задачи со статусом "новый", деактивирует просроченные одноразовые и гостевые разрешения';
 
     /**
      * Execute the console command.
@@ -130,10 +132,45 @@ class CleanupOldTasksAndPermits extends Command
         }
         
         $this->newLine();
+
+        // === 3. Находим гостевые разрешения с истёкшим сроком ===
+        $expiredGuestPermitLinksQuery = GuestVisitPermit::query()
+            ->with(['entryPermit.yard'])
+            ->where('permit_subject_type', 'vehicle')
+            ->whereNull('revoked_at')
+            ->whereNotNull('entry_permit_id')
+            ->whereHas('entryPermit', function ($query) use ($activeStatus) {
+                $query->whereNotNull('end_date')
+                    ->where('end_date', '<', now());
+
+                if ($activeStatus) {
+                    $query->where('status_id', $activeStatus->id);
+                }
+            });
+
+        $expiredGuestPermitLinks = $expiredGuestPermitLinksQuery->get();
+
+        $this->info('Найдено гостевых разрешений с истёкшим сроком: ' . $expiredGuestPermitLinks->count());
+
+        if ($expiredGuestPermitLinks->count() > 0) {
+            $guestPermitsByYard = $expiredGuestPermitLinks
+                ->filter(fn (GuestVisitPermit $permitLink) => $permitLink->entryPermit !== null)
+                ->groupBy(fn (GuestVisitPermit $permitLink) => $permitLink->entryPermit->yard_id);
+
+            $this->info('Гостевые разрешения по дворам:');
+            foreach ($guestPermitsByYard as $yardId => $permitLinks) {
+                $yardName = $permitLinks->first()?->entryPermit?->yard?->name ?? "Двор #{$yardId}";
+                $this->line("  - {$yardName}: {$permitLinks->count()} шт.");
+            }
+        }
+
+        $this->newLine();
         
         // === Подтверждение ===
         if (!$dryRun && !$force) {
-            if (!$this->confirm("Продолжить? Будет обновлено {$oldTasks->count()} задач и деактивировано {$expiredPermits->count()} разрешений")) {
+            $totalPermitsToRevoke = $expiredPermits->count() + $expiredGuestPermitLinks->count();
+
+            if (!$this->confirm("Продолжить? Будет обновлено {$oldTasks->count()} задач и деактивировано/отозвано {$totalPermitsToRevoke} разрешений")) {
                 $this->info("Операция отменена.");
                 return 0;
             }
@@ -149,6 +186,8 @@ class CleanupOldTasksAndPermits extends Command
         
         try {
             $permitVehicleService = app(DssPermitVehicleService::class);
+            /** @var GuestVisitPermitService $guestVisitPermitService */
+            $guestVisitPermitService = app(GuestVisitPermitService::class);
 
             // Обновляем задачи
             $tasksUpdated = 0;
@@ -167,6 +206,7 @@ class CleanupOldTasksAndPermits extends Command
                 'failed' => 0,
                 'skipped' => 0,
             ];
+            $guestPermitsRevoked = 0;
             if ($inactiveStatus) {
                 foreach ($expiredPermits as $permit) {
                     if ($activeStatus && (int) $permit->status_id !== (int) $activeStatus->id) {
@@ -189,6 +229,24 @@ class CleanupOldTasksAndPermits extends Command
             } else {
                 $this->warn("Статус 'not_active' не найден, разрешения не деактивированы");
             }
+
+            foreach ($expiredGuestPermitLinks as $permitLink) {
+                $result = $guestVisitPermitService->revokeVehiclePermitLink($permitLink);
+
+                if (($result['status'] ?? null) === 'revoked') {
+                    $guestPermitsRevoked++;
+                }
+
+                $dssResult = $result['dss_vehicle_revoke'] ?? null;
+
+                if (!empty($dssResult['success'])) {
+                    $dssRevokeSummary['success']++;
+                } elseif (is_array($dssResult) && isset($dssResult['error'])) {
+                    $dssRevokeSummary['failed']++;
+                } else {
+                    $dssRevokeSummary['skipped']++;
+                }
+            }
             
             DB::commit();
             
@@ -196,13 +254,15 @@ class CleanupOldTasksAndPermits extends Command
             $this->info("=== Результаты ===");
             $this->info("✓ Задач обновлено (статус -> {$targetStatus->name}): {$tasksUpdated}");
             $this->info("✓ Разрешений деактивировано: {$permitsDeactivated}");
+            $this->info("✓ Гостевых разрешений отозвано: {$guestPermitsRevoked}");
             $this->info("✓ DSS отзывов: {$dssRevokeSummary['success']} успешно, {$dssRevokeSummary['failed']} с ошибкой, {$dssRevokeSummary['skipped']} пропущено");
             
             // Логируем только если были изменения
-            if ($tasksUpdated > 0 || $permitsDeactivated > 0) {
+            if ($tasksUpdated > 0 || $permitsDeactivated > 0 || $guestPermitsRevoked > 0) {
                 Log::info('CleanupOldTasksAndPermits выполнено', [
                     'tasks_updated' => $tasksUpdated,
                     'permits_deactivated' => $permitsDeactivated,
+                    'guest_permits_revoked' => $guestPermitsRevoked,
                     'dss_revoke_summary' => $dssRevokeSummary,
                     'cutoff_date' => $cutoffDate->format('Y-m-d'),
                 ]);

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\GuestVisit;
+use App\Models\User;
 use App\Models\TelegramBotChat;
 use App\Models\Visitor;
 use App\Services\ExitPermitService;
@@ -70,7 +71,7 @@ class TelegramMiniAppController extends Controller
         $userId = $chat->approved_user_id;
 
         $visits = GuestVisit::query()
-            ->with(['yard:id,name', 'vehicles:id,guest_visit_id,plate_number'])
+            ->with(['yard:id,name', 'vehicles:id,guest_visit_id,plate_number,brand,model,color,comment'])
             ->where('created_by_user_id', $userId)
             ->orderByDesc('created_at')
             ->limit(50)
@@ -86,39 +87,50 @@ class TelegramMiniAppController extends Controller
 
         $allowedYardIds = $chat->yards()->pluck('yards.id')->all();
 
-        $validated = $request->validate([
-            'yard_id' => ['required', 'integer', Rule::in($allowedYardIds)],
-            'guest_full_name' => ['required', 'string', 'max:160'],
-            'guest_phone' => ['required', 'string', 'max:32'],
-            'guest_position' => ['required', 'string', 'max:160'],
-            'guest_company_name' => ['nullable', 'string', 'max:160'],
-            'guest_iin' => ['nullable', 'string', 'max:32'],
-            'visit_starts_at' => ['required', 'date'],
-            'visit_ends_at' => ['nullable', 'date', 'after_or_equal:visit_starts_at'],
-            'permit_kind' => ['required', Rule::in([GuestVisit::PERMIT_KIND_ONE_TIME, GuestVisit::PERMIT_KIND_MULTI_TIME])],
-            'comment' => ['required', 'string', 'max:500'],
-            'vehicles' => ['nullable', 'array'],
-            'vehicles.*.plate_number' => ['required_with:vehicles', 'string', 'max:32'],
-        ]);
+        $validated = $this->validateVisitPayload($request, $allowedYardIds);
+        $user = $this->resolveApprovedUser($chat);
 
-        $user = $chat->approvedUser()->first();
-
-        if (!$user) {
-            abort(403, 'Связанный пользователь не найден.');
-        }
-
-        $payload = array_merge($validated, [
-            'host_name' => $user->name,
-            'host_phone' => $user->phone ?: ($chat->display_phone ?? 'не указан'),
-            'source' => GuestVisit::SOURCE_TELEGRAM_BOT,
-            'visit_starts_at' => Carbon::parse($validated['visit_starts_at'])->toDateTimeString(),
-            'visit_ends_at' => isset($validated['visit_ends_at']) ? Carbon::parse($validated['visit_ends_at'])->toDateTimeString() : null,
-            'vehicles' => $validated['vehicles'] ?? [],
-        ]);
+        $payload = $this->buildVisitPayload($validated, $user, $chat);
 
         $guestVisit = $this->guestVisitService->create($payload, $user);
 
         return response()->json(['data' => $guestVisit], 201);
+    }
+
+    public function updateVisit(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $allowedYardIds = $chat->yards()->pluck('yards.id')->all();
+        $validated = $this->validateVisitPayload($request, $allowedYardIds, true);
+        $user = $this->resolveApprovedUser($chat);
+        $guestVisit = $this->resolveOwnedVisit((int) $validated['id'], $user->id);
+
+        $updatedVisit = $this->guestVisitService->update(
+            $guestVisit,
+            $this->buildVisitPayload($validated, $user, $chat),
+            $user,
+        );
+
+        return response()->json(['data' => $updatedVisit]);
+    }
+
+    public function cancelVisit(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $validated = $request->validate([
+            'id' => ['required', 'integer'],
+        ]);
+
+        $user = $this->resolveApprovedUser($chat);
+        $guestVisit = $this->resolveOwnedVisit((int) $validated['id'], $user->id);
+
+        return response()->json([
+            'data' => $this->guestVisitService->cancel($guestVisit, $user),
+        ]);
     }
 
     public function activeVisitors(Request $request): JsonResponse
@@ -232,6 +244,72 @@ class TelegramMiniAppController extends Controller
         if (!$chat->approved_user_id) {
             abort(403, 'Связанный пользователь не назначен.');
         }
+    }
+
+    private function resolveApprovedUser(TelegramBotChat $chat): User
+    {
+        $user = $chat->approvedUser()->first();
+
+        if (!$user) {
+            abort(403, 'Связанный пользователь не найден.');
+        }
+
+        return $user;
+    }
+
+    private function resolveOwnedVisit(int $visitId, int $userId): GuestVisit
+    {
+        return GuestVisit::query()
+            ->with(['yard:id,name', 'vehicles:id,guest_visit_id,plate_number,brand,model,color,comment'])
+            ->whereKey($visitId)
+            ->where('created_by_user_id', $userId)
+            ->firstOrFail();
+    }
+
+    private function validateVisitPayload(Request $request, array $allowedYardIds, bool $includeId = false): array
+    {
+        $rules = [
+            'yard_id' => ['required', 'integer', Rule::in($allowedYardIds)],
+            'guest_full_name' => ['required', 'string', 'max:160'],
+            'guest_phone' => ['required', 'string', 'max:32'],
+            'guest_position' => ['required', 'string', 'max:160'],
+            'guest_company_name' => ['nullable', 'string', 'max:160'],
+            'guest_iin' => ['nullable', 'string', 'max:32'],
+            'visit_starts_at' => ['required', 'date'],
+            'visit_ends_at' => [
+                'nullable',
+                'date',
+                'after_or_equal:visit_starts_at',
+                Rule::requiredIf(fn () => $request->input('permit_kind') === GuestVisit::PERMIT_KIND_MULTI_TIME),
+            ],
+            'permit_kind' => ['required', Rule::in([GuestVisit::PERMIT_KIND_ONE_TIME, GuestVisit::PERMIT_KIND_MULTI_TIME])],
+            'comment' => ['required', 'string', 'max:500'],
+            'vehicles' => ['nullable', 'array'],
+            'vehicles.*.id' => ['nullable', 'integer'],
+            'vehicles.*.plate_number' => ['required_with:vehicles', 'string', 'max:32'],
+            'vehicles.*.brand' => ['nullable', 'string', 'max:160'],
+            'vehicles.*.model' => ['nullable', 'string', 'max:160'],
+            'vehicles.*.color' => ['nullable', 'string', 'max:160'],
+            'vehicles.*.comment' => ['nullable', 'string', 'max:500'],
+        ];
+
+        if ($includeId) {
+            $rules = ['id' => ['required', 'integer']] + $rules;
+        }
+
+        return $request->validate($rules);
+    }
+
+    private function buildVisitPayload(array $validated, User $user, TelegramBotChat $chat): array
+    {
+        return array_merge($validated, [
+            'host_name' => $user->name,
+            'host_phone' => $user->phone ?: ($chat->display_phone ?? 'не указан'),
+            'source' => GuestVisit::SOURCE_TELEGRAM_BOT,
+            'visit_starts_at' => Carbon::parse($validated['visit_starts_at'])->toDateTimeString(),
+            'visit_ends_at' => isset($validated['visit_ends_at']) ? Carbon::parse($validated['visit_ends_at'])->toDateTimeString() : null,
+            'vehicles' => $validated['vehicles'] ?? [],
+        ]);
     }
 
     private function buildSessionPayload(TelegramBotChat $chat): array

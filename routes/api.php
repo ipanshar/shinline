@@ -228,6 +228,8 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     Route::get('/telegram/miniapp/yards', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'yards']);
     Route::get('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'visits']);
     Route::post('/telegram/miniapp/visits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createVisit']);
+    Route::post('/telegram/miniapp/visits/update', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'updateVisit']);
+    Route::post('/telegram/miniapp/visits/cancel', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'cancelVisit']);
     Route::get('/telegram/miniapp/active-visitors', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'activeVisitors']);
     Route::post('/telegram/miniapp/exit-permits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createExitPermit']);
 });

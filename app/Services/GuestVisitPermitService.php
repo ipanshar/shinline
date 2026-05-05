@@ -75,6 +75,13 @@ class GuestVisitPermitService
         return $revocations;
     }
 
+    public function revokeVehiclePermitLink(GuestVisitPermit $permitLink): array
+    {
+        $permitLink->loadMissing('entryPermit');
+
+        return $this->revokeVehiclePermit($permitLink);
+    }
+
     private function issuePersonPermit(GuestVisit $guestVisit): GuestVisitPermit
     {
         $guestVisit->loadMissing('permitLinks');
