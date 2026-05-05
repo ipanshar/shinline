@@ -26,6 +26,12 @@ interface Truck {
   vip_level?: number;
 }
 
+interface ExitPermitSummary {
+  id: number;
+  valid_until?: string | null;
+  comment?: string | null;
+}
+
 interface Visitor {
   id: number;
   plate_number: string;
@@ -44,6 +50,7 @@ interface Visitor {
   exit_device_name?: string;
   exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
+  exit_permit?: ExitPermitSummary | null;
 }
 
 const SecurityCheck = () => {
@@ -190,6 +197,7 @@ useEffect(() => {
       visitor.description,
       visitor.entrance_device_name,
       visitor.exit_device_name,
+      visitor.exit_permit?.comment,
     ]
       .filter(Boolean)
       .join(' ')
@@ -346,6 +354,7 @@ useEffect(() => {
 
   {filteredVisitors.map(visitor => {
     const vipLevel = visitor.truck_vip_level;
+    const exitPermitComment = visitor.exit_permit?.comment?.trim();
 
     // Определяем цвет фона в зависимости от VIP статуса
     const getRowClass = () => {
@@ -384,13 +393,20 @@ useEffect(() => {
       >
         <div>{visitor.status_name}</div>
         {!visitor.exit_date && (
-          <div className={`mt-1 text-[11px] ${visitor.exit_permit_required ? visitor.has_active_exit_permit ? 'text-emerald-700' : 'text-amber-700' : 'text-slate-600'}`}>
-            {visitor.exit_permit_required
-              ? visitor.has_active_exit_permit
-                ? 'Выезд разрешён'
-                : 'Нужно разрешение на выезд'
-              : 'Выезд свободный'}
-          </div>
+          <>
+            <div className={`mt-1 text-[11px] ${visitor.exit_permit_required ? visitor.has_active_exit_permit ? 'text-emerald-700' : 'text-amber-700' : 'text-slate-600'}`}>
+              {visitor.exit_permit_required
+                ? visitor.has_active_exit_permit
+                  ? 'Выезд разрешён'
+                  : 'Нужно разрешение на выезд'
+                : 'Выезд свободный'}
+            </div>
+            {exitPermitComment && (
+              <div className="mt-1 rounded bg-emerald-50 px-2 py-1 text-left text-[11px] text-emerald-900 whitespace-pre-wrap">
+                Комментарий: {exitPermitComment}
+              </div>
+            )}
+          </>
         )}
       </div>
       <div><div>{visitor.entrance_device_name ? 'Камера входа: '+visitor.entrance_device_name : ''}</div><div>{visitor.entry_date ? visitor.entry_date.slice(0, 16) : '-'}</div></div>

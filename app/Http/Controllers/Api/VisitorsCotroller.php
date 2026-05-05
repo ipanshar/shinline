@@ -256,44 +256,104 @@ class VisitorsCotroller extends Controller
 
         $visitors = $query->take(1000)->get();
 
-        $activeStatusId = Status::where('key', 'active')->value('id');
-
-        $visitors = $visitors->map(function ($visitor) use ($activeStatusId) {
-            $permit = null;
-
-            if ($visitor->truck_id && $visitor->yard_id && $activeStatusId) {
-                $permit = EntryPermit::query()
-                    ->where('truck_id', $visitor->truck_id)
-                    ->where('yard_id', $visitor->yard_id)
-                    ->where('status_id', $activeStatusId)
-                    ->where(function ($query) {
-                        $query->whereNull('end_date')
-                            ->orWhere('end_date', '>=', now()->startOfDay());
-                    })
-                    ->orderByDesc('created_at')
-                    ->first();
-            }
-
-            $visitor->permit_id = $permit?->id;
-            $visitor->permit_type = $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null;
-            $visitor->has_permit = $permit !== null;
-            $visitor->exit_permit_required = (bool) ($permit?->exit_permit_required ?? false);
-            $visitor->has_active_exit_permit = $this->exitPermitService->findActiveForVisitor(Visitor::find($visitor->id)) !== null;
-
-            return $visitor;
-        });
-
         if ($visitors->isEmpty()) {
             return response()->json([
                 'status' => false,
                 'message' => 'No Visitors Found',
             ], 404);
         }
+
+        $activeStatusId = Status::where('key', 'active')->value('id');
+        $entryPermitsByTruckYard = $this->getActiveEntryPermitsByTruckYard($visitors, $activeStatusId);
+        $exitPermitsByVisitorId = $this->getActiveExitPermitsByVisitorId($visitors);
+
+        $visitors = $visitors->map(function ($visitor) use ($entryPermitsByTruckYard, $exitPermitsByVisitorId) {
+            $permitKey = $this->buildTruckYardLookupKey($visitor->truck_id, $visitor->yard_id);
+            $permit = $permitKey ? $entryPermitsByTruckYard->get($permitKey) : null;
+            $exitPermit = $exitPermitsByVisitorId->get((int) $visitor->id);
+
+            $visitor->permit_id = $permit?->id;
+            $visitor->permit_type = $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null;
+            $visitor->has_permit = $permit !== null;
+            $visitor->exit_permit_required = (bool) ($permit?->exit_permit_required ?? false);
+            $visitor->has_active_exit_permit = $exitPermit !== null;
+            $visitor->exit_permit = $this->buildExitPermitPayload($exitPermit);
+
+            return $visitor;
+        });
+
         return response()->json([
             'status' => true,
             'message' => 'Visitors Retrieved Successfully',
             'data' => $visitors
         ], 200);
+    }
+
+    private function getActiveEntryPermitsByTruckYard($visitors, ?int $activeStatusId)
+    {
+        if (!$activeStatusId) {
+            return collect();
+        }
+
+        $truckIds = $visitors->pluck('truck_id')
+            ->filter()
+            ->map(fn ($truckId) => (int) $truckId)
+            ->unique()
+            ->values();
+
+        $yardIds = $visitors->pluck('yard_id')
+            ->filter()
+            ->map(fn ($yardId) => (int) $yardId)
+            ->unique()
+            ->values();
+
+        if ($truckIds->isEmpty() || $yardIds->isEmpty()) {
+            return collect();
+        }
+
+        return EntryPermit::query()
+            ->whereIn('truck_id', $truckIds)
+            ->whereIn('yard_id', $yardIds)
+            ->where('status_id', $activeStatusId)
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now()->startOfDay());
+            })
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get()
+            ->unique(fn ($permit) => $this->buildTruckYardLookupKey($permit->truck_id, $permit->yard_id))
+            ->keyBy(fn ($permit) => $this->buildTruckYardLookupKey($permit->truck_id, $permit->yard_id));
+    }
+
+    private function getActiveExitPermitsByVisitorId($visitors)
+    {
+        $visitorIds = $visitors->pluck('id')
+            ->filter()
+            ->map(fn ($visitorId) => (int) $visitorId)
+            ->unique()
+            ->values();
+
+        if ($visitorIds->isEmpty()) {
+            return collect();
+        }
+
+        return ExitPermit::query()
+            ->active()
+            ->whereIn('visitor_id', $visitorIds)
+            ->orderByDesc('id')
+            ->get()
+            ->unique('visitor_id')
+            ->keyBy(fn ($permit) => (int) $permit->visitor_id);
+    }
+
+    private function buildTruckYardLookupKey($truckId, $yardId): ?string
+    {
+        if (!$truckId || !$yardId) {
+            return null;
+        }
+
+        return (int) $truckId . ':' . (int) $yardId;
     }
 
     /**

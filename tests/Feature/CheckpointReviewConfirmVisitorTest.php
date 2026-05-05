@@ -13,6 +13,7 @@ use App\Services\DssVisitorFlowService;
 use App\Services\DssPermitVehicleService;
 use Illuminate\Support\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
 use Tests\Concerns\BuildsDssDomain;
@@ -372,5 +373,126 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
             ->assertJsonPath('data.0.has_active_exit_permit', true)
             ->assertJsonPath('data.0.exit_permit.id', $exitPermit->id)
             ->assertJsonPath('data.0.exit_permit.comment', 'Связаться с диспетчером перед выпуском');
+    }
+
+    public function test_get_visitors_returns_active_exit_permit_comment(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $truck = $this->createTruck(['plate_number' => 'TER12305']);
+        $entryPermit = $this->createPermit($truck, $yard, [
+            'status_id' => $statuses['active']->id,
+            'exit_permit_required' => true,
+        ]);
+
+        $visitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'entry_permit_id' => $entryPermit->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(10),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $exitPermit = ExitPermit::create([
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'visitor_id' => $visitor->id,
+            'plate_number' => $truck->plate_number,
+            'status' => ExitPermit::STATUS_ACTIVE,
+            'valid_from' => now()->subMinutes(30),
+            'valid_until' => now()->addHour(),
+            'requested_by_user_id' => $user->id,
+            'comment' => 'Проверить номер пломбы перед выпуском',
+        ]);
+
+        $response = $this->postJson('/api/security/getvisitors', [
+            'yard_id' => $yard->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.0.has_active_exit_permit', true)
+            ->assertJsonPath('data.0.exit_permit.id', $exitPermit->id)
+            ->assertJsonPath('data.0.exit_permit.comment', 'Проверить номер пломбы перед выпуском');
+    }
+
+    public function test_get_visitors_avoids_n_plus_one_queries_for_permits(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+
+        for ($index = 1; $index <= 5; $index++) {
+            $truck = $this->createTruck([
+                'plate_number' => sprintf('OPT%03d05', $index),
+            ]);
+
+            $entryPermit = $this->createPermit($truck, $yard, [
+                'status_id' => $statuses['active']->id,
+                'exit_permit_required' => true,
+            ]);
+
+            $visitor = $this->createVisitor([
+                'plate_number' => $truck->plate_number,
+                'original_plate_number' => $truck->plate_number,
+                'yard_id' => $yard->id,
+                'truck_id' => $truck->id,
+                'entry_permit_id' => $entryPermit->id,
+                'status_id' => $statuses['on_territory']->id,
+                'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+                'entry_date' => now()->subMinutes($index),
+            ]);
+
+            ExitPermit::create([
+                'yard_id' => $yard->id,
+                'truck_id' => $truck->id,
+                'visitor_id' => $visitor->id,
+                'plate_number' => $truck->plate_number,
+                'status' => ExitPermit::STATUS_ACTIVE,
+                'valid_from' => now()->subHour(),
+                'valid_until' => now()->addHour(),
+                'comment' => 'bulk test permit ' . $index,
+            ]);
+        }
+
+        DB::connection()->flushQueryLog();
+        DB::connection()->enableQueryLog();
+
+        $response = $this->postJson('/api/security/getvisitors', [
+            'yard_id' => $yard->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true);
+
+        $permitSelectQueryCount = collect(DB::connection()->getQueryLog())
+            ->filter(function (array $entry) {
+                $query = strtolower(ltrim((string) ($entry['query'] ?? '')));
+
+                if (!str_starts_with($query, 'select')) {
+                    return false;
+                }
+
+                return str_contains($query, 'entry_permits') || str_contains($query, 'exit_permits');
+            })
+            ->count();
+
+        $this->assertLessThanOrEqual(
+            2,
+            $permitSelectQueryCount,
+            'getVisitors should bulk-load permits instead of issuing per-visitor queries.'
+        );
     }
 }

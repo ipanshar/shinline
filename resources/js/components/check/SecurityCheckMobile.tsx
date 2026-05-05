@@ -57,6 +57,12 @@ interface Truck {
   task_name?: string;
 }
 
+interface ExitPermitSummary {
+  id: number;
+  valid_until?: string | null;
+  comment?: string | null;
+}
+
 interface Visitor {
   id: number;
   plate_number: string;
@@ -80,6 +86,7 @@ interface Visitor {
   permit_type?: 'one_time' | 'permanent' | null;
   exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
+  exit_permit?: ExitPermitSummary | null;
   comment?: string;
 }
 
@@ -571,6 +578,7 @@ const SecurityCheckMobile = () => {
       visitor.name,
       visitor.description,
       visitor.entrance_checkpoint_name,
+      visitor.exit_permit?.comment,
     ]
       .filter(Boolean)
       .join(' ')
@@ -1054,6 +1062,7 @@ const SecurityCheckMobile = () => {
               const vipStyle = getVipStyle(visitor.truck_vip_level);
               const entryTime = formatDateTime(visitor.entry_date);
               const exitTime = visitor.exit_date ? formatDateTime(visitor.exit_date) : null;
+              const exitPermitComment = visitor.exit_permit?.comment?.trim();
 
               return (
                 <div
@@ -1196,6 +1205,12 @@ const SecurityCheckMobile = () => {
                       <div className="flex items-start gap-2 text-gray-600 mt-1">
                         <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium shrink-0">Цель визита</span>
                         <span className="text-xs">{visitor.comment}</span>
+                      </div>
+                    )}
+                    {!visitor.exit_date && exitPermitComment && (
+                      <div className="flex items-start gap-2 text-emerald-800 mt-1 dark:text-emerald-300">
+                        <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-medium shrink-0 dark:bg-emerald-900/30 dark:text-emerald-300">Выезд</span>
+                        <span className="text-xs whitespace-pre-wrap">{exitPermitComment}</span>
                       </div>
                     )}
                     {visitor.description && (
