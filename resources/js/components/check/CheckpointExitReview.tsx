@@ -57,6 +57,12 @@ type Checkpoint = {
   yard_name?: string;
 };
 
+type ExitPermitSummary = {
+  id: number;
+  valid_until?: string | null;
+  comment?: string | null;
+};
+
 type ExitCandidate = {
   visitor_id: number;
   plate_number: string;
@@ -67,6 +73,7 @@ type ExitCandidate = {
   truck_id?: number | null;
   exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
+  exit_permit?: ExitPermitSummary | null;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
 };
@@ -157,6 +164,21 @@ const getExitReviewStatusLabel = (status: ExitReviewItem['status']) => {
       return 'Ожидает решения';
   }
 };
+
+const getExitPermitComment = (candidate: ExitCandidate) => {
+  const comment = candidate.exit_permit?.comment?.trim();
+  return comment ? comment : null;
+};
+
+const getExitPermitComments = (candidates: ExitCandidate[]) => candidates.flatMap((candidate) => {
+  const comment = getExitPermitComment(candidate);
+
+  return comment ? [{
+    visitorId: candidate.visitor_id,
+    plateNumber: candidate.plate_number,
+    comment,
+  }] : [];
+});
 
 const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
   selectedCheckpointId: controlledCheckpointId,
@@ -649,6 +671,7 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                 const isResolved = item.status !== 'pending';
                 const isConfirmed = item.status === 'confirmed';
                 const isRejected = item.status === 'rejected';
+                const exitPermitComments = getExitPermitComments(item.candidate_visitors);
 
                 return (
                   <div key={item.review_id} className="overflow-hidden rounded-xl border bg-card">
@@ -740,6 +763,24 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                               ))}
                             </div>
                           )}
+
+                          {exitPermitComments.length > 0 && (
+                            <div className="mt-3 space-y-2 rounded-lg border border-emerald-200 bg-white/90 p-3">
+                              <div className="text-sm font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
+                              <div className="space-y-2 text-sm text-emerald-950">
+                                {exitPermitComments.map((entry) => (
+                                  <div key={entry.visitorId} className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
+                                    {exitPermitComments.length > 1 && (
+                                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-700">
+                                        Визит #{entry.visitorId} • {entry.plateNumber}
+                                      </div>
+                                    )}
+                                    <div className="whitespace-pre-wrap">{entry.comment}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -814,6 +855,7 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                   </div>
                 ) : manualSearchResults.map((candidate) => {
                   const selected = confirmDialog.selectedVisitorId === candidate.visitor_id;
+                  const exitPermitComment = getExitPermitComment(candidate);
                   return (
                     <button
                       key={candidate.visitor_id}
@@ -835,6 +877,12 @@ const CheckpointExitReview: React.FC<CheckpointExitReviewProps> = ({
                         Въезд: {formatDateTime(candidate.entry_date)}
                         {candidate.task_name ? ` • Задание: ${candidate.task_name}` : ''}
                       </div>
+                      {exitPermitComment && (
+                        <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                          <div className="font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
+                          <div className="mt-1 whitespace-pre-wrap">{exitPermitComment}</div>
+                        </div>
+                      )}
                     </button>
                   );
                 })}

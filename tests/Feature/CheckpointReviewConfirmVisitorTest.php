@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\EntryPermit;
 use App\Models\CheckpointExitReview;
+use App\Models\ExitPermit;
 use App\Models\Status;
 use App\Models\User;
 use App\Models\Visitor;
@@ -268,5 +269,108 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
         $this->assertNotNull($review);
         $this->assertSame('pending', $review->status);
         $this->assertStringContainsString('обязательное выездное взвешивание', (string) $review->note);
+    }
+
+    public function test_checkpoint_exit_review_queue_returns_active_exit_permit_comment(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Exit');
+        $truck = $this->createTruck(['plate_number' => 'QEX12305']);
+        $visitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(10),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $exitPermit = ExitPermit::create([
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'visitor_id' => $visitor->id,
+            'plate_number' => $truck->plate_number,
+            'status' => ExitPermit::STATUS_ACTIVE,
+            'valid_from' => now()->subMinutes(30),
+            'valid_until' => now()->addHour(),
+            'requested_by_user_id' => $user->id,
+            'comment' => 'Проверить пломбу на воротах 3',
+        ]);
+
+        CheckpointExitReview::create([
+            'device_id' => $device->id,
+            'checkpoint_id' => $checkpoint->id,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'normalized_plate' => strtolower($truck->plate_number),
+            'capture_time' => now(),
+            'status' => 'pending',
+        ]);
+
+        $response = $this->postJson('/api/security/checkpoint-exit-review-queue', [
+            'checkpoint_id' => $checkpoint->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.0.candidate_visitors.0.has_active_exit_permit', true)
+            ->assertJsonPath('data.0.candidate_visitors.0.exit_permit.id', $exitPermit->id)
+            ->assertJsonPath('data.0.candidate_visitors.0.exit_permit.comment', 'Проверить пломбу на воротах 3');
+    }
+
+    public function test_search_active_visitors_for_exit_returns_active_exit_permit_comment(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $truck = $this->createTruck(['plate_number' => 'SRH12305']);
+        $visitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(5),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $exitPermit = ExitPermit::create([
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'visitor_id' => $visitor->id,
+            'plate_number' => $truck->plate_number,
+            'status' => ExitPermit::STATUS_ACTIVE,
+            'valid_from' => now()->subMinutes(30),
+            'valid_until' => now()->addHour(),
+            'requested_by_user_id' => $user->id,
+            'comment' => 'Связаться с диспетчером перед выпуском',
+        ]);
+
+        $response = $this->postJson('/api/security/search-active-visitors-for-exit', [
+            'yard_id' => $yard->id,
+            'plate_number' => 'SRH12305',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.0.has_active_exit_permit', true)
+            ->assertJsonPath('data.0.exit_permit.id', $exitPermit->id)
+            ->assertJsonPath('data.0.exit_permit.comment', 'Связаться с диспетчером перед выпуском');
     }
 }

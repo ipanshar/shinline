@@ -8,6 +8,7 @@ use App\Models\Checkpoint;
 use App\Models\CheckpointExitReview;
 use App\Models\Devaice;
 use App\Models\EntryPermit;
+use App\Models\ExitPermit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\Truck;
@@ -1389,19 +1390,11 @@ class VisitorsCotroller extends Controller
                     $visitorPlate = $this->normalizePlateNumber((string) $visitor->plate_number);
                     $truckPlate = $this->normalizePlateNumber((string) ($visitor->truck_plate_number ?? ''));
 
-                    return [
-                        'visitor_id' => $visitor->id,
-                        'plate_number' => $visitor->plate_number,
-                        'entry_date' => $visitor->entry_date,
-                        'task_id' => $visitor->task_id,
+                    return $this->buildExitCandidatePayload($visitor, [
                         'task_name' => $visitor->task_name,
-                        'confirmation_status' => $visitor->confirmation_status,
-                        'truck_id' => $visitor->truck_id,
-                        'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($visitor),
-                        'has_active_exit_permit' => $this->exitPermitService->findActiveForVisitor($visitor) !== null,
                         'is_exact_truck_match' => $truckPlate !== '' && $truckPlate === $normalizedPlate,
                         'is_exact_plate_match' => $visitorPlate === $normalizedPlate,
-                    ];
+                    ]);
                 })
                 ->values();
 
@@ -1865,19 +1858,11 @@ class VisitorsCotroller extends Controller
                 ->first();
 
             if ($resolvedVisitor) {
-                return [[
-                    'visitor_id' => $resolvedVisitor->id,
-                    'plate_number' => $resolvedVisitor->plate_number,
-                    'entry_date' => $resolvedVisitor->entry_date,
-                    'task_id' => $resolvedVisitor->task_id,
+                return [$this->buildExitCandidatePayload($resolvedVisitor, [
                     'task_name' => $resolvedVisitor->task_name,
-                    'confirmation_status' => $resolvedVisitor->confirmation_status,
-                    'truck_id' => $resolvedVisitor->truck_id,
-                    'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($resolvedVisitor),
-                    'has_active_exit_permit' => $this->exitPermitService->findActiveForVisitor($resolvedVisitor) !== null,
                     'is_exact_truck_match' => $review->truck_id ? (int) $resolvedVisitor->truck_id === (int) $review->truck_id : false,
                     'is_exact_plate_match' => $this->normalizePlateNumber((string) $resolvedVisitor->plate_number) === $review->normalized_plate,
-                ]];
+                ])];
             }
         }
 
@@ -1913,22 +1898,47 @@ class VisitorsCotroller extends Controller
             ->limit(10)
             ->get()
             ->map(function ($visitor) use ($review) {
-                return [
-                    'visitor_id' => $visitor->id,
-                    'plate_number' => $visitor->plate_number,
-                    'entry_date' => $visitor->entry_date,
-                    'task_id' => $visitor->task_id,
+                return $this->buildExitCandidatePayload($visitor, [
                     'task_name' => $visitor->task_name,
-                    'confirmation_status' => $visitor->confirmation_status,
-                    'truck_id' => $visitor->truck_id,
-                    'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($visitor),
-                    'has_active_exit_permit' => $this->exitPermitService->findActiveForVisitor($visitor) !== null,
                     'is_exact_truck_match' => $review->truck_id ? (int) $visitor->truck_id === (int) $review->truck_id : false,
                     'is_exact_plate_match' => $this->normalizePlateNumber((string) $visitor->plate_number) === $review->normalized_plate,
-                ];
+                ]);
             })
             ->values()
             ->toArray();
+    }
+
+    private function buildExitCandidatePayload(Visitor $visitor, array $overrides = []): array
+    {
+        $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
+
+        return array_merge([
+            'visitor_id' => $visitor->id,
+            'plate_number' => $visitor->plate_number,
+            'entry_date' => $visitor->entry_date,
+            'task_id' => $visitor->task_id,
+            'task_name' => $visitor->task_name ?? null,
+            'confirmation_status' => $visitor->confirmation_status,
+            'truck_id' => $visitor->truck_id,
+            'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($visitor),
+            'has_active_exit_permit' => $exitPermit !== null,
+            'exit_permit' => $this->buildExitPermitPayload($exitPermit),
+            'is_exact_truck_match' => false,
+            'is_exact_plate_match' => false,
+        ], $overrides);
+    }
+
+    private function buildExitPermitPayload(?ExitPermit $exitPermit): ?array
+    {
+        if (!$exitPermit) {
+            return null;
+        }
+
+        return [
+            'id' => $exitPermit->id,
+            'valid_until' => $exitPermit->valid_until?->format('Y-m-d H:i:s'),
+            'comment' => $exitPermit->comment,
+        ];
     }
 
     private function resolveSingleExitCandidate(CheckpointExitReview $review): ?Visitor

@@ -98,6 +98,12 @@ type ManualTruckSearchResult = {
   driver_name?: string;
 };
 
+type ExitPermitSummary = {
+  id: number;
+  valid_until?: string | null;
+  comment?: string | null;
+};
+
 type ExitCandidate = {
   visitor_id: number;
   plate_number: string;
@@ -108,6 +114,7 @@ type ExitCandidate = {
   truck_id?: number | null;
   exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
+  exit_permit?: ExitPermitSummary | null;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
 };
@@ -303,6 +310,21 @@ const getConfirmationStatusLabel = (status: string) => {
       return status;
   }
 };
+
+const getExitPermitComment = (candidate: ExitCandidate) => {
+  const comment = candidate.exit_permit?.comment?.trim();
+  return comment ? comment : null;
+};
+
+const getExitPermitComments = (candidates: ExitCandidate[]) => candidates.flatMap((candidate) => {
+  const comment = getExitPermitComment(candidate);
+
+  return comment ? [{
+    visitorId: candidate.visitor_id,
+    plateNumber: candidate.plate_number,
+    comment,
+  }] : [];
+});
 
 const matchEntryReviewItem = (event: DssUnknownVehicleDetectedEvent | null, items: CheckpointQueueItem[]) => {
   if (!event) return null;
@@ -1222,6 +1244,7 @@ export default function DssCheckpointDesk() {
     const event = latestExitEvent;
     const item = exitReviewItem;
     const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
+    const exitPermitComments = item ? getExitPermitComments(item.candidate_visitors) : [];
 
     if (!event && !item) {
       return (
@@ -1284,6 +1307,24 @@ export default function DssCheckpointDesk() {
                 </div>
               </div>
             ) : null}
+
+            {exitPermitComments.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                <div className="text-sm font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
+                <div className="space-y-2 text-sm text-emerald-950">
+                  {exitPermitComments.map((entry) => (
+                    <div key={entry.visitorId} className="rounded-md border border-emerald-100 bg-white px-3 py-2">
+                      {exitPermitComments.length > 1 && (
+                        <div className="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-700">
+                          Визит #{entry.visitorId} • {entry.plateNumber}
+                        </div>
+                      )}
+                      <div className="whitespace-pre-wrap">{entry.comment}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={() => item && openExitConfirmDialog(item)} disabled={!item || processingExitReviewId === item.review_id}>
@@ -1638,30 +1679,40 @@ export default function DssCheckpointDesk() {
 
                 {manualSearchResults.length > 0 ? (
                   <div className="space-y-2">
-                    {manualSearchResults.map((candidate) => (
-                      <button
-                        key={candidate.visitor_id}
-                        type="button"
-                        onClick={() => setExitConfirmDialog((current) => ({ ...current, selectedVisitorId: candidate.visitor_id }))}
-                        className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${exitConfirmDialog.selectedVisitorId === candidate.visitor_id ? 'border-orange-500 bg-orange-50' : 'hover:bg-muted/40'}`}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <div className="font-medium">{candidate.plate_number}</div>
-                            <div className="text-xs text-muted-foreground">Въезд: {formatDateTime(candidate.entry_date)}</div>
+                    {manualSearchResults.map((candidate) => {
+                      const exitPermitComment = getExitPermitComment(candidate);
+
+                      return (
+                        <button
+                          key={candidate.visitor_id}
+                          type="button"
+                          onClick={() => setExitConfirmDialog((current) => ({ ...current, selectedVisitorId: candidate.visitor_id }))}
+                          className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${exitConfirmDialog.selectedVisitorId === candidate.visitor_id ? 'border-orange-500 bg-orange-50' : 'hover:bg-muted/40'}`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className="font-medium">{candidate.plate_number}</div>
+                              <div className="text-xs text-muted-foreground">Въезд: {formatDateTime(candidate.entry_date)}</div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {candidate.task_name && <Badge variant="outline">{candidate.task_name}</Badge>}
+                              {candidate.exit_permit_required ? (
+                                candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение</Badge>
+                              ) : <Badge variant="outline">Выезд свободный</Badge>}
+                              <Badge variant={candidate.is_exact_plate_match || candidate.is_exact_truck_match ? 'default' : 'outline'}>
+                                {getConfirmationStatusLabel(candidate.confirmation_status)}
+                              </Badge>
+                            </div>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            {candidate.task_name && <Badge variant="outline">{candidate.task_name}</Badge>}
-                            {candidate.exit_permit_required ? (
-                              candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение</Badge>
-                            ) : <Badge variant="outline">Выезд свободный</Badge>}
-                            <Badge variant={candidate.is_exact_plate_match || candidate.is_exact_truck_match ? 'default' : 'outline'}>
-                              {getConfirmationStatusLabel(candidate.confirmation_status)}
-                            </Badge>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
+                          {exitPermitComment && (
+                            <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                              <div className="font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
+                              <div className="mt-1 whitespace-pre-wrap">{exitPermitComment}</div>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">Подходящих активных визитов не найдено.</div>
