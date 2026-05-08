@@ -16,6 +16,7 @@ use App\Models\TruckModel;
 use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
+use App\Services\DssMediaService;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssParkingService;
 use App\Services\DssTelegramEventRegistry;
@@ -30,6 +31,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 
 class VisitorsCotroller extends Controller
@@ -2015,8 +2017,14 @@ class VisitorsCotroller extends Controller
             return null;
         }
 
-        if ($capture->local_capturePicture) {
-            return '/storage/' . ltrim($capture->local_capturePicture, '/');
+        $localCapturePath = ltrim((string) $capture->local_capturePicture, '/');
+
+        if ($localCapturePath !== '' && Storage::disk('public')->exists($localCapturePath)) {
+            return '/storage/' . $localCapturePath;
+        }
+
+        if (filled($capture->capturePicture)) {
+            app(DssMediaService::class)->ensureVehicleCaptureImage($capture);
         }
 
         return null;
@@ -2024,11 +2032,21 @@ class VisitorsCotroller extends Controller
 
     private function buildPlatePictureUrl(?VehicleCapture $capture): ?string
     {
-        if (!$capture || !$capture->local_plateNoPicture) {
+        if (!$capture) {
             return null;
         }
 
-        return '/storage/' . ltrim($capture->local_plateNoPicture, '/');
+        $localPlatePath = ltrim((string) $capture->local_plateNoPicture, '/');
+
+        if ($localPlatePath !== '' && Storage::disk('public')->exists($localPlatePath)) {
+            return '/storage/' . $localPlatePath;
+        }
+
+        if (filled($capture->plateNoPicture)) {
+            app(DssMediaService::class)->ensureVehicleCaptureImage($capture);
+        }
+
+        return null;
     }
 
     private function getExitReviewVisitors(CheckpointExitReview $review): array

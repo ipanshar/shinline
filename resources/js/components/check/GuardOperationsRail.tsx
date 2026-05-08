@@ -49,6 +49,7 @@ type GuestVisit = {
   guest_full_name: string;
   guest_iin?: string | null;
   guest_company_name?: string | null;
+  comment?: string | null;
   host_name: string;
   host_phone?: string | null;
   visit_starts_at: string;
@@ -384,6 +385,12 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
                         {visit.host_phone ? ` • ${visit.host_phone}` : ''}
                       </span>
                     </div>
+
+                    {visit.comment ? (
+                      <div className="rounded-md border bg-muted/40 px-2.5 py-2 text-sm leading-snug text-foreground">
+                        <span className="font-medium">Цель визита:</span> {visit.comment}
+                      </div>
+                    ) : null}
 
                     <div className="flex items-center gap-2">
                       {presence.icon === 'entry' ? (
