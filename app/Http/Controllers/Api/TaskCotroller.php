@@ -613,6 +613,8 @@ class TaskCotroller extends Controller
             );
 
 
+            $activeVisitorPermitLinked = false;
+
             if ($yard && $truck && $task) {
                 // Проверяем или создаем разрешение на въезд
                 $endDate = $request->has('end_date') && $request->end_date 
@@ -629,6 +631,12 @@ class TaskCotroller extends Controller
                     $endDate,
                     $integrationIssuerId,
                 );
+
+                if ($visitor && (int) $visitor->yard_id === (int) $yard->id && (int) $visitor->entry_permit_id !== (int) $permit->id) {
+                    $visitor->entry_permit_id = $permit->id;
+                    $visitor->save();
+                    $activeVisitorPermitLinked = true;
+                }
 
                 $this->createAutomaticExitPermitForIntegrationVisitor($visitor, $permit, $integrationIssuerId);
             }
@@ -798,10 +806,7 @@ class TaskCotroller extends Controller
             //--
             // Отправляем уведомление в Telegram
             if ($task && $visitor ) {
-                if($visitor->task_id == null) {
-                     $visitor->update([
-                    'task_id' => $task->id,
-                ]);
+                if ($activeVisitorPermitLinked) {
                 $ActualWarehouse = Warehouse::whereIn('id', $warehouseActive)->get();
                     $this->telegramNotifications->queue(
                     DssTelegramEventRegistry::EVENT_VISITOR_TASK_ALREADY_ON_TERRITORY,

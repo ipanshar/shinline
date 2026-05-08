@@ -1,0 +1,752 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Car, Clock, Loader2, LogOut, MapPin, Phone, RefreshCw, Search, User } from 'lucide-react';
+
+type VisitorFilter = 'on_territory' | 'left' | 'all' | 'with_task';
+
+type ExitPermitSummary = {
+  id: number;
+  valid_until?: string | null;
+  comment?: string | null;
+};
+
+type HistoryVisitor = {
+  id: number;
+  plate_number: string;
+  truck_model_name?: string | null;
+  status_name: string;
+  entry_date: string;
+  exit_date?: string | null;
+  user_name?: string | null;
+  user_phone?: string | null;
+  description?: string | null;
+  name?: string | null;
+  truck_own?: string | null;
+  truck_vip_level?: number | null;
+  entrance_device_name?: string | null;
+  entrance_checkpoint_name?: string | null;
+  exit_device_name?: string | null;
+  exit_checkpoint_name?: string | null;
+  has_permit?: boolean;
+  permit_type?: 'one_time' | 'permanent' | null;
+  exit_permit_required?: boolean;
+  has_active_exit_permit?: boolean;
+  exit_permit?: ExitPermitSummary | null;
+  comment?: string | null;
+  capture_picture_url?: string | null;
+};
+
+type VisitorPagination = {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from: number | null;
+  to: number | null;
+};
+
+type VisitorsHistoryPanelProps = {
+  yardId?: number | null;
+  title?: string;
+  variant?: 'desktop' | 'mobile';
+  onExitVisitor?: (visitorId: number) => Promise<void>;
+  onVisitorsChanged?: () => void | Promise<void>;
+};
+
+const EMPTY_PAGINATION: VisitorPagination = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 50,
+  total: 0,
+  from: null,
+  to: null,
+};
+
+const FILTER_OPTIONS: Array<{ key: VisitorFilter; label: string }> = [
+  { key: 'all', label: 'Все' },
+  { key: 'on_territory', label: 'На территории' },
+  { key: 'with_task', label: 'С заданиями' },
+  { key: 'left', label: 'Покинули' },
+];
+
+const SEARCH_DEBOUNCE_MS = 350;
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('auth_token');
+
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const normalizeSearchText = (value?: string | null) =>
+  (value ?? '')
+    .toUpperCase()
+    .replace(/[\s-]/g, '');
+
+const buildSearchableVisitorText = (visitor: HistoryVisitor) => normalizeSearchText([
+  visitor.plate_number,
+  visitor.user_name,
+  visitor.user_phone,
+  visitor.truck_model_name,
+  visitor.name,
+  visitor.description,
+  visitor.entrance_checkpoint_name,
+  visitor.exit_permit?.comment,
+]
+  .filter(Boolean)
+  .join(' '));
+
+const formatDateTime = (dateStr?: string | null) => {
+  if (!dateStr) {
+    return null;
+  }
+
+  const date = new Date(dateStr);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return {
+    date: date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    time: date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+  };
+};
+
+const getPermitBadgeClass = (visitor: HistoryVisitor) => {
+  if (!visitor.has_permit) {
+    return 'bg-slate-100 text-slate-700';
+  }
+
+  return visitor.permit_type === 'one_time'
+    ? 'bg-blue-100 text-blue-700'
+    : 'bg-emerald-100 text-emerald-700';
+};
+
+const getPermitBadgeLabel = (visitor: HistoryVisitor) => {
+  if (!visitor.has_permit) {
+    return 'Без разрешения';
+  }
+
+  return visitor.permit_type === 'one_time'
+    ? 'Разрешение: разовое'
+    : 'Разрешение: постоянное';
+};
+
+const getTerritoryBadgeClass = (visitor: HistoryVisitor) => (
+  visitor.exit_date
+    ? 'bg-red-100 text-red-700'
+    : 'bg-emerald-100 text-emerald-700'
+);
+
+const getTerritoryBadgeLabel = (visitor: HistoryVisitor) => (
+  visitor.exit_date ? 'Покинул территорию' : 'На территории'
+);
+
+const hasMeaningfulTruckOwner = (truckOwner?: string | null) => {
+  const normalized = (truckOwner ?? '').trim().toLowerCase();
+
+  return normalized !== '' && normalized !== 'не указано' && normalized !== 'неизвестно';
+};
+
+export default function VisitorsHistoryPanel({
+  yardId = null,
+  title = 'История посещений',
+  variant = 'desktop',
+  onExitVisitor,
+  onVisitorsChanged,
+}: VisitorsHistoryPanelProps) {
+  const [visitors, setVisitors] = useState<HistoryVisitor[]>([]);
+  const [pagination, setPagination] = useState<VisitorPagination>(EMPTY_PAGINATION);
+  const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<VisitorFilter>('all');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [serverSearchVisitors, setServerSearchVisitors] = useState<HistoryVisitor[]>([]);
+  const [serverSearchTotal, setServerSearchTotal] = useState(0);
+  const [serverSearching, setServerSearching] = useState(false);
+  const [processingVisitorId, setProcessingVisitorId] = useState<number | null>(null);
+  const isSearchActive = search.trim().length > 0;
+
+  const fetchVisitors = useCallback(async (targetPage: number, targetFilter: VisitorFilter) => {
+    if (!yardId) {
+      setVisitors([]);
+      setPagination(EMPTY_PAGINATION);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await axios.post('/security/getvisitors', {
+        yard_id: yardId,
+        filter: targetFilter,
+        page: targetPage,
+        per_page: 50,
+        include_capture_picture: true,
+      }, {
+        headers: getAuthHeaders(),
+      });
+
+      setVisitors(response.data?.data ?? []);
+      setPagination(response.data?.pagination ?? { ...EMPTY_PAGINATION, current_page: targetPage });
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        setVisitors([]);
+        setPagination({ ...EMPTY_PAGINATION, current_page: targetPage });
+        return;
+      }
+
+      console.error('Ошибка при загрузке истории посещений:', error);
+      toast.error('Не удалось загрузить историю посещений');
+    } finally {
+      setLoading(false);
+    }
+  }, [yardId]);
+
+  const requestServerSearchVisitors = useCallback(async (searchValue: string, targetFilter: VisitorFilter) => {
+    const trimmedSearch = searchValue.trim();
+
+    if (!yardId || trimmedSearch === '') {
+      return {
+        visitors: [] as HistoryVisitor[],
+        total: 0,
+      };
+    }
+
+    try {
+      const response = await axios.post('/security/getvisitors', {
+        yard_id: yardId,
+        filter: targetFilter,
+        page: 1,
+        per_page: 50,
+        include_capture_picture: true,
+        search: trimmedSearch,
+      }, {
+        headers: getAuthHeaders(),
+      });
+
+      const loadedVisitors = response.data?.data ?? [];
+
+      return {
+        visitors: loadedVisitors,
+        total: response.data?.pagination?.total ?? loadedVisitors.length,
+      };
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return {
+          visitors: [] as HistoryVisitor[],
+          total: 0,
+        };
+      }
+
+      console.error('Ошибка серверного поиска истории посещений:', error);
+
+      return {
+        visitors: [] as HistoryVisitor[],
+        total: 0,
+      };
+    }
+  }, [yardId]);
+
+  useEffect(() => {
+    setVisitors([]);
+    setPagination(EMPTY_PAGINATION);
+    setPage(1);
+    setFilter('all');
+    setSearch('');
+    setServerSearchVisitors([]);
+    setServerSearchTotal(0);
+    setServerSearching(false);
+  }, [yardId]);
+
+  useEffect(() => {
+    void fetchVisitors(page, filter);
+  }, [fetchVisitors, filter, page]);
+
+  useEffect(() => {
+    if (!yardId) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      void fetchVisitors(page, filter);
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [fetchVisitors, filter, page, yardId]);
+
+  useEffect(() => {
+    if (!yardId || !isSearchActive) {
+      setServerSearchVisitors([]);
+      setServerSearchTotal(0);
+      setServerSearching(false);
+      return undefined;
+    }
+
+    let isActive = true;
+    setServerSearching(true);
+
+    const timeoutId = window.setTimeout(() => {
+      void requestServerSearchVisitors(search, filter)
+        .then((result) => {
+          if (!isActive) {
+            return;
+          }
+
+          setServerSearchVisitors(result.visitors);
+          setServerSearchTotal(result.total);
+        })
+        .finally(() => {
+          if (isActive) {
+            setServerSearching(false);
+          }
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [filter, isSearchActive, requestServerSearchVisitors, search, yardId]);
+
+  const localFilteredVisitors = useMemo(() => {
+    const normalizedSearch = normalizeSearchText(search);
+
+    if (!normalizedSearch) {
+      return visitors;
+    }
+
+    return visitors.filter((visitor) => buildSearchableVisitorText(visitor).includes(normalizedSearch));
+  }, [search, visitors]);
+
+  const displayedVisitors = useMemo(() => {
+    if (!isSearchActive) {
+      return visitors;
+    }
+
+    const mergedVisitors: HistoryVisitor[] = [];
+    const seenIds = new Set<number>();
+
+    for (const visitor of localFilteredVisitors) {
+      if (seenIds.has(visitor.id)) {
+        continue;
+      }
+
+      seenIds.add(visitor.id);
+      mergedVisitors.push(visitor);
+    }
+
+    for (const visitor of serverSearchVisitors) {
+      if (seenIds.has(visitor.id)) {
+        continue;
+      }
+
+      seenIds.add(visitor.id);
+      mergedVisitors.push(visitor);
+    }
+
+    return mergedVisitors;
+  }, [isSearchActive, localFilteredVisitors, serverSearchVisitors, visitors]);
+
+  const additionalServerMatches = useMemo(() => {
+    if (!isSearchActive) {
+      return 0;
+    }
+
+    const localIds = new Set(localFilteredVisitors.map((visitor) => visitor.id));
+
+    return serverSearchVisitors.filter((visitor) => !localIds.has(visitor.id)).length;
+  }, [isSearchActive, localFilteredVisitors, serverSearchVisitors]);
+
+  const handleRefresh = () => {
+    void fetchVisitors(page, filter);
+
+    if (!isSearchActive) {
+      return;
+    }
+
+    setServerSearching(true);
+
+    void requestServerSearchVisitors(search, filter)
+      .then((result) => {
+        setServerSearchVisitors(result.visitors);
+        setServerSearchTotal(result.total);
+      })
+      .finally(() => setServerSearching(false));
+  };
+
+  const handleExitFallback = useCallback(async (visitorId: number) => {
+    const headers = getAuthHeaders();
+
+    try {
+      await axios.post('/security/exitvisitor', { id: visitorId }, { headers });
+      toast.success('Выезд зафиксирован');
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.data?.code === 'exit_permit_required') {
+        const reason = window.prompt('У этого визита нет разрешения на выезд. Укажите причину ручного выпуска:')?.trim() ?? '';
+
+        if (reason.length < 3) {
+          toast.error('Для ручного выпуска без разрешения нужна причина');
+          throw error;
+        }
+
+        await axios.post('/security/exitvisitor', {
+          id: visitorId,
+          override_exit_permit: true,
+          override_reason: reason,
+        }, { headers });
+
+        toast.success('Выезд зафиксирован вручную');
+        return;
+      }
+
+      toast.error(axios.isAxiosError(error) ? (error.response?.data?.message || 'Ошибка при выходе') : 'Ошибка при выходе');
+      throw error;
+    }
+  }, []);
+
+  const handleExitVisitor = async (visitorId: number) => {
+    setProcessingVisitorId(visitorId);
+
+    try {
+      if (onExitVisitor) {
+        await onExitVisitor(visitorId);
+      } else {
+        await handleExitFallback(visitorId);
+      }
+
+      await fetchVisitors(page, filter);
+
+      if (isSearchActive) {
+        const result = await requestServerSearchVisitors(search, filter);
+        setServerSearchVisitors(result.visitors);
+        setServerSearchTotal(result.total);
+      }
+
+      await onVisitorsChanged?.();
+    } catch (error: unknown) {
+      if (!onExitVisitor) {
+        console.error('Ошибка при завершении визита из истории:', error);
+      }
+    } finally {
+      setProcessingVisitorId(null);
+    }
+  };
+
+  const listClassName = variant === 'desktop' ? 'grid gap-2 xl:grid-cols-2' : 'space-y-3';
+  const listContainerClassName = variant === 'desktop'
+    ? 'px-3 py-3 sm:px-4'
+    : 'max-h-[60vh] overflow-y-auto px-3 py-3';
+  const compactBadgeClassName = variant === 'desktop' ? 'px-1.5 py-0 text-[10px] leading-4' : '';
+
+  if (!yardId) {
+    return (
+      <Card className="gap-0 py-0">
+        <CardHeader className="border-b px-4 py-3 sm:px-6">
+          <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 py-6 text-sm text-muted-foreground sm:px-6">
+          Выберите двор или КПП, чтобы загрузить историю посещений.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="gap-0 py-0">
+      <CardHeader className="border-b px-4 py-3 sm:px-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+            <Badge variant="outline">{isSearchActive ? displayedVisitors.length : pagination.total}</Badge>
+          </div>
+
+          <Button type="button" variant="outline" size="sm" className="h-8 self-start md:self-auto" onClick={handleRefresh} disabled={loading || serverSearching}>
+            {loading || serverSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Обновить
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        <div className="border-b px-3 py-3 sm:px-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:max-w-sm">
+              {serverSearching ? (
+                <Loader2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+              ) : (
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              )}
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value.toUpperCase())}
+                placeholder="Найти по номеру, водителю, телефону, заданию"
+                className="pl-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {FILTER_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={filter === option.key ? 'default' : 'outline'}
+                  className="h-8"
+                  onClick={() => {
+                    setFilter(option.key);
+                    setPage(1);
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {isSearchActive && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>На текущей странице: {localFilteredVisitors.length}</span>
+              <span>Добавлено с сервера: {additionalServerMatches}</span>
+              <span>Всего найдено на сервере: {serverSearchTotal}</span>
+              {serverSearching && (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Ищем на сервере...
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className={listContainerClassName}>
+          {loading && visitors.length === 0 ? (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              Загрузка истории посещений...
+            </div>
+          ) : isSearchActive && serverSearching && localFilteredVisitors.length === 0 && serverSearchVisitors.length === 0 ? (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              Ищем совпадения на сервере...
+            </div>
+          ) : displayedVisitors.length === 0 ? (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Car className="h-8 w-8 opacity-50" />
+              {isSearchActive ? 'По запросу ничего не найдено' : 'Записей для выбранного фильтра пока нет'}
+            </div>
+          ) : (
+            <div className={listClassName}>
+              {displayedVisitors.map((visitor) => {
+                const entryTime = formatDateTime(visitor.entry_date);
+                const exitTime = formatDateTime(visitor.exit_date);
+                const exitPermitComment = visitor.exit_permit?.comment?.trim();
+
+                return (
+                  <div key={visitor.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                    <div className={variant === 'desktop' ? 'grid gap-0 md:grid-cols-[8.5rem_minmax(0,1fr)]' : 'grid gap-0'}>
+                      <div className="border-b bg-muted/20 md:border-r md:border-b-0">
+                        {visitor.capture_picture_url ? (
+                          <img
+                            src={visitor.capture_picture_url}
+                            alt={`ТС ${visitor.plate_number}`}
+                            loading="lazy"
+                            className={variant === 'desktop' ? 'h-full min-h-24 w-full object-cover' : 'h-32 w-full object-cover'}
+                          />
+                        ) : (
+                          <div className={variant === 'desktop' ? 'flex h-full min-h-24 items-center justify-center gap-2 px-2 text-[11px] text-muted-foreground' : 'flex h-full min-h-32 items-center justify-center gap-2 text-xs text-muted-foreground'}>
+                            <Car className="h-4 w-4" />
+                            Фото ТС недоступно
+                          </div>
+                        )}
+                      </div>
+
+                      <div className={variant === 'desktop' ? 'space-y-2 p-2.5' : 'space-y-3 p-3'}>
+                        <div className={variant === 'desktop' ? 'flex items-start justify-between gap-2' : 'flex items-start justify-between gap-3'}>
+                          <div className={variant === 'desktop' ? 'min-w-0 space-y-1.5' : 'min-w-0 space-y-2'}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={variant === 'desktop' ? 'font-mono text-base font-bold tracking-[0.08em] text-foreground' : 'font-mono text-lg font-bold tracking-[0.12em] text-foreground'}>{visitor.plate_number}</span>
+                              <Badge className={`${getTerritoryBadgeClass(visitor)} ${compactBadgeClassName}`.trim()}>{getTerritoryBadgeLabel(visitor)}</Badge>
+                              <Badge className={`${getPermitBadgeClass(visitor)} ${compactBadgeClassName}`.trim()}>{getPermitBadgeLabel(visitor)}</Badge>
+                              {!visitor.exit_date && visitor.exit_permit_required && (
+                                <Badge className={`${visitor.has_active_exit_permit ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} ${compactBadgeClassName}`.trim()}>
+                                  {visitor.has_active_exit_permit ? 'Выезд разрешён' : 'Нужно разрешение на выезд'}
+                                </Badge>
+                              )}
+                            </div>
+
+                            {visitor.name && (
+                              <div className={variant === 'desktop' ? 'line-clamp-2 text-xs text-muted-foreground' : 'text-sm text-muted-foreground'}>
+                                Задание: {visitor.name}
+                              </div>
+                            )}
+                          </div>
+
+                          {!visitor.exit_date && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              className={variant === 'desktop' ? 'h-7 shrink-0 px-2 text-xs' : 'h-8 shrink-0'}
+                              onClick={() => void handleExitVisitor(visitor.id)}
+                              disabled={processingVisitorId === visitor.id}
+                            >
+                              {processingVisitorId === visitor.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                              Выезд
+                            </Button>
+                          )}
+                        </div>
+
+                        <div className={variant === 'desktop' ? 'grid gap-1.5 text-[11px] sm:grid-cols-2' : 'grid gap-2 text-xs sm:grid-cols-2'}>
+                          <div className={variant === 'desktop' ? 'rounded-lg border bg-background/70 px-2 py-1 text-foreground' : 'rounded-lg border bg-background/70 px-2 py-1.5 text-foreground'}>
+                            <div className={variant === 'desktop' ? 'text-[9px] uppercase tracking-[0.06em] text-muted-foreground' : 'text-[10px] uppercase tracking-[0.08em] text-muted-foreground'}>Въезд</div>
+                            <div className={variant === 'desktop' ? 'mt-0.5 flex items-center gap-1' : 'mt-1 flex items-center gap-1.5'}>
+                              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>{entryTime ? `${entryTime.date}, ${entryTime.time}` : 'Нет данных'}</span>
+                            </div>
+                          </div>
+
+                          <div className={variant === 'desktop' ? 'rounded-lg border bg-background/70 px-2 py-1 text-foreground' : 'rounded-lg border bg-background/70 px-2 py-1.5 text-foreground'}>
+                            <div className={variant === 'desktop' ? 'text-[9px] uppercase tracking-[0.06em] text-muted-foreground' : 'text-[10px] uppercase tracking-[0.08em] text-muted-foreground'}>Выезд</div>
+                            <div className={variant === 'desktop' ? 'mt-0.5 flex items-center gap-1' : 'mt-1 flex items-center gap-1.5'}>
+                              <LogOut className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>{exitTime ? `${exitTime.date}, ${exitTime.time}` : 'Пока на территории'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className={variant === 'desktop' ? 'space-y-1.5 text-xs' : 'space-y-2 text-sm'}>
+                          {visitor.truck_model_name && (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Car className={variant === 'desktop' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                              <span>{visitor.truck_model_name}</span>
+                            </div>
+                          )}
+
+                          {hasMeaningfulTruckOwner(visitor.truck_own) && (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <MapPin className={variant === 'desktop' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                              <span>Владелец: {visitor.truck_own}</span>
+                            </div>
+                          )}
+
+                          {visitor.user_name && (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <User className={variant === 'desktop' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                              <span className={variant === 'desktop' ? 'line-clamp-1' : ''}>{visitor.user_name}</span>
+                            </div>
+                          )}
+
+                          {visitor.user_phone && (
+                            <a href={`tel:${visitor.user_phone}`} className="flex items-center gap-2 text-blue-600 hover:underline">
+                              <Phone className={variant === 'desktop' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                              <span>{visitor.user_phone}</span>
+                            </a>
+                          )}
+                        </div>
+
+                        <div className={variant === 'desktop' ? 'space-y-0.5 text-[11px] text-muted-foreground' : 'space-y-1 text-xs text-muted-foreground'}>
+                          <div>
+                            {visitor.entrance_device_name
+                              ? `Въезд: ${visitor.entrance_device_name}${visitor.entrance_checkpoint_name ? ` • КПП ${visitor.entrance_checkpoint_name}` : ''}`
+                              : `Въезд: ручное подтверждение${visitor.entrance_checkpoint_name ? ` • КПП ${visitor.entrance_checkpoint_name}` : ''}`}
+                          </div>
+
+                          {(visitor.exit_date || visitor.exit_device_name || visitor.exit_checkpoint_name) && (
+                            <div>
+                              {visitor.exit_device_name
+                                ? `Выезд: ${visitor.exit_device_name}${visitor.exit_checkpoint_name ? ` • КПП ${visitor.exit_checkpoint_name}` : ''}`
+                                : `Выезд: ручное подтверждение${visitor.exit_checkpoint_name ? ` • КПП ${visitor.exit_checkpoint_name}` : ''}`}
+                            </div>
+                          )}
+                        </div>
+
+                        {(visitor.comment || exitPermitComment || visitor.description) && (
+                          <div className={variant === 'desktop' ? 'space-y-1 border-t pt-1.5 text-[11px]' : 'space-y-1 border-t pt-2 text-xs'}>
+                            {visitor.comment && (
+                              <div className={variant === 'desktop' ? 'line-clamp-2 text-muted-foreground' : 'text-muted-foreground'}>
+                                <span className="font-medium text-foreground">Цель визита:</span> {visitor.comment}
+                              </div>
+                            )}
+
+                            {!visitor.exit_date && exitPermitComment && (
+                              <div className={variant === 'desktop' ? 'line-clamp-2 text-emerald-700' : 'text-emerald-700'}>
+                                <span className="font-medium">Комментарий к выезду:</span> {exitPermitComment}
+                              </div>
+                            )}
+
+                            {visitor.description && (
+                              <div className={variant === 'desktop' ? 'line-clamp-2 text-muted-foreground' : 'text-muted-foreground'}>
+                                <span className="font-medium text-foreground">Описание:</span> {visitor.description}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t bg-muted/20 px-3 py-2 sm:px-4">
+          {isSearchActive ? (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-muted-foreground">
+                На текущей странице найдено {localFilteredVisitors.length}. С сервера добавлено {additionalServerMatches}. Всего серверных совпадений: {serverSearchTotal}.
+              </div>
+
+              {serverSearching && (
+                <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Поиск на сервере...
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-muted-foreground">
+                Показано {pagination.from ?? 0} - {pagination.to ?? 0} из {pagination.total}
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3"
+                  onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                  disabled={loading || pagination.current_page <= 1}
+                >
+                  Назад
+                </Button>
+
+                <span className="text-xs text-muted-foreground">
+                  {pagination.current_page}/{pagination.last_page}
+                </span>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3"
+                  onClick={() => setPage((currentPage) => Math.min(pagination.last_page, currentPage + 1))}
+                  disabled={loading || pagination.current_page >= pagination.last_page}
+                >
+                  Далее
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

@@ -6,6 +6,7 @@ use App\Models\EntryPermit;
 use App\Models\CheckpointExitReview;
 use App\Models\ExitPermit;
 use App\Models\Status;
+use App\Models\Task;
 use App\Models\User;
 use App\Models\Visitor;
 use App\Models\WeighingRequirement;
@@ -330,6 +331,86 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
             ->assertJsonPath('data.0.candidate_visitors.0.exit_permit.comment', 'Проверить пломбу на воротах 3');
     }
 
+    public function test_checkpoint_exit_review_queue_auto_closes_previous_active_visits_and_keeps_latest_candidate(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Exit');
+        $truck = $this->createTruck(['plate_number' => 'DUP12305']);
+        $task = Task::create([
+            'name' => 'Duplicate visitor exit task',
+            'status_id' => $statuses['on_territory']->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'begin_date' => now()->subHours(6),
+        ]);
+
+        $olderVisitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'task_id' => $task->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subHours(4),
+            'entry_date' => now()->subHours(5),
+        ]);
+
+        $latestVisitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'task_id' => $task->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(30),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $review = CheckpointExitReview::create([
+            'device_id' => $device->id,
+            'checkpoint_id' => $checkpoint->id,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'normalized_plate' => strtolower($truck->plate_number),
+            'capture_time' => now(),
+            'status' => 'pending',
+        ]);
+
+        $response = $this->postJson('/api/security/checkpoint-exit-review-queue', [
+            'checkpoint_id' => $checkpoint->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonCount(1, 'data.0.candidate_visitors')
+            ->assertJsonPath('data.0.candidate_visitors.0.visitor_id', $latestVisitor->id);
+
+        $olderVisitor->refresh();
+        $latestVisitor->refresh();
+        $review->refresh();
+        $task->refresh();
+
+        $this->assertNotNull($olderVisitor->exit_date);
+        $this->assertSame($statuses['left_territory']->id, $olderVisitor->status_id);
+        $this->assertStringContainsString('[AUTO] Предыдущий активный визит закрыт при обработке выезда', (string) $olderVisitor->comment);
+        $this->assertNull($latestVisitor->exit_date);
+        $this->assertSame($statuses['completed']->id, $task->status_id);
+        $this->assertNotNull($task->end_date);
+        $this->assertSame('pending', $review->status);
+    }
+
     public function test_search_active_visitors_for_exit_returns_active_exit_permit_comment(): void
     {
         $statuses = $this->seedDssStatuses();
@@ -425,6 +506,62 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
             ->assertJsonPath('data.0.exit_permit.comment', 'Проверить номер пломбы перед выпуском');
     }
 
+    public function test_get_visitors_closes_stale_duplicate_active_visits_and_keeps_only_latest_open(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $truck = $this->createTruck(['plate_number' => 'UNI32105']);
+
+        $olderVisitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subHours(3),
+            'entry_date' => now()->subHours(4),
+        ]);
+
+        $latestVisitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(20),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $response = $this->postJson('/api/security/getvisitors', [
+            'yard_id' => $yard->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true);
+
+        $activeVisitors = collect($response->json('data'))
+            ->filter(fn (array $visitor) => empty($visitor['exit_date']))
+            ->values();
+
+        $this->assertCount(1, $activeVisitors);
+        $this->assertSame($latestVisitor->id, $activeVisitors[0]['id']);
+
+        $olderVisitor->refresh();
+        $latestVisitor->refresh();
+
+        $this->assertNotNull($olderVisitor->exit_date);
+        $this->assertSame($statuses['left_territory']->id, $olderVisitor->status_id);
+        $this->assertNull($latestVisitor->exit_date);
+    }
+
     public function test_get_visitors_avoids_n_plus_one_queries_for_permits(): void
     {
         $statuses = $this->seedDssStatuses();
@@ -494,5 +631,115 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
             $permitSelectQueryCount,
             'getVisitors should bulk-load permits instead of issuing per-visitor queries.'
         );
+    }
+
+    public function test_get_visitors_supports_paginated_history(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+
+        for ($index = 1; $index <= 55; $index++) {
+            $truck = $this->createTruck([
+                'plate_number' => sprintf('PG%03d05', $index),
+            ]);
+
+            $this->createVisitor([
+                'plate_number' => $truck->plate_number,
+                'original_plate_number' => $truck->plate_number,
+                'yard_id' => $yard->id,
+                'truck_id' => $truck->id,
+                'status_id' => $statuses['on_territory']->id,
+                'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+                'entry_date' => now()->subMinutes($index),
+            ]);
+        }
+
+        $response = $this->postJson('/api/security/getvisitors', [
+            'yard_id' => $yard->id,
+            'page' => 1,
+            'per_page' => 50,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonCount(50, 'data')
+            ->assertJsonPath('pagination.current_page', 1)
+            ->assertJsonPath('pagination.last_page', 2)
+            ->assertJsonPath('pagination.per_page', 50)
+            ->assertJsonPath('pagination.total', 55)
+            ->assertJsonPath('pagination.from', 1)
+            ->assertJsonPath('pagination.to', 50);
+    }
+
+    public function test_get_visitors_supports_server_search_beyond_current_page(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $operator = User::factory()->create();
+        Sanctum::actingAs($operator);
+
+        $yard = $this->createYard(false);
+        $taskUser = User::factory()->create([
+            'name' => 'Серверный водитель',
+            'phone' => '+77770001122',
+        ]);
+
+        $targetTruck = $this->createTruck([
+            'plate_number' => 'SRV99005',
+        ]);
+
+        $targetTask = Task::create([
+            'name' => 'Серверная доставка 42',
+            'status_id' => $statuses['on_territory']->id,
+            'truck_id' => $targetTruck->id,
+            'yard_id' => $yard->id,
+            'user_id' => $taskUser->id,
+            'begin_date' => now()->subHours(3),
+        ]);
+
+        $targetVisitor = $this->createVisitor([
+            'plate_number' => $targetTruck->plate_number,
+            'original_plate_number' => $targetTruck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $targetTruck->id,
+            'task_id' => $targetTask->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'entry_date' => now()->subHours(3),
+        ]);
+
+        for ($index = 1; $index <= 55; $index++) {
+            $truck = $this->createTruck([
+                'plate_number' => sprintf('SRH%03d05', $index),
+            ]);
+
+            $this->createVisitor([
+                'plate_number' => $truck->plate_number,
+                'original_plate_number' => $truck->plate_number,
+                'yard_id' => $yard->id,
+                'truck_id' => $truck->id,
+                'status_id' => $statuses['on_territory']->id,
+                'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+                'entry_date' => now()->subMinutes($index),
+            ]);
+        }
+
+        $response = $this->postJson('/api/security/getvisitors', [
+            'yard_id' => $yard->id,
+            'page' => 1,
+            'per_page' => 50,
+            'search' => 'Серверная доставка 42',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $targetVisitor->id)
+            ->assertJsonPath('data.0.plate_number', 'SRV99005')
+            ->assertJsonPath('pagination.total', 1);
     }
 }

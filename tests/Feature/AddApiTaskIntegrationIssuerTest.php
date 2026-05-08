@@ -180,18 +180,27 @@ class AddApiTaskIntegrationIssuerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('status', true);
 
+        $visitor->refresh();
+
         $firstPermit = ExitPermit::query()->where('visitor_id', $visitor->id)->latest('id')->first();
+        $entryPermit = EntryPermit::query()->where('task_id', 2911)->where('truck_id', $truck->id)->latest('id')->first();
 
         $this->assertNotNull($firstPermit);
+        $this->assertNotNull($entryPermit);
+        $this->assertNull($visitor->task_id);
+        $this->assertSame($entryPermit->id, $visitor->entry_permit_id);
         $this->assertSame(1, ExitPermit::query()->where('visitor_id', $visitor->id)->count());
 
         $this->postJson('/api/task/addapitask', $payload)
             ->assertOk()
             ->assertJsonPath('status', true);
 
+        $visitor->refresh();
         $lastPermit = ExitPermit::query()->where('visitor_id', $visitor->id)->latest('id')->first();
 
         $this->assertNotNull($lastPermit);
+        $this->assertNull($visitor->task_id);
+        $this->assertSame($entryPermit->id, $visitor->entry_permit_id);
         $this->assertSame($firstPermit->id, $lastPermit->id);
         $this->assertSame(1, ExitPermit::query()->where('visitor_id', $visitor->id)->count());
         $this->assertSame('Автоматически создано по заданию 1С #2911', $lastPermit->comment);

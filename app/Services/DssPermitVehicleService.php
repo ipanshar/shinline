@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 class DssPermitVehicleService extends DssBaseService
 {
     private const ACTION_SYNC = 'sync';
-    private const ACTION_REVOKE = 'revoke';
+    private const ACTION_DELETE = 'delete';
     private array $vehicleLookupCache = [];
     private bool $vehicleBatchReadyChecked = false;
     private ?array $vehicleBatchReadyError = null;
@@ -35,49 +35,57 @@ class DssPermitVehicleService extends DssBaseService
 
     public function revokePermitVehicle(EntryPermit $permit): array
     {
-        return $this->processPermitVehicleAction($permit, self::ACTION_REVOKE);
+        return $this->processPermitVehicleAction($permit, self::ACTION_DELETE);
     }
 
     public function syncPermitVehicleSafely(EntryPermit $permit): array
     {
-        $result = $this->syncPermitVehicle($permit);
-
-        if (isset($result['error'])) {
-            Log::warning('DSS permit vehicle sync failed', [
-                'permit_id' => $permit->id,
-                'truck_id' => $permit->truck_id,
-                'yard_id' => $permit->yard_id,
-                'error' => $result['error'],
-                'details' => $result['data'] ?? null,
-            ]);
-        }
-
-        return $result;
+        return $this->runPermitVehicleActionSafely(
+            $permit,
+            fn () => $this->syncPermitVehicle($permit),
+            'DSS permit vehicle sync failed',
+        );
     }
 
     public function revokePermitVehicleSafely(EntryPermit $permit): array
     {
-        $result = $this->revokePermitVehicle($permit);
-
-        if (isset($result['error'])) {
-            Log::warning('DSS permit vehicle revoke failed', [
-                'permit_id' => $permit->id,
-                'truck_id' => $permit->truck_id,
-                'yard_id' => $permit->yard_id,
-                'error' => $result['error'],
-                'details' => $result['data'] ?? null,
-            ]);
-        }
-
-        return $result;
+        return $this->runPermitVehicleActionSafely(
+            $permit,
+            fn () => $this->revokePermitVehicle($permit),
+            'DSS permit vehicle delete failed',
+        );
     }
 
     public function smartSyncPermitVehicleSafely(EntryPermit $permit): array
     {
-        $result = $this->smartSyncPermitVehicle($permit);
+        return $this->runPermitVehicleActionSafely(
+            $permit,
+            fn () => $this->smartSyncPermitVehicle($permit),
+            'DSS permit smart sync failed',
+        );
+    }
+
+    private function runPermitVehicleActionSafely(EntryPermit $permit, callable $operation, string $logMessage): array
+    {
+        try {
+            $result = $operation();
+        } catch (\Throwable $error) {
+            Log::warning($logMessage, [
+                'permit_id' => $permit->id,
+                'truck_id' => $permit->truck_id,
+                'yard_id' => $permit->yard_id,
+                'error' => $error->getMessage(),
+                'exception' => $error::class,
+            ]);
+
+            return [
+                'error' => $error->getMessage(),
+                'exception' => $error::class,
+            ];
+        }
 
         if (isset($result['error'])) {
-            Log::warning('DSS permit smart sync failed', [
+            Log::warning($logMessage, [
                 'permit_id' => $permit->id,
                 'truck_id' => $permit->truck_id,
                 'yard_id' => $permit->yard_id,
@@ -281,7 +289,7 @@ class DssPermitVehicleService extends DssBaseService
             return [
                 'result' => [
                     'error' => $error['error'] ?? 'DSS setting error',
-                    'action' => $this->isPermitEffectiveActive($permit) ? self::ACTION_SYNC : self::ACTION_REVOKE,
+                    'action' => $this->isPermitEffectiveActive($permit) ? self::ACTION_SYNC : self::ACTION_DELETE,
                 ],
             ];
         }
@@ -306,19 +314,7 @@ class DssPermitVehicleService extends DssBaseService
             return $this->preparePermitVehicleOperation($permit, self::ACTION_SYNC);
         }
 
-        if ($dssHasActivePermission) {
-            return $this->preparePermitVehicleOperation($permit, self::ACTION_REVOKE);
-        }
-
-        return [
-            'result' => [
-                'success' => false,
-                'skipped' => true,
-                'reason' => 'dss_permission_not_active',
-                'action' => self::ACTION_REVOKE,
-                'data' => $vehicleData,
-            ],
-        ];
+        return $this->preparePermitVehicleOperation($permit, self::ACTION_DELETE);
     }
 
     private function preparePermitVehicleOperation(EntryPermit $permit, string $action): array
@@ -347,7 +343,7 @@ class DssPermitVehicleService extends DssBaseService
             ], $plateNumber, action: $action, parkingPermit: $parkingPermit);
         }
 
-        if ($action === self::ACTION_REVOKE && $this->hasOtherActivePermit($permit)) {
+        if ($action === self::ACTION_DELETE && $this->hasOtherActivePermit($permit)) {
             return [
                 'result' => $this->storeParkingPermitRecord($permit, [
                     'success' => false,
@@ -367,10 +363,33 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         $effectiveParkingPermit = $this->resolveEffectiveParkingPermitContext($plateNumber, $parkingPermit, $fallbackParkingPermit);
+        if ($action === self::ACTION_DELETE) {
+            $remoteVehicleId = $this->resolveStoredRemoteVehicleId($effectiveParkingPermit);
 
-        $payload = $action === self::ACTION_REVOKE
-            ? $this->buildRevokePayload($permit, $plateNumber, $effectiveParkingPermit)
-            : $this->buildSyncPayload($permit, $plateNumber, $effectiveParkingPermit);
+            if (!$remoteVehicleId) {
+                return [
+                    'result' => $this->storeParkingPermitRecord($permit, [
+                        'success' => false,
+                        'skipped' => true,
+                        'reason' => 'remote_vehicle_id_not_found',
+                        'action' => $action,
+                    ], $plateNumber, action: $action, parkingPermit: $effectiveParkingPermit),
+                ];
+            }
+
+            return [
+                'operation' => [
+                    'permit' => $permit,
+                    'action' => $action,
+                    'plate_number' => $plateNumber,
+                    'parking_permit' => $effectiveParkingPermit,
+                    'payload' => $this->buildDeletePayload($plateNumber, $remoteVehicleId),
+                    'batch_key' => $this->buildPreparedOperationBatchKey($action, []),
+                ],
+            ];
+        }
+
+        $payload = $this->buildSyncPayload($permit, $plateNumber, $effectiveParkingPermit);
 
         return [
             'operation' => [
@@ -386,6 +405,10 @@ class DssPermitVehicleService extends DssBaseService
 
     private function executePreparedOperation(array $operation): array
     {
+        if (($operation['action'] ?? null) === self::ACTION_DELETE) {
+            return $this->executePreparedDeleteOperation($operation);
+        }
+
         $permit = $operation['permit'];
         $action = $operation['action'];
         $plateNumber = $operation['plate_number'];
@@ -435,9 +458,7 @@ class DssPermitVehicleService extends DssBaseService
 
             if ((int) ($responseData['code'] ?? 0) !== 1000) {
                 return $this->storeParkingPermitRecord($permit, [
-                    'error' => $action === self::ACTION_REVOKE
-                        ? 'DSS вернул ошибку при отзыве парковочного доступа'
-                        : 'DSS вернул ошибку при регистрации ТС для парковки',
+                    'error' => 'DSS вернул ошибку при регистрации ТС для парковки',
                     'data' => $responseData,
                     'action' => $action,
                 ], $plateNumber, $payload, null, $action, $effectiveParkingPermit);
@@ -446,7 +467,7 @@ class DssPermitVehicleService extends DssBaseService
             $remoteVehicleId = $this->extractRemoteVehicleId($responseData, $plateNumber)
                 ?? $this->resolveStoredRemoteVehicleId($effectiveParkingPermit, $payload);
 
-            Log::info($action === self::ACTION_REVOKE ? 'DSS permit vehicle revoked' : 'DSS permit vehicle synced', [
+            Log::info('DSS permit vehicle synced', [
                 'permit_id' => $permit->id,
                 'truck_id' => $permit->truck_id,
                 'plate_number' => $plateNumber,
@@ -465,18 +486,14 @@ class DssPermitVehicleService extends DssBaseService
 
             return $this->storeParkingPermitRecord($permit, [
                 'error' => $exception->hasResponse()
-                    ? ($action === self::ACTION_REVOKE
-                        ? 'Ошибка запроса к DSS при отзыве парковочного доступа'
-                        : 'Ошибка запроса к DSS при регистрации ТС')
+                    ? 'Ошибка запроса к DSS при регистрации ТС'
                     : 'Ошибка соединения с DSS: ' . $exception->getMessage(),
                 'data' => $responseData,
                 'action' => $action,
             ], $plateNumber, $payload, $responseData, $action, $effectiveParkingPermit);
         } catch (\Throwable $exception) {
             return $this->storeParkingPermitRecord($permit, [
-                'error' => $action === self::ACTION_REVOKE
-                    ? 'DSS вернул некорректный ответ при отзыве парковочного доступа'
-                    : 'DSS вернул некорректный ответ при регистрации ТС для парковки',
+                'error' => 'DSS вернул некорректный ответ при регистрации ТС для парковки',
                 'data' => [
                     'message' => $exception->getMessage(),
                 ],
@@ -487,8 +504,155 @@ class DssPermitVehicleService extends DssBaseService
         }
     }
 
+    private function executePreparedDeleteOperation(array $operation): array
+    {
+        $permit = $operation['permit'];
+        $plateNumber = $operation['plate_number'];
+        $payload = $operation['payload'];
+        $effectiveParkingPermit = $operation['parking_permit'];
+        $remoteVehicleId = $this->resolveStoredRemoteVehicleId($effectiveParkingPermit, $payload);
+
+        if (!$remoteVehicleId) {
+            return $this->storeParkingPermitRecord($permit, [
+                'success' => false,
+                'skipped' => true,
+                'reason' => 'remote_vehicle_id_not_found',
+                'action' => self::ACTION_DELETE,
+            ], $plateNumber, $payload, action: self::ACTION_DELETE, parkingPermit: $effectiveParkingPermit);
+        }
+
+        try {
+            $responseData = $this->sendVehicleDeleteRequest($remoteVehicleId);
+            $alreadyMissing = $this->isDeleteAlreadyMissingResponse($responseData);
+
+            if ((int) ($responseData['code'] ?? 0) !== 1000 && !$alreadyMissing) {
+                return $this->storeParkingPermitRecord($permit, [
+                    'error' => 'DSS вернул ошибку при удалении ТС',
+                    'data' => $responseData,
+                    'action' => self::ACTION_DELETE,
+                ], $plateNumber, $payload, $responseData, self::ACTION_DELETE, $effectiveParkingPermit);
+            }
+
+            Log::info('DSS permit vehicle deleted', [
+                'permit_id' => $permit->id,
+                'truck_id' => $permit->truck_id,
+                'plate_number' => $plateNumber,
+                'remote_vehicle_id' => $remoteVehicleId,
+                'already_missing' => $alreadyMissing,
+            ]);
+
+            return $this->storeParkingPermitRecord($permit, [
+                'success' => true,
+                'plate_number' => $plateNumber,
+                'action' => self::ACTION_DELETE,
+                'remote_vehicle_id' => $remoteVehicleId,
+                'already_missing' => $alreadyMissing,
+                'data' => $responseData['data'] ?? null,
+            ], $plateNumber, $payload, $responseData, self::ACTION_DELETE, $effectiveParkingPermit);
+        } catch (RequestException $exception) {
+            $responseData = $this->buildRequestExceptionResponseData($exception);
+
+            if ($this->isDeleteAlreadyMissingResponse($responseData)) {
+                return $this->storeParkingPermitRecord($permit, [
+                    'success' => true,
+                    'plate_number' => $plateNumber,
+                    'action' => self::ACTION_DELETE,
+                    'remote_vehicle_id' => $remoteVehicleId,
+                    'already_missing' => true,
+                    'data' => $responseData['data'] ?? null,
+                ], $plateNumber, $payload, $responseData, self::ACTION_DELETE, $effectiveParkingPermit);
+            }
+
+            return $this->storeParkingPermitRecord($permit, [
+                'error' => $exception->hasResponse()
+                    ? 'Ошибка запроса к DSS при удалении ТС'
+                    : 'Ошибка соединения с DSS: ' . $exception->getMessage(),
+                'data' => $responseData,
+                'action' => self::ACTION_DELETE,
+            ], $plateNumber, $payload, $responseData, self::ACTION_DELETE, $effectiveParkingPermit);
+        } catch (\Throwable $exception) {
+            return $this->storeParkingPermitRecord($permit, [
+                'error' => 'DSS вернул некорректный ответ при удалении ТС',
+                'data' => [
+                    'message' => $exception->getMessage(),
+                ],
+                'action' => self::ACTION_DELETE,
+            ], $plateNumber, $payload, [
+                'message' => $exception->getMessage(),
+            ], self::ACTION_DELETE, $effectiveParkingPermit);
+        }
+    }
+
+    private function sendVehicleDeleteRequest(string $remoteVehicleId): array
+    {
+        $attempts = max(1, (int) config('dss.permit_vehicle_sync.retry_attempts', 3));
+        $retryDelayMs = max(0, (int) config('dss.permit_vehicle_sync.retry_delay_ms', 1000));
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $this->throttleVehicleBatchRequest();
+
+            try {
+                $response = $this->client->delete(
+                    rtrim($this->baseUrl, '/') . '/ipms/api/v1.1/vehicle',
+                    [
+                        'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                        'query' => [
+                            'ids' => $remoteVehicleId,
+                        ],
+                    ]
+                );
+
+                $this->markVehicleBatchRequestSent();
+
+                $responseData = $this->decodeDssJsonResponse(
+                    $response,
+                    'DSS vehicle delete returned invalid response',
+                    ['remote_vehicle_id' => $remoteVehicleId]
+                );
+
+                if (!is_array($responseData)) {
+                    throw new \RuntimeException('DSS vehicle delete returned invalid JSON response');
+                }
+
+                return $responseData;
+            } catch (RequestException $exception) {
+                $this->markVehicleBatchRequestSent();
+
+                $statusCode = $exception->hasResponse() ? $exception->getResponse()->getStatusCode() : null;
+                $shouldRetry = $statusCode === 429 && $attempt < $attempts;
+
+                if (!$shouldRetry) {
+                    throw $exception;
+                }
+
+                if ($retryDelayMs > 0) {
+                    usleep($retryDelayMs * 1000 * $attempt);
+                }
+            }
+        }
+
+        throw new \RuntimeException('DSS vehicle delete retry loop terminated unexpectedly');
+    }
+
+    private function buildDeletePayload(string $plateNumber, string $remoteVehicleId): array
+    {
+        return [
+            'query' => [
+                'ids' => $remoteVehicleId,
+            ],
+            'vehicles' => [[
+                'id' => $remoteVehicleId,
+                'plateNo' => $plateNumber,
+            ]],
+        ];
+    }
+
     private function executePreparedOperationsBatch(array $operations): array
     {
+        if ($operations !== [] && ($operations[0]['action'] ?? null) === self::ACTION_DELETE) {
+            return $this->executePreparedOperationsIndividually($operations);
+        }
+
         $results = [];
         $chunkSize = max(1, (int) config('dss.permit_vehicle_sync.max_batch_size', 28));
 
@@ -1282,9 +1446,9 @@ class DssPermitVehicleService extends DssBaseService
         }
 
         $status = $result['status'] ?? match (true) {
-            isset($result['error']) => $action === self::ACTION_REVOKE ? 'revoke_failed' : 'failed',
-            !empty($result['success']) => $action === self::ACTION_REVOKE ? 'revoked' : 'synced',
-            default => $action === self::ACTION_REVOKE ? 'revoke_skipped' : 'skipped',
+            isset($result['error']) => $action === self::ACTION_DELETE ? 'delete_failed' : 'failed',
+            !empty($result['success']) => $action === self::ACTION_DELETE ? 'deleted' : 'synced',
+            default => $action === self::ACTION_DELETE ? 'delete_skipped' : 'skipped',
         };
 
         $remoteVehicleId = $result['remote_vehicle_id']
@@ -1307,7 +1471,7 @@ class DssPermitVehicleService extends DssBaseService
                 'synced_at' => $action === self::ACTION_SYNC && !isset($result['error']) && !empty($result['success'])
                     ? now()
                     : ($parkingPermit?->synced_at),
-                'revoked_at' => $action === self::ACTION_REVOKE && !isset($result['error']) && !empty($result['success'])
+                'revoked_at' => $action === self::ACTION_DELETE && !isset($result['error']) && !empty($result['success'])
                     ? now()
                     : ($parkingPermit?->revoked_at),
             ]
@@ -1316,5 +1480,21 @@ class DssPermitVehicleService extends DssBaseService
         $result['parking_permit_id'] = $parkingPermit->id;
 
         return $result;
+    }
+    private function isDeleteAlreadyMissingResponse(?array $responseData): bool
+    {
+        if (!is_array($responseData)) {
+            return false;
+        }
+
+        $haystack = mb_strtolower(json_encode($responseData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '', 'UTF-8');
+
+        foreach (['not found', 'does not exist', 'not exist', 'не найден', 'не существует', '不存在', '未找到'] as $needle) {
+            if ($needle !== '' && str_contains($haystack, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

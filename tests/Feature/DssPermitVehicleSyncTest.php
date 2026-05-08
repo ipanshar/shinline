@@ -291,7 +291,7 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
-    public function test_revoke_permit_vehicle_service_sends_expected_payload(): void
+    public function test_revoke_permit_vehicle_service_sends_expected_delete_request(): void
     {
         $activeStatus = Status::create([
             'key' => 'active',
@@ -371,16 +371,15 @@ class DssPermitVehicleSyncTest extends TestCase
         $this->assertTrue($result['success']);
         $this->assertCount(1, $history);
 
-        $payload = json_decode((string) $history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $request = $history[0]['request'];
 
-        $this->assertSame('25', $payload['vehicles'][0]['id']);
-        $this->assertSame('043AAX01', $payload['vehicles'][0]['plateNo']);
-        $this->assertSame('2', $payload['vehicles'][0]['entranceGroups'][0]['parkingLotId']);
-        $this->assertSame([], $payload['vehicles'][0]['entranceGroups'][0]['entranceGroupIds']);
+        $this->assertSame('DELETE', $request->getMethod());
+        $this->assertSame('/ipms/api/v1.1/vehicle', $request->getUri()->getPath());
+        $this->assertSame('ids=25', $request->getUri()->getQuery());
 
         $this->assertDatabaseHas('dss_parking_permits', [
             'entry_permit_id' => $permit->id,
-            'status' => 'revoked',
+            'status' => 'deleted',
             'remote_vehicle_id' => '25',
         ]);
     }
@@ -998,7 +997,7 @@ class DssPermitVehicleSyncTest extends TestCase
         ]);
     }
 
-    public function test_dss_permit_vehicle_service_smart_sync_skips_when_inactive_permit_absent_in_dss(): void
+    public function test_dss_permit_vehicle_service_smart_sync_deletes_inactive_vehicle_when_found_in_dss(): void
     {
         $inactiveStatus = Status::create([
             'key' => 'not_active',
@@ -1040,6 +1039,11 @@ class DssPermitVehicleSyncTest extends TestCase
                     'plateNo' => '666TT06',
                 ],
             ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => null,
+            ], JSON_THROW_ON_ERROR)),
         ], $history);
 
         $authService = Mockery::mock(DssAuthService::class);
@@ -1049,10 +1053,17 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $result = $service->smartSyncPermitVehicle($permit);
 
-        $this->assertFalse($result['success']);
-        $this->assertTrue($result['skipped']);
-        $this->assertSame('dss_permission_not_active', $result['reason']);
-        $this->assertCount(1, $history);
+        $this->assertTrue($result['success']);
+        $this->assertSame('delete', $result['action']);
+        $this->assertCount(2, $history);
+        $this->assertSame('DELETE', $history[1]['request']->getMethod());
+        $this->assertSame('ids=701', $history[1]['request']->getUri()->getQuery());
+
+        $this->assertDatabaseHas('dss_parking_permits', [
+            'entry_permit_id' => $permit->id,
+            'status' => 'deleted',
+            'remote_vehicle_id' => '701',
+        ]);
     }
 
     public function test_dss_permit_vehicle_service_retries_on_rate_limit(): void
@@ -1972,7 +1983,7 @@ class DssPermitVehicleSyncTest extends TestCase
 
         $this->assertDatabaseHas('dss_parking_permits', [
             'entry_permit_id' => $permitToDeactivate->id,
-            'status' => 'revoke_skipped',
+            'status' => 'delete_skipped',
             'remote_vehicle_id' => '77',
         ]);
     }

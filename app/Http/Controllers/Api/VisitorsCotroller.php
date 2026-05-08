@@ -26,6 +26,8 @@ use App\Services\EntryPermitReplacementService;
 use App\Services\ExitPermitService;
 use App\Services\GuestVisitVisitorFlowService;
 use App\Services\WeighingService;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
@@ -206,6 +208,27 @@ class VisitorsCotroller extends Controller
 
     public function getVisitors(Request $request)
     {
+        $validated = $request->validate([
+            'yard_id' => 'nullable|integer',
+            'status' => 'nullable|array',
+            'status.*' => 'string',
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:50',
+            'filter' => 'nullable|string|in:on_territory,left,all,with_task',
+            'include_capture_picture' => 'nullable|boolean',
+            'search' => 'nullable|string|max:120',
+        ]);
+
+        if ($request->filled('yard_id')) {
+            $this->closeStaleActiveVisitorsForYard((int) $request->yard_id);
+        }
+
+        $filter = $validated['filter'] ?? 'all';
+        $includeCapturePicture = (bool) ($validated['include_capture_picture'] ?? false);
+        $search = trim((string) ($validated['search'] ?? ''));
+        $shouldPaginate = array_key_exists('page', $validated) || array_key_exists('per_page', $validated);
+        $perPage = $validated['per_page'] ?? 50;
+
         // ВАЖНО: Показываем только подтверждённых посетителей!
         // Посетители с confirmation_status = 'pending' показываются в отдельном блоке для подтверждения
         $query = DB::table('visitors')
@@ -247,16 +270,69 @@ class VisitorsCotroller extends Controller
             )
             ->orderBy('visitors.id', 'desc');
 
-        if ($request->has('status') && is_array($request->status)) {
-            $query->whereIn('statuses.key', $request->status);
-        }
-        if ($request->has('yard_id')) {
-            $query->where('visitors.yard_id', '=', $request->yard_id);
+        if (!empty($validated['status']) && is_array($validated['status'])) {
+            $query->whereIn('statuses.key', $validated['status']);
         }
 
-        $visitors = $query->take(1000)->get();
+        if (array_key_exists('yard_id', $validated) && $validated['yard_id']) {
+            $query->where('visitors.yard_id', '=', $validated['yard_id']);
+        }
 
-        if ($visitors->isEmpty()) {
+        if ($search !== '') {
+            $escapedSearch = addcslashes($search, '\\%_');
+            $normalizedPlateSearch = addcslashes((string) preg_replace('/[\s-]+/u', '', strtoupper($search)), '\\%_');
+            $normalizedPhoneSearch = addcslashes((string) preg_replace('/[\s\-\(\)\+]+/u', '', $search), '\\%_');
+            $searchLike = '%' . $escapedSearch . '%';
+            $normalizedPlateLike = '%' . $normalizedPlateSearch . '%';
+            $normalizedPhoneLike = '%' . $normalizedPhoneSearch . '%';
+
+            $query->where(function ($searchQuery) use ($searchLike, $normalizedPlateLike, $normalizedPhoneLike) {
+                $searchQuery
+                    ->whereRaw("REPLACE(REPLACE(UPPER(COALESCE(visitors.plate_number, '')), ' ', ''), '-', '') LIKE ?", [$normalizedPlateLike])
+                    ->orWhereRaw("REPLACE(REPLACE(UPPER(COALESCE(visitors.original_plate_number, '')), ' ', ''), '-', '') LIKE ?", [$normalizedPlateLike])
+                    ->orWhereRaw("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(users.phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') LIKE ?", [$normalizedPhoneLike])
+                    ->orWhere('users.phone', 'like', $searchLike)
+                    ->orWhere('users.name', 'like', $searchLike)
+                    ->orWhere('tasks.name', 'like', $searchLike)
+                    ->orWhere('tasks.description', 'like', $searchLike)
+                    ->orWhere('trucks.name', 'like', $searchLike)
+                    ->orWhere('truck_models.name', 'like', $searchLike)
+                    ->orWhere('visitors.name', 'like', $searchLike)
+                    ->orWhere('visitors.comment', 'like', $searchLike)
+                    ->orWhere('entrance_checkpoint.name', 'like', $searchLike)
+                    ->orWhere('exit_checkpoint.name', 'like', $searchLike);
+            });
+        }
+
+        switch ($filter) {
+            case 'on_territory':
+                $query->whereNull('visitors.exit_date');
+                break;
+            case 'left':
+                $query->whereNotNull('visitors.exit_date');
+                break;
+            case 'with_task':
+                $query->whereNull('visitors.exit_date')
+                    ->whereNotNull('visitors.task_id');
+                break;
+        }
+
+        $paginator = null;
+
+        if ($shouldPaginate) {
+            $paginator = $query->paginate(
+                $perPage,
+                ['*'],
+                'page',
+                $validated['page'] ?? 1,
+            );
+
+            $visitors = collect($paginator->items());
+        } else {
+            $visitors = $query->take(1000)->get();
+        }
+
+        if ($visitors->isEmpty() && !$paginator) {
             return response()->json([
                 'status' => false,
                 'message' => 'No Visitors Found',
@@ -267,10 +343,17 @@ class VisitorsCotroller extends Controller
         $entryPermitsByTruckYard = $this->getActiveEntryPermitsByTruckYard($visitors, $activeStatusId);
         $exitPermitsByVisitorId = $this->getActiveExitPermitsByVisitorId($visitors);
 
-        $visitors = $visitors->map(function ($visitor) use ($entryPermitsByTruckYard, $exitPermitsByVisitorId) {
+        $visitors = $visitors->map(function ($visitor) use ($entryPermitsByTruckYard, $exitPermitsByVisitorId, $includeCapturePicture) {
             $permitKey = $this->buildTruckYardLookupKey($visitor->truck_id, $visitor->yard_id);
             $permit = $permitKey ? $entryPermitsByTruckYard->get($permitKey) : null;
             $exitPermit = $exitPermitsByVisitorId->get((int) $visitor->id);
+            $capture = $includeCapturePicture
+                ? $this->findLatestCaptureForVisitor(
+                    $visitor->entrance_device_id ? (int) $visitor->entrance_device_id : null,
+                    $visitor->original_plate_number ?: $visitor->plate_number,
+                    $visitor->entry_date,
+                )
+                : null;
 
             $visitor->permit_id = $permit?->id;
             $visitor->permit_type = $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null;
@@ -278,15 +361,50 @@ class VisitorsCotroller extends Controller
             $visitor->exit_permit_required = (bool) ($permit?->exit_permit_required ?? false);
             $visitor->has_active_exit_permit = $exitPermit !== null;
             $visitor->exit_permit = $this->buildExitPermitPayload($exitPermit);
+            $visitor->capture_picture_url = $this->buildCapturePictureUrl($capture);
 
             return $visitor;
         });
 
-        return response()->json([
+        $response = [
             'status' => true,
             'message' => 'Visitors Retrieved Successfully',
-            'data' => $visitors
-        ], 200);
+            'count' => $visitors->count(),
+            'data' => $visitors,
+        ];
+
+        if ($paginator) {
+            $response['pagination'] = [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ];
+        }
+
+        return response()->json($response, 200);
+    }
+
+    private function closeStaleActiveVisitorsForYard(int $yardId): void
+    {
+        if ($yardId <= 0) {
+            return;
+        }
+
+        $activeVisitors = Visitor::query()
+            ->where('yard_id', $yardId)
+            ->whereNull('exit_date')
+            ->orderByDesc('entry_date')
+            ->orderByDesc('id')
+            ->get();
+
+        if ($activeVisitors->count() <= 1) {
+            return;
+        }
+
+        $this->normalizeActiveVisitorsForExit($activeVisitors, now());
     }
 
     private function getActiveEntryPermitsByTruckYard($visitors, ?int $activeStatusId)
@@ -1442,10 +1560,15 @@ class VisitorsCotroller extends Controller
                         [$normalizedPlate]
                     );
                 })
-                ->orderByRaw("CASE WHEN visitors.confirmation_status = ? THEN 0 ELSE 1 END", [Visitor::CONFIRMATION_CONFIRMED])
                 ->orderByDesc('visitors.entry_date')
-                ->limit(15)
-                ->get()
+                ->orderByDesc('visitors.id')
+                ->limit(30)
+                ->get();
+
+            $visitors = $this->sortActiveVisitorsForExit(
+                $this->normalizeActiveVisitorsForExit($visitors, now())
+            )
+                ->take(15)
                 ->map(function ($visitor) use ($normalizedPlate) {
                     $visitorPlate = $this->normalizePlateNumber((string) $visitor->plate_number);
                     $truckPlate = $this->normalizePlateNumber((string) ($visitor->truck_plate_number ?? ''));
@@ -1952,11 +2075,16 @@ class VisitorsCotroller extends Controller
             );
         }
 
-        return $query
-            ->orderByRaw("CASE WHEN visitors.confirmation_status = ? THEN 0 ELSE 1 END", [Visitor::CONFIRMATION_CONFIRMED])
+        $visitors = $query
             ->orderByDesc('visitors.entry_date')
-            ->limit(10)
-            ->get()
+            ->orderByDesc('visitors.id')
+            ->limit(25)
+            ->get();
+
+        return $this->sortActiveVisitorsForExit(
+            $this->normalizeActiveVisitorsForExit($visitors, $review->capture_time ?? now())
+        )
+            ->take(10)
             ->map(function ($visitor) use ($review) {
                 return $this->buildExitCandidatePayload($visitor, [
                     'task_name' => $visitor->task_name,
@@ -1966,6 +2094,149 @@ class VisitorsCotroller extends Controller
             })
             ->values()
             ->toArray();
+    }
+
+    private function normalizeActiveVisitorsForExit(Collection $visitors, $effectiveExitTime = null): Collection
+    {
+        if ($visitors->count() <= 1) {
+            return $visitors->values();
+        }
+
+        $normalizedExitTime = $effectiveExitTime ? Carbon::parse($effectiveExitTime) : now();
+        $normalizedVisitors = collect();
+
+        foreach ($visitors->groupBy(fn (Visitor $visitor) => $this->getExitVisitorGroupKey($visitor)) as $group) {
+            $sortedGroup = $group->sort(function (Visitor $left, Visitor $right) {
+                $leftTimestamp = $this->resolveVisitorEntryTimestamp($left);
+                $rightTimestamp = $this->resolveVisitorEntryTimestamp($right);
+
+                if ($leftTimestamp !== $rightTimestamp) {
+                    return $rightTimestamp <=> $leftTimestamp;
+                }
+
+                return (int) $right->id <=> (int) $left->id;
+            })->values();
+
+            /** @var Visitor|null $latestVisitor */
+            $latestVisitor = $sortedGroup->first();
+            if (!$latestVisitor) {
+                continue;
+            }
+
+            $normalizedVisitors->push($latestVisitor);
+
+            $sortedGroup->slice(1)->each(function (Visitor $staleVisitor) use ($latestVisitor, $normalizedExitTime) {
+                $this->closeStaleActiveVisitorForExit($staleVisitor, $latestVisitor, $normalizedExitTime);
+            });
+        }
+
+        return $normalizedVisitors->values();
+    }
+
+    private function sortActiveVisitorsForExit(Collection $visitors): Collection
+    {
+        return $visitors->sort(function (Visitor $left, Visitor $right) {
+            $leftPriority = $left->confirmation_status === Visitor::CONFIRMATION_CONFIRMED ? 0 : 1;
+            $rightPriority = $right->confirmation_status === Visitor::CONFIRMATION_CONFIRMED ? 0 : 1;
+
+            if ($leftPriority !== $rightPriority) {
+                return $leftPriority <=> $rightPriority;
+            }
+
+            $leftTimestamp = $this->resolveVisitorEntryTimestamp($left);
+            $rightTimestamp = $this->resolveVisitorEntryTimestamp($right);
+
+            if ($leftTimestamp !== $rightTimestamp) {
+                return $rightTimestamp <=> $leftTimestamp;
+            }
+
+            return (int) $right->id <=> (int) $left->id;
+        })->values();
+    }
+
+    private function closeStaleActiveVisitorForExit(Visitor $staleVisitor, Visitor $latestVisitor, Carbon $effectiveExitTime): void
+    {
+        if ($staleVisitor->exit_date !== null) {
+            return;
+        }
+
+        DB::transaction(function () use ($staleVisitor, $latestVisitor, $effectiveExitTime) {
+            $visitor = Visitor::query()->find($staleVisitor->id);
+            if (!$visitor || $visitor->exit_date !== null) {
+                return;
+            }
+
+            $leftTerritoryStatusId = Status::query()->where('key', 'left_territory')->value('id');
+            $inactiveStatusId = Status::query()->where('key', 'not_active')->value('id');
+            $completedStatusId = Status::query()->where('key', 'completed')->value('id') ?: $leftTerritoryStatusId;
+
+            $autoComment = sprintf(
+                '[AUTO] Предыдущий активный визит закрыт при обработке выезда. Актуальным оставлен визит #%d от %s',
+                $latestVisitor->id,
+                Carbon::parse($latestVisitor->entry_date)->format('d.m.Y H:i')
+            );
+
+            $visitor->exit_date = $effectiveExitTime;
+            $visitor->status_id = $leftTerritoryStatusId ?? $visitor->status_id;
+            $visitor->comment = $visitor->comment
+                ? rtrim((string) $visitor->comment) . "\n" . $autoComment
+                : $autoComment;
+            $visitor->save();
+
+            if ($visitor->task_id && $completedStatusId) {
+                $task = Task::query()->find($visitor->task_id);
+
+                if ($task) {
+                    $task->status_id = $completedStatusId;
+                    $task->end_date = $effectiveExitTime;
+                    $task->save();
+                }
+            }
+
+            if ($visitor->entry_permit_id && $inactiveStatusId) {
+                $hasOtherOpenVisitorsForPermit = Visitor::query()
+                    ->where('id', '!=', $visitor->id)
+                    ->where('entry_permit_id', $visitor->entry_permit_id)
+                    ->whereNull('exit_date')
+                    ->exists();
+
+                if (!$hasOtherOpenVisitorsForPermit) {
+                    $permit = EntryPermit::query()->find($visitor->entry_permit_id);
+
+                    if ($permit && $permit->one_permission) {
+                        $permit->status_id = $inactiveStatusId;
+                        $permit->end_date = $effectiveExitTime;
+                        $permit->save();
+
+                        $this->permitVehicleService->revokePermitVehicleSafely($permit->fresh());
+                    }
+                }
+            }
+
+            $this->guestVisitVisitorFlowService->handleVisitorExit($visitor, $effectiveExitTime);
+        });
+    }
+
+    private function getExitVisitorGroupKey(Visitor $visitor): string
+    {
+        if ($visitor->truck_id) {
+            return 'truck:' . $visitor->truck_id;
+        }
+
+        $normalizedPlate = $this->normalizePlateNumber((string) $visitor->plate_number);
+
+        return $normalizedPlate !== ''
+            ? 'plate:' . $normalizedPlate
+            : 'visitor:' . $visitor->id;
+    }
+
+    private function resolveVisitorEntryTimestamp(Visitor $visitor): int
+    {
+        if ($visitor->entry_date instanceof Carbon) {
+            return $visitor->entry_date->getTimestamp();
+        }
+
+        return Carbon::parse((string) $visitor->entry_date)->getTimestamp();
     }
 
     private function buildExitCandidatePayload(Visitor $visitor, array $overrides = []): array
@@ -2344,7 +2615,8 @@ class VisitorsCotroller extends Controller
                 ];
 
                 if (!empty($result['success'])) {
-                    if (($result['action'] ?? null) === 'revoke' || in_array($result['status'] ?? null, ['revoked'], true)) {
+                    if (in_array($result['action'] ?? null, ['revoke', 'delete'], true)
+                        || in_array($result['status'] ?? null, ['revoked', 'deleted'], true)) {
                         $summary['revoked']++;
                     } else {
                         $summary['synced']++;
@@ -2821,7 +3093,7 @@ class VisitorsCotroller extends Controller
 
         if ($request->has('dss_sync_scope') && $request->dss_sync_scope && $request->dss_sync_scope !== 'all') {
             if ($request->dss_sync_scope === 'failed') {
-                $query->whereIn('dss_parking_permits.status', ['failed', 'revoke_failed']);
+                $query->whereIn('dss_parking_permits.status', ['failed', 'revoke_failed', 'delete_failed']);
             } elseif ($request->dss_sync_scope === 'already_exists') {
                 $query->where('dss_parking_permits.status', 'already_exists');
             } elseif ($request->dss_sync_scope === 'no_status') {

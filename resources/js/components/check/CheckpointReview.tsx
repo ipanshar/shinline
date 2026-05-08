@@ -111,6 +111,12 @@ type ConfirmResolvedTruck = {
   isNew: boolean;
 };
 
+type CheckpointReviewProps = {
+  selectedCheckpointId?: number | null;
+  onSelectedCheckpointIdChange?: (checkpointId: number | null) => void;
+  onSelectedYardChange?: (yardId: number | null) => void;
+};
+
 const getConfidenceBadgeClass = (confidence?: number | null) => {
   if (confidence == null) return 'bg-gray-100 text-gray-700';
   if (confidence >= 90) return 'bg-emerald-100 text-emerald-700';
@@ -175,10 +181,14 @@ const formatRelativeSeconds = (value?: string | null) => {
 
 const normalizePlateNumber = (value?: string | null) => value?.replace(/[\s-]+/g, '').toUpperCase() ?? '';
 
-const CheckpointReview: React.FC = () => {
+const CheckpointReview: React.FC<CheckpointReviewProps> = ({
+  selectedCheckpointId: selectedCheckpointIdProp,
+  onSelectedCheckpointIdChange,
+  onSelectedYardChange,
+}) => {
   const [reviewMode, setReviewMode] = useState<'entry' | 'exit'>('entry');
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
-  const [selectedCheckpointId, setSelectedCheckpointId] = useState<number | null>(null);
+  const [internalSelectedCheckpointId, setInternalSelectedCheckpointId] = useState<number | null>(null);
   const [exitQueueCount, setExitQueueCount] = useState(0);
   const [showExitSuggestion, setShowExitSuggestion] = useState(false);
   const [queue, setQueue] = useState<CheckpointQueueItem[]>([]);
@@ -228,6 +238,18 @@ const CheckpointReview: React.FC = () => {
   const [manualCreatePermit, setManualCreatePermit] = useState(false);
   const [manualCreateWeighing, setManualCreateWeighing] = useState(false);
   const [manualComment, setManualComment] = useState('');
+
+  const selectedCheckpointId = selectedCheckpointIdProp !== undefined
+    ? selectedCheckpointIdProp
+    : internalSelectedCheckpointId;
+
+  const handleSelectedCheckpointIdChange = useCallback((checkpointId: number | null) => {
+    if (selectedCheckpointIdProp === undefined) {
+      setInternalSelectedCheckpointId(checkpointId);
+    }
+
+    onSelectedCheckpointIdChange?.(checkpointId);
+  }, [onSelectedCheckpointIdChange, selectedCheckpointIdProp]);
 
   const selectedCheckpoint = useMemo(
     () => checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null,
@@ -292,7 +314,7 @@ const CheckpointReview: React.FC = () => {
       setCheckpoints(items);
 
       if (!selectedCheckpointId && items.length > 0) {
-        setSelectedCheckpointId(items[0].id);
+        handleSelectedCheckpointIdChange(items[0].id);
       }
     } catch (error) {
       console.error('Ошибка загрузки КПП:', error);
@@ -300,7 +322,11 @@ const CheckpointReview: React.FC = () => {
     } finally {
       setLoadingCheckpoints(false);
     }
-  }, [selectedCheckpointId]);
+  }, [handleSelectedCheckpointIdChange, selectedCheckpointId]);
+
+  useEffect(() => {
+    onSelectedYardChange?.(selectedCheckpoint?.yard_id ?? null);
+  }, [onSelectedYardChange, selectedCheckpoint]);
 
   const loadQueue = useCallback(async () => {
     if (!selectedCheckpointId) {
@@ -757,7 +783,7 @@ const CheckpointReview: React.FC = () => {
       {reviewMode === 'exit' ? (
         <CheckpointExitReview
           selectedCheckpointId={selectedCheckpointId}
-          onSelectedCheckpointIdChange={setSelectedCheckpointId}
+          onSelectedCheckpointIdChange={handleSelectedCheckpointIdChange}
         />
       ) : (
         <>
@@ -782,7 +808,7 @@ const CheckpointReview: React.FC = () => {
 
               <select
                 value={selectedCheckpointId ?? ''}
-                onChange={(event) => setSelectedCheckpointId(Number(event.target.value) || null)}
+                onChange={(event) => handleSelectedCheckpointIdChange(Number(event.target.value) || null)}
                 className="h-10 min-w-72 rounded-md border border-input bg-background px-3 text-sm"
                 disabled={loadingCheckpoints}
               >

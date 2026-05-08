@@ -182,6 +182,20 @@
   - `code: number`
   - `data: object`
 
+## 8. Permit Vehicle Sync/Delete
+
+- Внутренний сервис: `App\Services\DssPermitVehicleService`
+- Используемые DSS методы:
+  - `POST /ipms/api/v1.1/vehicle/save/batch` для регистрации/обновления ТС при активном пропуске
+  - `POST /ipms/api/v1.1/vehicle/fetch-by-plate-no` для поиска `remote_vehicle_id` по номеру ТС
+  - `DELETE /ipms/api/v1.1/vehicle?ids=<remoteVehicleId>` для удаления ТС из DSS при деактивации пропуска
+- Локальные правила:
+  - `remote_vehicle_id` хранится в `dss_parking_permits.remote_vehicle_id`
+  - при отсутствии `remote_vehicle_id` backend сначала ищет ТС в DSS по номеру через `fetch-by-plate-no`
+  - если при деактивации у того же ТС есть другое активное разрешение, удаление в DSS пропускается
+  - ответ DSS о том, что ТС уже отсутствует, считается идемпотентным успешным удалением
+  - локально результат удаления фиксируется статусами `deleted`, `delete_failed`, `delete_skipped`
+
 ## Локальные защищённые маршруты
 
 Все пользовательские POST-операции DSS должны вызываться через `/api/dss/*`.

@@ -88,6 +88,7 @@ interface Visitor {
   has_active_exit_permit?: boolean;
   exit_permit?: ExitPermitSummary | null;
   comment?: string;
+  capture_picture_url?: string | null;
 }
 
 interface Task {
@@ -124,12 +125,33 @@ interface GuestPermit {
   comment?: string;
 }
 
+interface VisitorPagination {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from: number | null;
+  to: number | null;
+}
+
+const EMPTY_VISITOR_PAGINATION: VisitorPagination = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 50,
+  total: 0,
+  from: null,
+  to: null,
+};
+
 const SecurityCheckMobile = () => {
   const [yards, setYards] = useState<Yard[]>([]);
   const [selectedYardId, setSelectedYardId] = useState<number | null>(null);
   const [searchPlate, setSearchPlate] = useState('');
   const [foundTruck, setFoundTruck] = useState<Truck | null>(null);
+  const [activeVisitors, setActiveVisitors] = useState<Visitor[]>([]);
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [visitorsPagination, setVisitorsPagination] = useState<VisitorPagination>(EMPTY_VISITOR_PAGINATION);
+  const [visitorsPage, setVisitorsPage] = useState(1);
   const [territorySearch, setTerritorySearch] = useState('');
   const [expectedTasks, setExpectedTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
@@ -172,16 +194,54 @@ const SecurityCheckMobile = () => {
   }, []);
 
   // Загрузка посетителей
-  const loadVisitors = useCallback(() => {
+  const loadVisitors = useCallback((page = 1) => {
     if (!selectedYardId) return;
+
     setLoading(true);
 
-    axios.post('/security/getvisitors', { yard_id: selectedYardId }, {
+    axios.post('/security/getvisitors', {
+      yard_id: selectedYardId,
+      filter,
+      page,
+      per_page: 50,
+      include_capture_picture: true,
+    }, {
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     })
-      .then(res => setVisitors(res.data.data))
-      .catch(err => console.error('Ошибка при загрузке посетителей:', err))
+      .then(res => {
+        setVisitors(res.data.data ?? []);
+        setVisitorsPagination(res.data.pagination ?? { ...EMPTY_VISITOR_PAGINATION, current_page: page });
+      })
+      .catch(err => {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          setVisitors([]);
+          setVisitorsPagination({ ...EMPTY_VISITOR_PAGINATION, current_page: page });
+          return;
+        }
+
+        console.error('Ошибка при загрузке посетителей:', err);
+      })
       .finally(() => setLoading(false));
+  }, [filter, selectedYardId, token]);
+
+  const loadActiveVisitors = useCallback(() => {
+    if (!selectedYardId) return;
+
+    axios.post('/security/getvisitors', {
+      yard_id: selectedYardId,
+      filter: 'on_territory',
+    }, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+      .then(res => setActiveVisitors(res.data.data ?? []))
+      .catch(err => {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          setActiveVisitors([]);
+          return;
+        }
+
+        console.error('Ошибка при загрузке активных посетителей:', err);
+      });
   }, [selectedYardId, token]);
 
   // Загрузка ожидаемых ТС
@@ -223,21 +283,32 @@ const SecurityCheckMobile = () => {
 
   useEffect(() => {
     if (selectedYardId !== null) {
+      setActiveVisitors([]);
       setVisitors([]);
-      loadVisitors();
+      setVisitorsPage(1);
+      setTerritorySearch('');
+      setVisitorsPagination(EMPTY_VISITOR_PAGINATION);
+      loadActiveVisitors();
       loadExpectedTasks();
       loadExpectedGuests();
     }
-  }, [selectedYardId, loadVisitors, loadExpectedTasks, loadExpectedGuests]);
+  }, [selectedYardId, loadActiveVisitors, loadExpectedTasks, loadExpectedGuests]);
+
+  useEffect(() => {
+    if (selectedYardId !== null) {
+      loadVisitors(visitorsPage);
+    }
+  }, [selectedYardId, visitorsPage, filter, loadVisitors]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      loadVisitors();
+      loadActiveVisitors();
+      loadVisitors(visitorsPage);
       loadExpectedTasks();
       loadExpectedGuests();
     }, 15000);
     return () => clearInterval(interval);
-  }, [loadVisitors, loadExpectedTasks, loadExpectedGuests]);
+  }, [loadActiveVisitors, loadVisitors, loadExpectedTasks, loadExpectedGuests, visitorsPage]);
 
   // Быстрый пропуск гостя
   const quickAdmitGuest = async (guest: GuestPermit) => {
@@ -256,7 +327,8 @@ const SecurityCheckMobile = () => {
       });
       
       toast.success(`✅ Гость ${guest.guest_name} пропущен`);
-      loadVisitors();
+      loadActiveVisitors();
+      loadVisitors(visitorsPage);
       loadExpectedGuests();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Ошибка при пропуске гостя');
@@ -291,7 +363,7 @@ const SecurityCheckMobile = () => {
 
   // Проверка, находится ли ТС уже на территории
   const isTruckOnTerritory = (plateNumber: string) => {
-    return visitors.some(v => 
+    return activeVisitors.some(v => 
       v.plate_number.toUpperCase() === plateNumber.toUpperCase() && 
       !v.exit_date
     );
@@ -299,7 +371,7 @@ const SecurityCheckMobile = () => {
 
   // Получить посетителя по номеру ТС (для выезда)
   const getVisitorByPlate = (plateNumber: string) => {
-    return visitors.find(v => 
+    return activeVisitors.find(v => 
       v.plate_number.toUpperCase() === plateNumber.toUpperCase() && 
       !v.exit_date
     );
@@ -332,7 +404,8 @@ const SecurityCheckMobile = () => {
       setFoundTruck(null);
       setSearchPlate('');
       inputRef.current?.focus();
-      loadVisitors();
+      loadActiveVisitors();
+      loadVisitors(visitorsPage);
     }).catch((err) => {
       if (err.response?.data?.error_code === 'STRICT_MODE_NO_PERMIT') {
         toast.error('🚫 Въезд запрещён: строгий режим активен, требуется разрешение');
@@ -366,7 +439,8 @@ const SecurityCheckMobile = () => {
       setNewCarNumber('');
       setFoundTruck(null);
       inputRef.current?.focus();
-      loadVisitors();
+      loadActiveVisitors();
+      loadVisitors(visitorsPage);
     }).catch((err) => {
       if (err.response?.data?.error_code === 'STRICT_MODE_NO_PERMIT') {
         toast.error('🚫 Въезд запрещён: строгий режим активен');
@@ -381,7 +455,8 @@ const SecurityCheckMobile = () => {
     try {
       await axios.post('/security/exitvisitor', { id: visitorId }, { headers });
       toast.success('Выезд зафиксирован');
-      loadVisitors();
+      loadActiveVisitors();
+      loadVisitors(visitorsPage);
     } catch (error: any) {
       if (error.response?.data?.code === 'exit_permit_required') {
         const reason = window.prompt('У этого визита нет разрешения на выезд. Укажите причину ручного выпуска:')?.trim() ?? '';
@@ -396,7 +471,8 @@ const SecurityCheckMobile = () => {
           override_reason: reason,
         }, { headers });
         toast.success('Выезд зафиксирован вручную');
-        loadVisitors();
+        loadActiveVisitors();
+        loadVisitors(visitorsPage);
         return;
       }
 
@@ -559,15 +635,8 @@ const SecurityCheckMobile = () => {
     return null;
   };
 
-  const visitorsByFilter = visitors.filter(v => {
-    if (filter === 'on_territory') return !v.exit_date;
-    if (filter === 'left') return !!v.exit_date;
-    if (filter === 'with_task') return !v.exit_date && v.name; // На территории + есть задание
-    return true;
-  });
-
   const normalizedTerritorySearch = territorySearch.trim().toUpperCase().replace(/[\s-]/g, '');
-  const filteredVisitors = visitorsByFilter.filter((visitor) => {
+  const filteredVisitors = visitors.filter((visitor) => {
     if (!normalizedTerritorySearch) return true;
 
     const searchable = [
@@ -660,8 +729,10 @@ const SecurityCheckMobile = () => {
               variant="ghost"
               size="sm"
               onClick={() => {
-                loadVisitors();
+                loadActiveVisitors();
+                loadVisitors(visitorsPage);
                 loadExpectedTasks();
+                loadExpectedGuests();
               }}
               disabled={loading}
             >
@@ -965,7 +1036,7 @@ const SecurityCheckMobile = () => {
                   {getFilterName()}
                 </span>
                 <span className="bg-gray-200 dark:bg-gray-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                  {filteredVisitors.length}
+                  {territorySearch ? filteredVisitors.length : visitorsPagination.total}
                 </span>
               </div>
 
@@ -997,6 +1068,7 @@ const SecurityCheckMobile = () => {
                           onClick={(e) => {
                             e.stopPropagation();
                             setFilter(f.key as any);
+                            setVisitorsPage(1);
                             setShowFilterMenu(false);
                           }}
                         >
@@ -1038,7 +1110,7 @@ const SecurityCheckMobile = () => {
                   </div>
                   {territorySearch && (
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Найдено: {filteredVisitors.length} из {visitorsByFilter.length}
+                      Найдено: {filteredVisitors.length} из {visitors.length} на странице
                     </div>
                   )}
                 </div>
@@ -1069,6 +1141,22 @@ const SecurityCheckMobile = () => {
                   key={visitor.id}
                   className={`${vipStyle.bg} border ${vipStyle.border} rounded-xl overflow-hidden shadow-sm`}
                 >
+                  {visitor.capture_picture_url ? (
+                    <div className="border-b border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800/60">
+                      <img
+                        src={visitor.capture_picture_url}
+                        alt={`ТС ${visitor.plate_number}`}
+                        loading="lazy"
+                        className="h-28 w-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-20 items-center justify-center gap-2 border-b border-dashed border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-500">
+                      <Car className="w-5 h-5" />
+                      <span className="text-xs">Фото ТС недоступно</span>
+                    </div>
+                  )}
+
                   {/* Основная строка */}
                   <div className="p-3">
                     <div className="flex items-start justify-between gap-2">
@@ -1239,6 +1327,40 @@ const SecurityCheckMobile = () => {
               );
             })}
           </div>
+
+                <div className="border-t bg-gray-50 px-3 py-2 dark:bg-gray-900/40">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      Показано {visitorsPagination.from ?? 0} - {visitorsPagination.to ?? 0} из {visitorsPagination.total}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3"
+                        onClick={() => setVisitorsPage((current) => Math.max(1, current - 1))}
+                        disabled={loading || visitorsPagination.current_page <= 1}
+                      >
+                        Назад
+                      </Button>
+
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {visitorsPagination.current_page}/{visitorsPagination.last_page}
+                      </span>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3"
+                        onClick={() => setVisitorsPage((current) => Math.min(visitorsPagination.last_page, current + 1))}
+                        disabled={loading || visitorsPagination.current_page >= visitorsPagination.last_page}
+                      >
+                        Далее
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
