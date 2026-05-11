@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\ClientRegistrationController;
+use App\Http\Controllers\Api\SpectechScheduleController;
 use App\Http\Controllers\Api\SpectechRequestController;
 
 Route::get('/', function () {
@@ -302,17 +303,29 @@ Route::get('/spectech/requests',    [RouteController::class, 'spectechRequests']
 Route::get('/spectech/dashboard',   [RouteController::class, 'spectechDashboard'])->middleware('permission:spectech.manage');
 Route::get('/spectech/locations',   [RouteController::class, 'spectechLocations'])->middleware('permission:spectech.view');
 Route::get('/spectech/references',  [RouteController::class, 'spectechReferences'])->middleware('permission:spectech.view');
+Route::get('/spectech/planning',    [RouteController::class, 'spectechPlanning'])->middleware('permission:spectech.view');
 
 // API заявок (JSON)
-Route::get('/spectech/api/requests',             [SpectechRequestController::class, 'index'])->middleware('permission:spectech.view');
-Route::post('/spectech/api/requests',            [SpectechRequestController::class, 'store'])->middleware('permission:spectech.view');
-Route::patch('/spectech/api/requests/{id}/status', [SpectechRequestController::class, 'updateStatus'])->middleware('permission:spectech.manage');
+Route::get('/spectech/api/requests',                      [SpectechRequestController::class, 'index'])->middleware('permission:spectech.view');
+Route::post('/spectech/api/requests',                     [SpectechRequestController::class, 'store'])->middleware('permission:spectech.view');
+Route::patch('/spectech/api/requests/{id}/status',        [SpectechRequestController::class, 'updateStatus'])->middleware('permission:spectech.manage');
+Route::post('/spectech/api/requests/from-schedule',       [SpectechRequestController::class, 'createFromSchedule'])->middleware('permission:spectech.view');
+Route::get('/spectech/api/requests/check-availability',   [SpectechRequestController::class, 'checkAvailability'])->middleware('permission:spectech.view');
 
 // API справочника спецтехники (фильтр по категории «Спец техника» на бэкенде)
 Route::get('/spectech/api/trucks',          [SpectechRequestController::class, 'trucksList']);
 Route::post('/spectech/api/trucks',         [SpectechRequestController::class, 'truckCreate'])->middleware('permission:spectech.manage');
 Route::put('/spectech/api/trucks/{id}',     [SpectechRequestController::class, 'truckUpdate'])->middleware('permission:spectech.manage');
 Route::delete('/spectech/api/trucks/{id}',  [SpectechRequestController::class, 'truckDelete'])->middleware('permission:spectech.manage');
+
+// Планирование спецтехники (отдельный модуль)
+Route::get('/spectech/planning',            [RouteController::class, 'spectechPlanning'])->middleware('permission:spectech.view');
+Route::get('/spectech/api/schedule',                        [SpectechScheduleController::class, 'index'])->middleware('permission:spectech.view');
+Route::post('/spectech/api/schedule',                       [SpectechScheduleController::class, 'store'])->middleware('permission:spectech.view');
+Route::patch('/spectech/api/schedule/{id}/status',          [SpectechScheduleController::class, 'updateStatus'])->middleware('permission:spectech.manage');
+Route::delete('/spectech/api/schedule/{id}',                [SpectechScheduleController::class, 'cancel'])->middleware('permission:spectech.view');
+Route::get('/spectech/api/schedule/equipment-types',        [SpectechScheduleController::class, 'equipmentTypes'])->middleware('permission:spectech.view');
+Route::get('/spectech/api/schedule/check-availability',     [SpectechScheduleController::class, 'checkAvailability'])->middleware('permission:spectech.view');
 
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны

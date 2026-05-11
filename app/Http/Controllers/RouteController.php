@@ -116,4 +116,7 @@ class RouteController extends Controller
     public function spectechReferences(){
         return Inertia::render('spectech/references');
     }
+    public function spectechPlanning(){
+        return Inertia::render('spectech/planning');
+    }
 }

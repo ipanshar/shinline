@@ -20,13 +20,22 @@ class SpectechRequest extends Model
         'status',
         'photos',
         'timeline',
+        'schedule_id',
+        'requested_start',
+        'requested_end',
+        'from_scheduling',
+        'conflict_info',
     ];
 
     protected $casts = [
-        'photos'     => 'array',
-        'timeline'   => 'array',
-        'start_date' => 'date',
-        'end_date'   => 'date',
+        'photos'         => 'array',
+        'timeline'       => 'array',
+        'conflict_info'  => 'array',
+        'start_date'     => 'date',
+        'end_date'       => 'date',
+        'requested_start' => 'datetime',
+        'requested_end'  => 'datetime',
+        'from_scheduling' => 'boolean',
     ];
 
     // Статусы
@@ -56,8 +65,13 @@ class SpectechRequest extends Model
         return $this->belongsTo(Truck::class);
     }
 
+    public function schedule(): BelongsTo
+    {
+        return $this->belongsTo(SpectechSchedule::class);
+    }
+
     /**
-     * Сформировать начальный timeline при создании заявки
+     * Сформировать начальный timeline при создании заявки.
      */
     public static function buildInitialTimeline(): array
     {

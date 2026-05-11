@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { X, Upload, MapPin } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import axios from 'axios';
+import { AlertTriangle, CheckCircle2, MapPin, Upload, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MOCK_LOCATIONS, TERMINAL_INFO, type Location } from './MOCK_LOCATIONS';
 
 type SpectechTruckOption = {
@@ -12,6 +12,26 @@ type SpectechTruckOption = {
     truck_brand_name?: string | null;
     truck_model_name?: string | null;
 };
+
+interface AvailabilityCheckResult {
+    available: boolean;
+    message: string;
+    free_alternative?: {
+        id: number;
+        name: string;
+        plate_number: string | null;
+    };
+    conflict_info?: Array<{
+        truck_name: string;
+        plate_number: string | null;
+        free_at: string;
+        conflicts: Array<{
+            from: string;
+            to: string;
+            purpose: string;
+        }>;
+    }>;
+}
 
 interface Props {
     open: boolean;
@@ -42,6 +62,11 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
+    // Проверка доступности
+    const [checkingAvailability, setCheckingAvailability] = useState(false);
+    const [availabilityResult, setAvailabilityResult] = useState<AvailabilityCheckResult | null>(null);
+    const [showConflictDetails, setShowConflictDetails] = useState(false);
+
     const fileRef = useRef<HTMLInputElement>(null);
 
     // Загрузка техники
@@ -49,8 +74,9 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
         if (!open) return;
         setLoadingTrucks(true);
         setTrucksError('');
-        axios.get('/spectech/api/trucks')
-            .then(res => {
+        axios
+            .get('/spectech/api/trucks')
+            .then((res) => {
                 if (res.data?.status && Array.isArray(res.data.data)) {
                     setTrucks(res.data.data);
                     return;
@@ -76,18 +102,48 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             setComment('');
             setPhotos([]);
             setErrors({});
+            setAvailabilityResult(null);
+            setShowConflictDetails(false);
         }
     }, [open]);
 
-    const filteredLocations = MOCK_LOCATIONS.filter(l => l.terminal === selectedTerminal);
+    // Автоматическая проверка доступности при изменении техники или даты
+    useEffect(() => {
+        if (!truckId || !endDate) {
+            setAvailabilityResult(null);
+            return;
+        }
+
+        const checkAvailability = async () => {
+            setCheckingAvailability(true);
+            try {
+                const res = await axios.get('/spectech/api/requests/check-availability', {
+                    params: {
+                        truck_id: truckId,
+                        end_date: endDate,
+                    },
+                });
+                setAvailabilityResult(res.data);
+            } catch (err) {
+                setAvailabilityResult(null);
+            } finally {
+                setCheckingAvailability(false);
+            }
+        };
+
+        const timer = setTimeout(checkAvailability, 300);
+        return () => clearTimeout(timer);
+    }, [truckId, endDate]);
+
+    const filteredLocations = MOCK_LOCATIONS.filter((l) => l.terminal === selectedTerminal);
 
     // Фото → base64
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files ?? []).slice(0, 3 - photos.length);
-        files.forEach(file => {
+        files.forEach((file) => {
             const reader = new FileReader();
-            reader.onload = ev => {
-                setPhotos(prev => {
+            reader.onload = (ev) => {
+                setPhotos((prev) => {
                     if (prev.length >= 3) return prev;
                     return [...prev, ev.target?.result as string];
                 });
@@ -98,7 +154,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     };
 
     const removePhoto = (i: number) => {
-        setPhotos(prev => prev.filter((_, idx) => idx !== i));
+        setPhotos((prev) => prev.filter((_, idx) => idx !== i));
     };
 
     // Валидация
@@ -118,6 +174,18 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             return;
         }
 
+        // Если техника занята и нет свободной альтернативы — не отправляем
+        if (availabilityResult && !availabilityResult.available && !availabilityResult.free_alternative) {
+            setErrors({ global: 'Выбранная техника полностью занята. Выберите другую дату или технику.' });
+            return;
+        }
+
+        // Если выбрали свободную альтернативу — используем её ID
+        const finalTruckId =
+            availabilityResult && !availabilityResult.available && availabilityResult.free_alternative
+                ? availabilityResult.free_alternative.id
+                : parseInt(truckId);
+
         setSubmitting(true);
         try {
             const address = buildAddress(
@@ -129,20 +197,35 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             );
 
             await axios.post('/spectech/api/requests', {
-                truck_id:   parseInt(truckId),
-                end_date:   endDate,
-                terminal:   selectedTerminal,
-                zone:       selectedLocation!.building,
-                gate:       selectedLocation!.gate,
+                truck_id: finalTruckId,
+                end_date: endDate,
+                terminal: selectedTerminal,
+                zone: selectedLocation!.building,
+                gate: selectedLocation!.gate,
                 address,
-                comment:    comment || null,
+                comment: comment || null,
                 photos,
+                check_availability: true,
             });
 
             onCreated();
             onClose();
         } catch (err: any) {
             const resp = err.response?.data;
+
+            // Если вернулся конфликт доступности — показываем это
+            if (resp?.conflict && resp?.conflict_info) {
+                setAvailabilityResult({
+                    available: false,
+                    message: resp.message,
+                    free_alternative: resp.free_alternative,
+                    conflict_info: resp.conflict_info,
+                });
+                setShowConflictDetails(true);
+                setErrors({ global: resp.message });
+                return;
+            }
+
             if (resp?.errors) {
                 const mapped: Record<string, string> = {};
                 Object.entries(resp.errors).forEach(([k, v]) => {
@@ -165,216 +248,294 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     };
 
     return (
-        <Dialog open={open} onOpenChange={v => !v && onClose()}>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
+        <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+            <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[calc(100vw-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:w-full sm:max-w-2xl">
+                <DialogHeader className="border-border border-b px-4 py-4 sm:px-6">
                     <DialogTitle className="flex items-center gap-2 text-base font-semibold">
                         <MapPin className="h-4 w-4 text-red-600" />
                         Новая заявка на спецтехнику
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex flex-col gap-4 pt-1">
-                    {/* Глобальная ошибка */}
-                    {errors.global && (
-                        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                            {errors.global}
-                        </div>
-                    )}
-
-                    {/* Дата начала (только показывается) */}
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-muted-foreground">Дата начала</label>
-                        <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted text-sm text-muted-foreground">
-                            {today}
-                        </div>
-                    </div>
-
-                    {/* Дата окончания */}
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium">Дата окончания <span className="text-red-500">*</span></label>
-                        <input
-                            type="date"
-                            min={today}
-                            value={endDate}
-                            onChange={e => { setEndDate(e.target.value); setErrors(p => ({ ...p, endDate: '' })); }}
-                            className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-600/30"
-                        />
-                        {errors.endDate && <span className="text-xs text-red-500">{errors.endDate}</span>}
-                    </div>
-
-                    {/* Выбор техники */}
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium">Техника <span className="text-red-500">*</span></label>
-                        <select
-                            value={truckId}
-                            onChange={e => { setTruckId(e.target.value); setErrors(p => ({ ...p, truckId: '' })); }}
-                            className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-600/30"
-                            disabled={loadingTrucks}
-                        >
-                            <option value="">
-                                {loadingTrucks ? 'Загрузка...' : 'Выберите технику...'}
-                            </option>
-                            {trucks.map(t => (
-                                <option key={t.id} value={String(t.id)}>
-                                    {getTruckOptionLabel(t)}
-                                </option>
-                            ))}
-                        </select>
-                        {trucksError && <span className="text-xs text-red-500">{trucksError}</span>}
-                        {errors.truckId && <span className="text-xs text-red-500">{errors.truckId}</span>}
-                    </div>
-
-                    {/* Выбор терминала */}
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium">Терминал <span className="text-red-500">*</span></label>
-                        <div className="flex gap-2 flex-wrap">
-                            {TERMINALS.map(t => (
-                                <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() => {
-                                        setSelectedTerminal(t);
-                                        setSelectedLocation(null);
-                                        setErrors(p => ({ ...p, terminal: '', zone: '' }));
-                                    }}
-                                    className={`px-3 h-8 rounded-md border text-sm font-medium transition-colors ${
-                                        selectedTerminal === t
-                                            ? 'bg-red-600 border-red-600 text-white'
-                                            : 'border-border bg-background hover:bg-muted'
-                                    }`}
-                                >
-                                    {t}
-                                </button>
-                            ))}
-                        </div>
-                        {errors.terminal && <span className="text-xs text-red-500">{errors.terminal}</span>}
-
-                        {/* Описание выбранного терминала */}
-                        {selectedTerminal && (
-                            <div className={`text-xs px-2 py-1 rounded border mt-1 ${TERMINAL_INFO[selectedTerminal]?.color}`}>
-                                {TERMINAL_INFO[selectedTerminal]?.description}
-                            </div>
+                <div className="flex flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-6">
+                    <div className="flex flex-col gap-4">
+                        {/* Глобальная ошибка */}
+                        {errors.global && (
+                            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{errors.global}</div>
                         )}
-                    </div>
 
-                    {/* Выбор здания/зоны */}
-                    {selectedTerminal && (
+                        {/* Дата начала (только показывается) */}
                         <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium">Здание / Зона <span className="text-red-500">*</span></label>
-                            <select
-                                value={selectedLocation?.id ?? ''}
-                                onChange={e => {
-                                    const loc = filteredLocations.find(l => l.id === parseInt(e.target.value)) ?? null;
-                                    setSelectedLocation(loc);
-                                    setErrors(p => ({ ...p, zone: '' }));
+                            <label className="text-muted-foreground text-xs font-medium">Дата начала</label>
+                            <div className="border-border bg-muted text-muted-foreground flex h-9 items-center rounded-md border px-3 text-sm">
+                                {today}
+                            </div>
+                        </div>
+
+                        {/* Дата окончания */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium">
+                                Дата окончания <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="date"
+                                min={today}
+                                value={endDate}
+                                onChange={(e) => {
+                                    setEndDate(e.target.value);
+                                    setErrors((p) => ({ ...p, endDate: '' }));
                                 }}
-                                className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-600/30"
+                                className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                            />
+                            {errors.endDate && <span className="text-xs text-red-500">{errors.endDate}</span>}
+                        </div>
+
+                        {/* Выбор техники */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium">
+                                Техника <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={truckId}
+                                onChange={(e) => {
+                                    setTruckId(e.target.value);
+                                    setErrors((p) => ({ ...p, truckId: '' }));
+                                }}
+                                className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                disabled={loadingTrucks}
                             >
-                                <option value="">Выберите здание...</option>
-                                {filteredLocations.map(loc => (
-                                    <option key={loc.id} value={loc.id}>
-                                        {loc.building} | Гейт: {loc.gate} | {loc.status === 'active' ? '✓' : loc.status === 'pending' ? '🔧' : '○'}
+                                <option value="">{loadingTrucks ? 'Загрузка...' : 'Выберите технику...'}</option>
+                                {trucks.map((t) => (
+                                    <option key={t.id} value={String(t.id)}>
+                                        {getTruckOptionLabel(t)}
                                     </option>
                                 ))}
                             </select>
-                            {errors.zone && <span className="text-xs text-red-500">{errors.zone}</span>}
+                            {trucksError && <span className="text-xs text-red-500">{trucksError}</span>}
+                            {errors.truckId && <span className="text-xs text-red-500">{errors.truckId}</span>}
 
-                            {/* Карточка выбранной зоны */}
-                            {selectedLocation && (
-                                <div className="mt-1 p-3 rounded-md border border-border bg-muted/50 text-sm space-y-1">
-                                    <div className="flex justify-between">
-                                        <span className="font-medium">{selectedLocation.building}</span>
-                                        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${
-                                            selectedLocation.status === 'active'
-                                                ? 'bg-green-100 text-green-700 border-green-200'
-                                                : selectedLocation.status === 'pending'
-                                                    ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                                                    : 'bg-gray-100 text-gray-500 border-gray-200'
-                                        }`}>
-                                            {selectedLocation.status === 'active' ? 'Активен' : selectedLocation.status === 'pending' ? 'Строится' : 'Пустой'}
-                                        </span>
-                                    </div>
-                                    <div className="text-muted-foreground text-xs">Назначение: {selectedLocation.purpose}</div>
-                                    <div className="text-muted-foreground text-xs">Гейт: {selectedLocation.gate}</div>
+                            {/* Статус доступности техники */}
+                            {!checkingAvailability && availabilityResult && (
+                                <div className="mt-2">
+                                    {availabilityResult.available ? (
+                                        <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-2">
+                                            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                                            <span className="text-xs text-green-700">Техника доступна на выбранный период</span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex items-start gap-2 rounded-md border border-orange-200 bg-orange-50 p-2">
+                                                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-600" />
+                                                <div className="flex-1 text-xs text-orange-700">
+                                                    <div className="font-medium">{availabilityResult.message}</div>
+                                                    {availabilityResult.free_alternative && (
+                                                        <div className="mt-1 font-medium text-green-700">
+                                                            💡 Доступна альтернатива: <strong>{availabilityResult.free_alternative.name}</strong>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Детали конфликтов */}
+                                            {availabilityResult.conflict_info && availabilityResult.conflict_info.length > 0 && (
+                                                <div className="overflow-hidden rounded-md border border-gray-200">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowConflictDetails(!showConflictDetails)}
+                                                        className="flex w-full items-center justify-between bg-gray-50 px-3 py-2 text-left text-xs font-medium hover:bg-gray-100"
+                                                    >
+                                                        📅 Расписание занятости
+                                                        <span className="text-xs">{showConflictDetails ? '▼' : '▶'}</span>
+                                                    </button>
+                                                    {showConflictDetails && (
+                                                        <div className="max-h-40 space-y-2 overflow-y-auto bg-white p-3">
+                                                            {availabilityResult.conflict_info.map((conflict, idx) => (
+                                                                <div key={idx} className="border-l-2 border-orange-300 pl-2 text-xs">
+                                                                    <div className="font-medium text-gray-700">
+                                                                        {conflict.truck_name}{' '}
+                                                                        {conflict.plate_number ? `(${conflict.plate_number})` : ''}
+                                                                    </div>
+                                                                    <div className="mt-1 text-gray-600">
+                                                                        Свободна с: <strong>{conflict.free_at}</strong>
+                                                                    </div>
+                                                                    {conflict.conflicts.length > 0 && (
+                                                                        <div className="mt-1 space-y-1 text-gray-500">
+                                                                            {conflict.conflicts.map((c, ci) => (
+                                                                                <div key={ci} className="italic">
+                                                                                    • {c.from} - {c.to}: {c.purpose}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {checkingAvailability && <span className="text-xs text-gray-500">Проверка доступности...</span>}
+                        </div>
+
+                        {/* Выбор терминала */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium">
+                                Терминал <span className="text-red-500">*</span>
+                            </label>
+                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                                {TERMINALS.map((t) => (
+                                    <button
+                                        key={t}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedTerminal(t);
+                                            setSelectedLocation(null);
+                                            setErrors((p) => ({ ...p, terminal: '', zone: '' }));
+                                        }}
+                                        className={`h-8 rounded-md border px-3 text-sm font-medium transition-colors ${
+                                            selectedTerminal === t
+                                                ? 'border-red-600 bg-red-600 text-white'
+                                                : 'border-border bg-background hover:bg-muted'
+                                        }`}
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
+                            {errors.terminal && <span className="text-xs text-red-500">{errors.terminal}</span>}
+
+                            {/* Описание выбранного терминала */}
+                            {selectedTerminal && (
+                                <div className={`mt-1 rounded border px-2 py-1 text-xs ${TERMINAL_INFO[selectedTerminal]?.color}`}>
+                                    {TERMINAL_INFO[selectedTerminal]?.description}
                                 </div>
                             )}
                         </div>
-                    )}
 
-                    {/* Автосформированный адрес */}
-                    {selectedLocation && (
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-muted-foreground">Адрес (автозаполнение)</label>
-                            <div className="min-h-9 px-3 py-2 rounded-md border border-border bg-muted text-xs text-muted-foreground leading-relaxed">
-                                {buildAddress(selectedTerminal, selectedLocation.building, selectedLocation.gate, selectedLocation.status, selectedLocation.purpose)}
+                        {/* Выбор здания/зоны */}
+                        {selectedTerminal && (
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium">
+                                    Здание / Зона <span className="text-red-500">*</span>
+                                </label>
+                                <select
+                                    value={selectedLocation?.id ?? ''}
+                                    onChange={(e) => {
+                                        const loc = filteredLocations.find((l) => l.id === parseInt(e.target.value)) ?? null;
+                                        setSelectedLocation(loc);
+                                        setErrors((p) => ({ ...p, zone: '' }));
+                                    }}
+                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                >
+                                    <option value="">Выберите здание...</option>
+                                    {filteredLocations.map((loc) => (
+                                        <option key={loc.id} value={loc.id}>
+                                            {loc.building} | Гейт: {loc.gate} |{' '}
+                                            {loc.status === 'active' ? '✓' : loc.status === 'pending' ? '🔧' : '○'}
+                                        </option>
+                                    ))}
+                                </select>
+                                {errors.zone && <span className="text-xs text-red-500">{errors.zone}</span>}
+
+                                {/* Карточка выбранной зоны */}
+                                {selectedLocation && (
+                                    <div className="border-border bg-muted/50 mt-1 space-y-1 rounded-md border p-3 text-sm">
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                            <span className="font-medium">{selectedLocation.building}</span>
+                                            <span
+                                                className={`rounded-full border px-1.5 py-0.5 text-xs ${
+                                                    selectedLocation.status === 'active'
+                                                        ? 'border-green-200 bg-green-100 text-green-700'
+                                                        : selectedLocation.status === 'pending'
+                                                          ? 'border-yellow-200 bg-yellow-100 text-yellow-700'
+                                                          : 'border-gray-200 bg-gray-100 text-gray-500'
+                                                }`}
+                                            >
+                                                {selectedLocation.status === 'active'
+                                                    ? 'Активен'
+                                                    : selectedLocation.status === 'pending'
+                                                      ? 'Строится'
+                                                      : 'Пустой'}
+                                            </span>
+                                        </div>
+                                        <div className="text-muted-foreground text-xs">Назначение: {selectedLocation.purpose}</div>
+                                        <div className="text-muted-foreground text-xs">Гейт: {selectedLocation.gate}</div>
+                                    </div>
+                                )}
                             </div>
+                        )}
+
+                        {/* Автосформированный адрес */}
+                        {selectedLocation && (
+                            <div className="flex flex-col gap-1">
+                                <label className="text-muted-foreground text-xs font-medium">Адрес (автозаполнение)</label>
+                                <div className="border-border bg-muted text-muted-foreground min-h-9 rounded-md border px-3 py-2 text-xs leading-relaxed">
+                                    {buildAddress(
+                                        selectedTerminal,
+                                        selectedLocation.building,
+                                        selectedLocation.gate,
+                                        selectedLocation.status,
+                                        selectedLocation.purpose,
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Комментарий */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium">Цель работ</label>
+                            <textarea
+                                value={comment}
+                                onChange={(e) => setComment(e.target.value)}
+                                placeholder="Монтаж, разгрузка, ремонт..."
+                                rows={3}
+                                className="border-border bg-background placeholder:text-muted-foreground resize-none rounded-md border px-3 py-2 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                            />
                         </div>
-                    )}
 
-                    {/* Комментарий */}
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium">Цель работ</label>
-                        <textarea
-                            value={comment}
-                            onChange={e => setComment(e.target.value)}
-                            placeholder="Монтаж, разгрузка, ремонт..."
-                            rows={3}
-                            className="rounded-md border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-600/30 placeholder:text-muted-foreground"
-                        />
-                    </div>
-
-                    {/* Фото */}
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium">Фото объекта (до 3 шт.)</label>
-                        <div className="flex gap-2 flex-wrap">
-                            {photos.map((url, i) => (
-                                <div key={i} className="relative h-16 w-16 rounded-md border border-border overflow-hidden">
-                                    <img src={url} alt="" className="h-full w-full object-cover" />
+                        {/* Фото */}
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-medium">Фото объекта (до 3 шт.)</label>
+                            <div className="flex flex-wrap gap-2">
+                                {photos.map((url, i) => (
+                                    <div key={i} className="border-border relative h-16 w-16 overflow-hidden rounded-md border">
+                                        <img src={url} alt="" className="h-full w-full object-cover" />
+                                        <button
+                                            type="button"
+                                            onClick={() => removePhoto(i)}
+                                            className="absolute top-0 right-0 rounded-bl bg-red-600 p-0.5 text-white"
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                                {photos.length < 3 && (
                                     <button
                                         type="button"
-                                        onClick={() => removePhoto(i)}
-                                        className="absolute top-0 right-0 bg-red-600 text-white rounded-bl p-0.5"
+                                        onClick={() => fileRef.current?.click()}
+                                        className="border-border text-muted-foreground flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed transition-colors hover:border-red-400 hover:text-red-500"
                                     >
-                                        <X className="h-3 w-3" />
+                                        <Upload className="h-4 w-4" />
+                                        <span className="text-[10px]">Фото</span>
                                     </button>
-                                </div>
-                            ))}
-                            {photos.length < 3 && (
-                                <button
-                                    type="button"
-                                    onClick={() => fileRef.current?.click()}
-                                    className="h-16 w-16 rounded-md border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-red-400 hover:text-red-500 transition-colors"
-                                >
-                                    <Upload className="h-4 w-4" />
-                                    <span className="text-[10px]">Фото</span>
-                                </button>
-                            )}
+                                )}
+                            </div>
+                            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoChange} />
                         </div>
-                        <input
-                            ref={fileRef}
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={handlePhotoChange}
-                        />
                     </div>
+                </div>
 
-                    {/* Кнопки */}
-                    <div className="flex gap-2 pt-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            className="flex-1"
-                            onClick={onClose}
-                            disabled={submitting}
-                        >
+                <div className="border-border border-t px-4 py-4 sm:px-6">
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                        <Button type="button" variant="outline" className="w-full sm:flex-1" onClick={onClose} disabled={submitting}>
                             Отмена
                         </Button>
                         <Button
                             type="button"
-                            className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                            className="w-full bg-red-600 text-white hover:bg-red-700 sm:flex-1"
                             onClick={handleSubmit}
                             disabled={submitting}
                         >
@@ -388,5 +549,3 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 };
 
 export default NewRequestModal;
-
-

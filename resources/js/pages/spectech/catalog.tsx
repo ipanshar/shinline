@@ -81,11 +81,11 @@ function mapTruck(t: TruckRaw): Equipment {
             t.color ? `цвет: ${t.color}` : null,
         ].filter(Boolean).join(', '),
         functionality:  t.functionality ?? '',
-        image_url:      t.image_url,
-        anpr_source:    t.anpr_source,
-        last_seen_gate: t.last_seen_gate,
-        last_seen_at:   t.last_seen_at,
-        anpr_confidence:t.anpr_confidence,
+        image_url:      t.image_url ?? undefined,
+        anpr_source:    t.anpr_source ?? undefined,
+        last_seen_gate: t.last_seen_gate ?? undefined,
+        last_seen_at:   t.last_seen_at ?? undefined,
+        anpr_confidence:t.anpr_confidence ?? undefined,
     };
 }
 
