@@ -638,6 +638,8 @@ class TelegramMiniAppController extends Controller
 
         $schedule->load(['truck:id,name,plate_number']);
 
+        $this->notifyOperatorsAboutSchedule($schedule, $chat);
+
         return response()->json([
             'data'    => $this->formatScheduleForTelegram($schedule),
             'message' => "Запланировано: {$assignedTruck->name}",
@@ -667,6 +669,40 @@ class TelegramMiniAppController extends Controller
     {
         $cleaned = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($name));
         return trim($cleaned ?: $name);
+    }
+
+    private function notifyOperatorsAboutSchedule(SpectechSchedule $schedule, TelegramBotChat $chat): void
+    {
+        $chatIds = array_values(array_filter(array_map('strval', (array) config('telegram.admin_chat_ids', []))));
+        if ($chatIds === []) {
+            return;
+        }
+
+        $fmt = fn(?string $iso): string => $iso
+            ? (new \DateTime($iso))->format('d.m.Y H:i')
+            : '—';
+
+        $text = implode("\n", [
+            '<b>Новый план спецтехники (Mini App)</b>',
+            'ID: #' . e((string) $schedule->id),
+            'Заявитель: ' . e((string) ($chat->display_full_name ?: $schedule->user?->name ?: '—')),
+            'Техника: ' . e((string) $schedule->assigned_truck_name),
+            'Период: ' . e($fmt($schedule->scheduled_start?->toIso8601String()) . ' — ' . $fmt($schedule->scheduled_end?->toIso8601String())),
+            'Цель: ' . e((string) $schedule->purpose),
+            'Адрес: ' . e((string) ($schedule->address ?: '—')),
+        ]);
+
+        foreach ($chatIds as $chatId) {
+            try {
+                $this->telegramMessaging->sendText($chatId, $text);
+            } catch (\Throwable $exception) {
+                Log::warning('Failed to notify operator about spectech schedule', [
+                    'chat_id'     => $chatId,
+                    'schedule_id' => $schedule->id,
+                    'error'       => $exception->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function notifySpectechOperators(SpectechRequest $request, TelegramBotChat $chat): void
