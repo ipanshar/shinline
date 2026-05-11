@@ -124,6 +124,28 @@ interface SpectechRequestItem {
     created_at?: string | null;
 }
 
+interface SpectechEquipmentType {
+    key: string;
+    label: string;
+    trucks: { id: number; name: string | null; plate_number: string | null }[];
+}
+
+interface SpectechScheduleItem {
+    id: number;
+    equipment_type_label: string;
+    assigned_truck_name: string;
+    truck_name?: string | null;
+    plate_number?: string | null;
+    scheduled_start: string;
+    scheduled_end: string;
+    purpose: string;
+    address?: string | null;
+    notes?: string | null;
+    status: string;
+    status_label: string;
+    created_at?: string | null;
+}
+
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
     none: 'Не зарегистрирован',
     awaiting_review: 'Ожидает подтверждения',
@@ -299,6 +321,8 @@ function Dashboard({
     onExitPermits,
     onSpectechCreate,
     onSpectechRequests,
+    onSpectechScheduleCreate,
+    onSpectechSchedules,
 }: {
     session: SessionPayload;
     onCreate: () => void;
@@ -306,6 +330,8 @@ function Dashboard({
     onExitPermits: () => void;
     onSpectechCreate: () => void;
     onSpectechRequests: () => void;
+    onSpectechScheduleCreate: () => void;
+    onSpectechSchedules: () => void;
 }) {
     return (
         <>
@@ -313,8 +339,13 @@ function Dashboard({
             <p>Площадки: {session.yards.length === 0 ? 'не назначены' : session.yards.map((y) => y.name).join(', ')}</p>
             <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
             <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
-            <button style={btn} onClick={onSpectechCreate}>Создать заявку на спецтехнику</button>
-            <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
+            <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
+            <p style={{ margin: '4px 0 8px', fontWeight: 600, fontSize: 14 }}>Планирование спецтехники</p>
+            <button style={btn} onClick={onSpectechScheduleCreate}>📅 Запланировать спецтехнику</button>
+            <button style={btnSecondary} onClick={onSpectechSchedules}>Мои планы</button>
+            <button style={btn} onClick={onSpectechCreate}>Создать заявку (без времени)</button>
+            <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки</button>
+            <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btnSecondary} onClick={onVisits}>Мои визиты</button>
         </>
     );
@@ -814,6 +845,200 @@ function SpectechRequestList({
     );
 }
 
+// ── Планирование спецтехники ─────────────────────────────────────────────────
+
+const scheduleStatusLabels: Record<string, string> = {
+    pending:     'Ожидает',
+    confirmed:   'Подтверждено',
+    in_progress: 'В работе',
+    done:        'Выполнено',
+    cancelled:   'Отменено',
+};
+
+function SpectechScheduleCreateForm({
+    initData,
+    onDone,
+    onCancel,
+}: {
+    initData: string;
+    onDone: () => void | Promise<void>;
+    onCancel: () => void;
+}) {
+    const [types, setTypes] = useState<SpectechEquipmentType[]>([]);
+    const [typeKey, setTypeKey] = useState('');
+    const [loadingTypes, setLoadingTypes] = useState(true);
+
+    const nowPlus1h = () => {
+        const d = new Date(Date.now() + 3600_000);
+        return d.toISOString().slice(0, 16);
+    };
+    const nowPlus2h = () => {
+        const d = new Date(Date.now() + 7200_000);
+        return d.toISOString().slice(0, 16);
+    };
+
+    const [scheduledStart, setScheduledStart] = useState(nowPlus1h);
+    const [scheduledEnd, setScheduledEnd] = useState(nowPlus2h);
+    const [purpose, setPurpose] = useState('');
+    const [address, setAddress] = useState('');
+    const [notes, setNotes] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const [conflictInfo, setConflictInfo] = useState<{ truck_name: string; plate_number: string | null; free_at: string }[] | null>(null);
+
+    useEffect(() => {
+        setLoadingTypes(true);
+        axios
+            .get<{ data: SpectechEquipmentType[] }>('/api/telegram/miniapp/spectech/equipment-types', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            })
+            .then((r) => {
+                setTypes(r.data.data ?? []);
+                if (r.data.data?.length > 0) setTypeKey(r.data.data[0].key);
+            })
+            .catch(() => setErr('Не удалось загрузить типы техники'))
+            .finally(() => setLoadingTypes(false));
+    }, [initData]);
+
+    const submit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!typeKey) { setErr('Выберите тип техники'); return; }
+        if (!purpose.trim()) { setErr('Укажите цель / назначение'); return; }
+
+        const selectedType = types.find((t) => t.key === typeKey);
+
+        setBusy(true);
+        setErr(null);
+        setConflictInfo(null);
+        try {
+            await axios.post('/api/telegram/miniapp/spectech/schedules', {
+                init_data: initData,
+                equipment_type_key: typeKey,
+                equipment_type_label: selectedType?.label ?? typeKey,
+                scheduled_start: scheduledStart,
+                scheduled_end: scheduledEnd,
+                purpose: purpose.trim(),
+                address: address.trim() || null,
+                notes: notes.trim() || null,
+            }, { headers: { 'X-Telegram-Init-Data': initData } });
+
+            await onDone();
+        } catch (error: any) {
+            if (error.response?.status === 409 && error.response.data?.conflict_info) {
+                setConflictInfo(error.response.data.conflict_info);
+                setErr(error.response.data.message ?? 'Техника занята в указанное время');
+            } else {
+                setErr(getErrorMessage(error, 'Не удалось создать запись'));
+            }
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <form onSubmit={submit}>
+            <h3>Запланировать спецтехнику</h3>
+
+            <label>Тип техники</label>
+            <select
+                style={inputStyle}
+                value={typeKey}
+                onChange={(e) => setTypeKey(e.target.value)}
+                disabled={loadingTypes}
+                required
+            >
+                {loadingTypes ? (
+                    <option value="">Загрузка...</option>
+                ) : types.length === 0 ? (
+                    <option value="">Техника не найдена</option>
+                ) : types.map((t) => (
+                    <option key={t.key} value={t.key}>{t.label} ({t.trucks.length} ед.)</option>
+                ))}
+            </select>
+
+            <label>Начало</label>
+            <input
+                style={inputStyle}
+                type="datetime-local"
+                value={scheduledStart}
+                onChange={(e) => setScheduledStart(e.target.value)}
+                required
+            />
+
+            <label>Конец</label>
+            <input
+                style={inputStyle}
+                type="datetime-local"
+                value={scheduledEnd}
+                onChange={(e) => setScheduledEnd(e.target.value)}
+                required
+            />
+
+            <label>Цель / назначение *</label>
+            <input style={inputStyle} value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Монтаж, перевозка, погрузка…" required />
+
+            <label>Адрес объекта</label>
+            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="ул. Примерная, 1" />
+
+            <label>Заметки</label>
+            <textarea style={{ ...inputStyle, minHeight: 60 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
+
+            {conflictInfo && conflictInfo.length > 0 && (
+                <div style={{ background: '#fff3cd', borderRadius: 8, padding: 10, margin: '8px 0', fontSize: 13 }}>
+                    <strong>Занятая техника:</strong>
+                    {conflictInfo.map((c, i) => (
+                        <div key={i} style={{ marginTop: 4 }}>
+                            {c.truck_name}{c.plate_number ? ` (${c.plate_number})` : ''} — свободна с {c.free_at}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {err && <p style={{ color: 'crimson' }}>{err}</p>}
+            <button type="submit" disabled={busy || loadingTypes} style={btn}>{busy ? 'Создание…' : 'Запланировать'}</button>
+            <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
+        </form>
+    );
+}
+
+function SpectechScheduleList({
+    schedules,
+    onBack,
+    onCreate,
+}: {
+    schedules: SpectechScheduleItem[];
+    onBack: () => void;
+    onCreate: () => void;
+}) {
+    const fmt = (iso: string) => {
+        const d = new Date(iso);
+        return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
+    return (
+        <>
+            <h3>Мои планы спецтехники</h3>
+            {schedules.length === 0 && <p>Планов пока нет.</p>}
+            {schedules.map((s) => (
+                <div key={s.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
+                    <strong>#{s.id} {s.equipment_type_label}</strong>
+                    <div style={{ fontSize: 13, marginTop: 4, color: '#555' }}>
+                        {s.assigned_truck_name || s.truck_name || '—'}
+                    </div>
+                    <div>🕐 {fmt(s.scheduled_start)} — {fmt(s.scheduled_end)}</div>
+                    <div>Статус: {s.status_label || scheduleStatusLabels[s.status] || s.status}</div>
+                    <div>Цель: {s.purpose}</div>
+                    {s.address && <div>Адрес: {s.address}</div>}
+                    {s.notes && <div>Заметки: {s.notes}</div>}
+                </div>
+            ))}
+            <button style={btn} onClick={onCreate}>📅 Новый план</button>
+            <button style={btnSecondary} onClick={onBack}>← Назад</button>
+        </>
+    );
+}
+
 // ── Главный компонент ─────────────────────────────────────────────────────────
 
 function TelegramMiniApp() {
@@ -821,10 +1046,11 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-requests' | 'spectech-schedule-create' | 'spectech-schedules'>('home');
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
+    const [spectechSchedules, setSpectechSchedules] = useState<SpectechScheduleItem[]>([]);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
 
     useEffect(() => {
@@ -961,6 +1187,28 @@ function TelegramMiniApp() {
         setView('spectech-requests');
     }, [loadSpectechRequests]);
 
+    const loadSpectechSchedules = useCallback(() => {
+        if (!initData) return Promise.resolve();
+
+        return axios
+            .get<{ data: SpectechScheduleItem[] }>('/api/telegram/miniapp/spectech/schedules', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            })
+            .then((r) => setSpectechSchedules(r.data.data ?? []))
+            .catch(() => setSpectechSchedules([]));
+    }, [initData]);
+
+    useEffect(() => {
+        if (view !== 'spectech-schedules') return;
+        void loadSpectechSchedules();
+    }, [view, loadSpectechSchedules]);
+
+    const handleScheduleCreated = useCallback(async () => {
+        await loadSpectechSchedules();
+        setView('spectech-schedules');
+    }, [loadSpectechSchedules]);
+
     if (loading) {
         return (
             <Wrap>
@@ -1024,6 +1272,8 @@ function TelegramMiniApp() {
                     onExitPermits={() => setView('exit-permits')}
                     onSpectechCreate={() => setView('spectech-create')}
                     onSpectechRequests={() => setView('spectech-requests')}
+                    onSpectechScheduleCreate={() => setView('spectech-schedule-create')}
+                    onSpectechSchedules={() => setView('spectech-schedules')}
                 />
             )}
 
@@ -1083,6 +1333,22 @@ function TelegramMiniApp() {
                 <SpectechRequestList
                     requests={spectechRequests}
                     onCreate={() => setView('spectech-create')}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'spectech-schedule-create' && (
+                <SpectechScheduleCreateForm
+                    initData={initData}
+                    onDone={handleScheduleCreated}
+                    onCancel={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'spectech-schedules' && (
+                <SpectechScheduleList
+                    schedules={spectechSchedules}
+                    onCreate={() => setView('spectech-schedule-create')}
                     onBack={() => setView('home')}
                 />
             )}
