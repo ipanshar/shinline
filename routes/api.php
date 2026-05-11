@@ -160,8 +160,8 @@ Route::post('/task/addapitask', [TaskCotroller::class,'addApiTask']); //Доба
 Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing'])->middleware('auth:sanctum'); //Обработка QR кода
 Route::post('/task/processShortCode', [TaskCotroller::class,'processShortCode'])->middleware('auth:sanctum'); //Обработка QR кода
 Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
-Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания 
-Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание 
+Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания
+Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
 Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime'])->middleware('auth:sanctum'); //Обновить время задачи
 
@@ -176,7 +176,7 @@ Route::post('/task/loading/reset', [TaskCotroller::class, 'resetLoadingTimes'])-
 
 
 // Statistics routes
-Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику 
+Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику
 Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingStats']);
 Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
@@ -232,6 +232,9 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     Route::post('/telegram/miniapp/visits/cancel', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'cancelVisit']);
     Route::get('/telegram/miniapp/active-visitors', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'activeVisitors']);
     Route::post('/telegram/miniapp/exit-permits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createExitPermit']);
+    Route::get('/telegram/miniapp/spectech/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTrucks']);
+    Route::get('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechRequests']);
+    Route::post('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createSpectechRequest']);
 });
 
 // Telegram users администрирование

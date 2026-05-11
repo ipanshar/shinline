@@ -102,6 +102,28 @@ interface ActiveVisitorItem {
     } | null;
 }
 
+interface SpectechTruckOption {
+    id: number;
+    name?: string | null;
+    plate_number?: string | null;
+}
+
+interface SpectechRequestItem {
+    id: number;
+    equipment_name: string;
+    plate_number?: string | null;
+    start_date: string;
+    end_date: string;
+    terminal: string;
+    zone: string;
+    gate?: string | null;
+    address: string;
+    comment?: string | null;
+    status: string;
+    status_label: string;
+    created_at?: string | null;
+}
+
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
     none: 'Не зарегистрирован',
     awaiting_review: 'Ожидает подтверждения',
@@ -147,6 +169,15 @@ const visitStatusLabels: Record<string, string> = {
     active: 'Активный',
     closed: 'Закрыт',
     canceled: 'Отозван',
+};
+
+const spectechStatusLabels: Record<string, string> = {
+    new: 'Новая',
+    departure: 'Выезд',
+    on_location: 'На объекте',
+    work_started: 'Работы начаты',
+    completed: 'Выполнено',
+    returned: 'Возврат',
 };
 
 const emptyVisitVehicle = (): VisitVehicle => ({
@@ -266,11 +297,15 @@ function Dashboard({
     onCreate,
     onVisits,
     onExitPermits,
+    onSpectechCreate,
+    onSpectechRequests,
 }: {
     session: SessionPayload;
     onCreate: () => void;
     onVisits: () => void;
     onExitPermits: () => void;
+    onSpectechCreate: () => void;
+    onSpectechRequests: () => void;
 }) {
     return (
         <>
@@ -278,6 +313,8 @@ function Dashboard({
             <p>Площадки: {session.yards.length === 0 ? 'не назначены' : session.yards.map((y) => y.name).join(', ')}</p>
             <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
             <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
+            <button style={btn} onClick={onSpectechCreate}>Создать заявку на спецтехнику</button>
+            <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
             <button style={btnSecondary} onClick={onVisits}>Мои визиты</button>
         </>
     );
@@ -629,6 +666,154 @@ function ExitPermitList({
     );
 }
 
+function SpectechCreateForm({
+    initData,
+    onDone,
+    onCancel,
+}: {
+    initData: string;
+    onDone: () => void | Promise<void>;
+    onCancel: () => void;
+}) {
+    const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
+    const [truckId, setTruckId] = useState<number | ''>('');
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [terminal, setTerminal] = useState('T1');
+    const [zone, setZone] = useState('');
+    const [gate, setGate] = useState('');
+    const [address, setAddress] = useState('');
+    const [comment, setComment] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [loadingTrucks, setLoadingTrucks] = useState(true);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        setLoadingTrucks(true);
+        axios
+            .get<{ data: SpectechTruckOption[] }>('/api/telegram/miniapp/spectech/trucks', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            })
+            .then((response) => {
+                setTrucks(response.data.data ?? []);
+            })
+            .catch(() => {
+                setErr('Не удалось загрузить список спецтехники');
+            })
+            .finally(() => setLoadingTrucks(false));
+    }, [initData]);
+
+    const submit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!truckId) {
+            setErr('Выберите технику');
+            return;
+        }
+
+        setBusy(true);
+        setErr(null);
+        try {
+            await axios.post('/api/telegram/miniapp/spectech/requests', {
+                init_data: initData,
+                truck_id: truckId,
+                end_date: endDate,
+                terminal,
+                zone: zone.trim(),
+                gate: gate.trim() || null,
+                address: address.trim(),
+                comment: comment.trim() || null,
+                photos: [],
+            }, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            await onDone();
+        } catch (error: any) {
+            setErr(getErrorMessage(error, 'Не удалось создать заявку'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <form onSubmit={submit}>
+            <h3>Новая заявка на спецтехнику</h3>
+            <label>Техника</label>
+            <select
+                style={inputStyle}
+                value={truckId}
+                onChange={(e) => setTruckId(e.target.value ? Number(e.target.value) : '')}
+                disabled={loadingTrucks}
+                required
+            >
+                <option value="">{loadingTrucks ? 'Загрузка...' : 'Выберите технику'}</option>
+                {trucks.map((truck) => (
+                    <option key={truck.id} value={truck.id}>
+                        {(truck.name || 'Без названия') + (truck.plate_number ? ` (${truck.plate_number})` : ' (без номера)')}
+                    </option>
+                ))}
+            </select>
+
+            <label>Дата окончания</label>
+            <input style={inputStyle} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+
+            <label>Терминал</label>
+            <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
+                <option value="T1">T1</option>
+                <option value="T2">T2</option>
+                <option value="T3">T3</option>
+                <option value="T4">T4</option>
+            </select>
+
+            <label>Зона / объект</label>
+            <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
+
+            <label>Гейт</label>
+            <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
+
+            <label>Адрес</label>
+            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} required />
+
+            <label>Комментарий</label>
+            <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
+
+            {err && <p style={{ color: 'crimson' }}>{err}</p>}
+            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
+            <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
+        </form>
+    );
+}
+
+function SpectechRequestList({
+    requests,
+    onBack,
+    onCreate,
+}: {
+    requests: SpectechRequestItem[];
+    onBack: () => void;
+    onCreate: () => void;
+}) {
+    return (
+        <>
+            <h3>Мои заявки на спецтехнику</h3>
+            {requests.length === 0 && <p>Заявок пока нет.</p>}
+            {requests.map((request) => (
+                <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
+                    <strong>#{request.id} {request.equipment_name}</strong>
+                    <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
+                    <div>Период: {request.start_date} - {request.end_date}</div>
+                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+                    <div>Адрес: {request.address}</div>
+                    {request.comment && <div>Комментарий: {request.comment}</div>}
+                    {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
+                </div>
+            ))}
+            <button style={btn} onClick={onCreate}>Создать новую заявку</button>
+            <button style={btnSecondary} onClick={onBack}>← Назад</button>
+        </>
+    );
+}
+
 // ── Главный компонент ─────────────────────────────────────────────────────────
 
 function TelegramMiniApp() {
@@ -636,9 +821,10 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-requests'>('home');
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
+    const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
 
     useEffect(() => {
@@ -753,6 +939,28 @@ function TelegramMiniApp() {
         await loadVisits();
     }, [initData, loadVisits]);
 
+    const loadSpectechRequests = useCallback(() => {
+        if (!initData) return Promise.resolve();
+
+        return axios
+            .get<{ data: SpectechRequestItem[] }>('/api/telegram/miniapp/spectech/requests', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            })
+            .then((response) => setSpectechRequests(response.data.data ?? []))
+            .catch(() => setSpectechRequests([]));
+    }, [initData]);
+
+    useEffect(() => {
+        if (view !== 'spectech-requests') return;
+        void loadSpectechRequests();
+    }, [view, loadSpectechRequests]);
+
+    const handleSpectechCreated = useCallback(async () => {
+        await loadSpectechRequests();
+        setView('spectech-requests');
+    }, [loadSpectechRequests]);
+
     if (loading) {
         return (
             <Wrap>
@@ -814,6 +1022,8 @@ function TelegramMiniApp() {
                     onCreate={() => setView('create')}
                     onVisits={() => setView('visits')}
                     onExitPermits={() => setView('exit-permits')}
+                    onSpectechCreate={() => setView('spectech-create')}
+                    onSpectechRequests={() => setView('spectech-requests')}
                 />
             )}
 
@@ -857,6 +1067,22 @@ function TelegramMiniApp() {
                     yards={session.yards}
                     visitors={activeVisitors}
                     onReload={loadActiveVisitors}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'spectech-create' && (
+                <SpectechCreateForm
+                    initData={initData}
+                    onDone={handleSpectechCreated}
+                    onCancel={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'spectech-requests' && (
+                <SpectechRequestList
+                    requests={spectechRequests}
+                    onCreate={() => setView('spectech-create')}
                     onBack={() => setView('home')}
                 />
             )}
