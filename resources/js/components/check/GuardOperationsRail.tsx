@@ -114,7 +114,7 @@ const getPresenceMeta = (visit: GuestVisit): PresenceMeta => {
   if (visit.last_entry_at && !visit.last_exit_at) {
     return {
       label: 'На территории',
-      badgeClassName: 'bg-blue-100 text-blue-700 hover:bg-blue-100',
+      badgeClassName: 'border border-red-200 bg-white text-red-700 shadow-sm hover:bg-white',
       detailLabel: 'Въезд',
       detailValue: formatDateTime(visit.last_entry_at),
       icon: 'entry',
@@ -124,7 +124,7 @@ const getPresenceMeta = (visit: GuestVisit): PresenceMeta => {
   if (visit.last_entry_at && visit.last_exit_at) {
     return {
       label: 'Вне территории',
-      badgeClassName: 'bg-slate-200 text-slate-700 hover:bg-slate-200',
+      badgeClassName: 'border border-red-100 bg-red-50 text-red-700 hover:bg-red-50',
       detailLabel: 'Последний выезд',
       detailValue: formatDateTime(visit.last_exit_at),
       icon: 'exit',
@@ -133,7 +133,7 @@ const getPresenceMeta = (visit: GuestVisit): PresenceMeta => {
 
   return {
     label: 'Ожидает',
-    badgeClassName: 'bg-amber-100 text-amber-700 hover:bg-amber-100',
+    badgeClassName: 'border border-red-600 bg-red-600 text-white hover:bg-red-600',
     detailLabel: 'Начало визита',
     detailValue: formatDateTime(visit.visit_starts_at),
     icon: 'planned',
@@ -141,8 +141,8 @@ const getPresenceMeta = (visit: GuestVisit): PresenceMeta => {
 };
 
 const EmptyState = ({ title, description }: { title: string; description: string }) => (
-  <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
-    <div className="font-medium text-foreground">{title}</div>
+  <div className="rounded-xl border border-dashed border-red-200 bg-white px-3 py-3 text-sm text-red-700 shadow-sm shadow-red-100/50">
+    <div className="font-medium text-red-800">{title}</div>
     <div className="mt-1">{description}</div>
   </div>
 );
@@ -258,29 +258,35 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
 
   return (
     <div className="space-y-3 xl:sticky xl:top-4 xl:max-h-[calc(100svh-7rem)] xl:overflow-y-auto xl:pr-1">
-      <Card className="border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
-        <CardHeader className="pb-2">
+      <Card className="overflow-hidden border-red-200/80 bg-gradient-to-br from-red-600 via-red-500 to-red-400 shadow-[0_24px_60px_-32px_rgba(220,38,38,0.7)]">
+        <CardHeader className="border-b border-white/20 pb-3 text-white">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Users className="h-4 w-4 text-emerald-600" />
+              <CardTitle className="flex items-center gap-2 text-base text-white">
+                <Users className="h-4 w-4 text-white" />
                 Активные пропуска гостей
               </CardTitle>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline">Пропусков: {activeGuestPasses.length}</Badge>
-                <Badge variant="outline">На территории: {guestsOnSiteCount}</Badge>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-red-50/90">
+                <Badge className="border border-white/20 bg-white/12 text-white hover:bg-white/12">Пропусков: {activeGuestPasses.length}</Badge>
+                <Badge className="border border-white/20 bg-white/12 text-white hover:bg-white/12">На территории: {guestsOnSiteCount}</Badge>
                 <span>Обновлено: {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : '—'}</span>
               </div>
             </div>
 
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" onClick={() => void loadData()} disabled={!selectedYardId || loading}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => void loadData()}
+                disabled={!selectedYardId || loading}
+              >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 Обновить
               </Button>
 
-              <Button variant="ghost" size="sm" asChild>
+              <Button variant="ghost" size="sm" className="text-white hover:bg-white/15 hover:text-white" asChild>
                 <Link href="/guests" prefetch>
                   Гости
                   <ArrowRight className="h-4 w-4" />
@@ -290,24 +296,24 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 bg-gradient-to-b from-red-50 via-white to-white p-4">
           <div className="grid gap-2">
             <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-red-300" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Поиск по ФИО или ИИН"
-                className="pl-9"
+                className="border-red-200 bg-white pl-9 shadow-sm placeholder:text-red-300 focus-visible:ring-red-200"
               />
             </div>
 
-            <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
-              <span className="shrink-0 text-muted-foreground">Тип пропуска</span>
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm shadow-sm">
+              <span className="shrink-0 font-medium text-red-500">Тип пропуска</span>
               <select
                 value={permitKindFilter}
                 onChange={(event) => setPermitKindFilter(event.target.value as 'all' | 'one_time' | 'multi_time')}
-                className="w-full bg-transparent outline-none"
+                className="w-full bg-transparent text-red-900 outline-none"
               >
                 <option value="all">Все</option>
                 <option value="one_time">Разовый</option>
@@ -317,7 +323,7 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
           </div>
 
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-700 shadow-sm shadow-red-100/50">
               {error}
             </div>
           )}
@@ -328,8 +334,8 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
               description="Справа появится список активных гостевых пропусков для выбранного двора."
             />
           ) : loading && activeGuestPasses.length === 0 ? (
-            <div className="flex items-center gap-2 rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-red-200 bg-white px-4 py-4 text-sm text-red-700 shadow-sm shadow-red-100/50">
+              <Loader2 className="h-4 w-4 animate-spin text-red-500" />
               Загружаем активные гостевые пропуска...
             </div>
           ) : activeGuestPasses.length === 0 ? (
@@ -349,37 +355,39 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
               const isProcessingPresence = processingPresenceVisitId === visit.id;
 
               return (
-                <div key={visit.id} className="rounded-lg border px-4 py-3">
+                <div key={visit.id} className="rounded-xl border border-red-100 bg-white px-4 py-3 shadow-sm shadow-red-100/60 ring-1 ring-red-50">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{visit.guest_full_name}</div>
-                      {visit.guest_iin ? <div className="truncate text-xs text-muted-foreground">ИИН: {visit.guest_iin}</div> : null}
-                      <div className="truncate text-sm text-muted-foreground">{visit.guest_company_name || 'Компания не указана'}</div>
+                      <div className="truncate font-semibold text-red-950">{visit.guest_full_name}</div>
+                      {visit.guest_iin ? <div className="truncate text-xs text-red-500">ИИН: {visit.guest_iin}</div> : null}
+                      <div className="truncate text-sm text-slate-600">{visit.guest_company_name || 'Компания не указана'}</div>
                     </div>
 
                     <Badge className={presence.badgeClassName}>{presence.label}</Badge>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    <Badge variant="outline">{visit.permit_kind === 'one_time' ? 'Разовый' : 'Многоразовый'}</Badge>
-                    {permitLinks.length > 0 ? <Badge variant="outline">Связок пропуска: {permitLinks.length}</Badge> : null}
-                    {personPermitCount > 0 ? <Badge variant="secondary">Люди: {personPermitCount}</Badge> : null}
-                    {vehiclePermitCount > 0 ? <Badge variant="secondary">ТС: {vehiclePermitCount}</Badge> : null}
+                    <Badge variant="outline" className={visit.permit_kind === 'one_time' ? 'border-red-200 bg-red-50 text-red-700' : 'border-red-200 bg-white text-red-700'}>
+                      {visit.permit_kind === 'one_time' ? 'Разовый' : 'Многоразовый'}
+                    </Badge>
+                    {permitLinks.length > 0 ? <Badge variant="outline" className="border-red-100 bg-white text-red-600">Связок пропуска: {permitLinks.length}</Badge> : null}
+                    {personPermitCount > 0 ? <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Люди: {personPermitCount}</Badge> : null}
+                    {vehiclePermitCount > 0 ? <Badge className="bg-red-100 text-red-700 hover:bg-red-100">ТС: {vehiclePermitCount}</Badge> : null}
                   </div>
 
-                  <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+                  <div className="mt-3 grid gap-2 text-sm text-slate-600">
                     <div className="flex items-center gap-2">
-                      <Truck className="h-4 w-4 shrink-0" />
+                      <Truck className="h-4 w-4 shrink-0 text-red-500" />
                       <span>{getVisitPlates(visit)}</span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Clock3 className="h-4 w-4 shrink-0" />
+                      <Clock3 className="h-4 w-4 shrink-0 text-red-500" />
                       <span>{formatDateTime(visit.visit_starts_at)}</span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 shrink-0" />
+                      <Building2 className="h-4 w-4 shrink-0 text-red-500" />
                       <span>
                         Встречает: {visit.host_name}
                         {visit.host_phone ? ` • ${visit.host_phone}` : ''}
@@ -387,21 +395,21 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
                     </div>
 
                     {visit.comment ? (
-                      <div className="rounded-md border bg-muted/40 px-2.5 py-2 text-sm leading-snug text-foreground">
-                        <span className="font-medium">Цель визита:</span> {visit.comment}
+                      <div className="rounded-lg border border-red-100 bg-red-50/80 px-2.5 py-2 text-sm leading-snug text-red-950">
+                        <span className="font-semibold text-red-700">Цель визита:</span> {visit.comment}
                       </div>
                     ) : null}
 
                     <div className="flex items-center gap-2">
                       {presence.icon === 'entry' ? (
-                        <LogIn className="h-4 w-4 shrink-0 text-emerald-600" />
+                        <LogIn className="h-4 w-4 shrink-0 text-red-600" />
                       ) : presence.icon === 'exit' ? (
-                        <LogOut className="h-4 w-4 shrink-0 text-slate-600" />
+                        <LogOut className="h-4 w-4 shrink-0 text-red-500" />
                       ) : (
-                        <Clock3 className="h-4 w-4 shrink-0 text-amber-600" />
+                        <Clock3 className="h-4 w-4 shrink-0 text-red-500" />
                       )}
                       <span>
-                        {presence.detailLabel}: <span className="font-medium text-foreground">{presence.detailValue}</span>
+                        {presence.detailLabel}: <span className="font-medium text-red-950">{presence.detailValue}</span>
                       </span>
                     </div>
                   </div>
@@ -412,12 +420,12 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="gap-2"
+                        className="gap-2 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
                         title="Отметить приход"
                         onClick={() => void handlePresenceAction(visit.id, 'check-in')}
                         disabled={isProcessingPresence}
                       >
-                        {isProcessingPresence ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4 text-green-600" />}
+                        {isProcessingPresence ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4 text-red-600" />}
                         Отметить приход
                       </Button>
                     ) : (
@@ -425,12 +433,12 @@ const GuardOperationsRail: React.FC<GuardOperationsRailProps> = ({ selectedYardI
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="gap-2"
+                        className="gap-2 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
                         title="Отметить уход"
                         onClick={() => void handlePresenceAction(visit.id, 'check-out')}
                         disabled={isProcessingPresence}
                       >
-                        {isProcessingPresence ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4 text-amber-600" />}
+                        {isProcessingPresence ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4 text-red-600" />}
                         Отметить уход
                       </Button>
                     )}

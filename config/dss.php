@@ -75,6 +75,7 @@ return [
         'archive_disk' => env('DSS_ARCHIVE_DISK', 'local'),
         'vehicle_captures_days' => (int) env('DSS_VEHICLE_CAPTURES_RETENTION_DAYS', 90),
         'truck_zone_history_days' => (int) env('DSS_TRUCK_ZONE_HISTORY_RETENTION_DAYS', 180),
+        'pending_reviews_hours' => (int) env('DSS_PENDING_REVIEWS_RETENTION_HOURS', 24),
         'chunk_size' => (int) env('DSS_ARCHIVE_CHUNK_SIZE', 500),
     ],
 

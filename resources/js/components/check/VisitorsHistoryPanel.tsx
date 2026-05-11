@@ -35,6 +35,8 @@ type HistoryVisitor = {
   exit_checkpoint_name?: string | null;
   has_permit?: boolean;
   permit_type?: 'one_time' | 'permanent' | null;
+  permit_status?: 'active' | 'expired' | null;
+  permit_end_date?: string | null;
   exit_permit_required?: boolean;
   has_active_exit_permit?: boolean;
   exit_permit?: ExitPermitSummary | null;
@@ -118,9 +120,17 @@ const formatDateTime = (dateStr?: string | null) => {
   };
 };
 
+const isUnauthorizedActiveVisitor = (visitor: HistoryVisitor) => !visitor.exit_date && visitor.has_permit === false;
+
+const hasExpiredPermit = (visitor: HistoryVisitor) => visitor.has_permit === false && visitor.permit_status === 'expired';
+
 const getPermitBadgeClass = (visitor: HistoryVisitor) => {
+  if (hasExpiredPermit(visitor)) {
+    return 'border border-red-200 bg-red-50 text-red-700';
+  }
+
   if (!visitor.has_permit) {
-    return 'bg-slate-100 text-slate-700';
+    return 'border border-red-200 bg-red-50 text-red-700';
   }
 
   return visitor.permit_type === 'one_time'
@@ -129,6 +139,12 @@ const getPermitBadgeClass = (visitor: HistoryVisitor) => {
 };
 
 const getPermitBadgeLabel = (visitor: HistoryVisitor) => {
+  if (hasExpiredPermit(visitor)) {
+    return visitor.permit_type === 'one_time'
+      ? 'Разовое разрешение истекло'
+      : 'Разрешение истекло';
+  }
+
   if (!visitor.has_permit) {
     return 'Без разрешения';
   }
@@ -139,13 +155,19 @@ const getPermitBadgeLabel = (visitor: HistoryVisitor) => {
 };
 
 const getTerritoryBadgeClass = (visitor: HistoryVisitor) => (
-  visitor.exit_date
-    ? 'bg-red-100 text-red-700'
-    : 'bg-emerald-100 text-emerald-700'
+  isUnauthorizedActiveVisitor(visitor)
+    ? 'bg-red-600 text-white'
+    : visitor.exit_date
+      ? 'bg-red-100 text-red-700'
+      : 'bg-emerald-100 text-emerald-700'
 );
 
 const getTerritoryBadgeLabel = (visitor: HistoryVisitor) => (
-  visitor.exit_date ? 'Покинул территорию' : 'На территории'
+  isUnauthorizedActiveVisitor(visitor)
+    ? 'Несанкционированный въезд'
+    : visitor.exit_date
+      ? 'Покинул территорию'
+      : 'На территории'
 );
 
 const hasMeaningfulTruckOwner = (truckOwner?: string | null) => {
@@ -577,9 +599,13 @@ export default function VisitorsHistoryPanel({
                 {displayedVisitors.map((visitor) => {
                   const entryTime = formatDateTime(visitor.entry_date);
                   const exitTime = formatDateTime(visitor.exit_date);
+                  const permitEndTime = formatDateTime(visitor.permit_end_date);
                   const exitPermitComment = visitor.exit_permit?.comment?.trim();
                   const hasWorkingCapturePicture = Boolean(visitor.capture_picture_url) && !failedImageVisitorIds.has(visitor.id);
                   const capturePictureUrl = hasWorkingCapturePicture ? visitor.capture_picture_url ?? undefined : undefined;
+                  const expiredPermitLabel = visitor.permit_type === 'one_time'
+                    ? 'Разовое разрешение действовало до'
+                    : 'Разрешение действовало до';
 
                   return (
                     <div key={visitor.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -630,6 +656,12 @@ export default function VisitorsHistoryPanel({
                               {visitor.name && (
                                 <div className={variant === 'desktop' ? 'line-clamp-2 text-xs text-muted-foreground' : 'text-sm text-muted-foreground'}>
                                   Задание: {visitor.name}
+                                </div>
+                              )}
+
+                              {hasExpiredPermit(visitor) && permitEndTime && (
+                                <div className={variant === 'desktop' ? 'rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-800' : 'rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-sm text-red-800'}>
+                                  {expiredPermitLabel}: {permitEndTime.date}, {permitEndTime.time}
                                 </div>
                               )}
                             </div>

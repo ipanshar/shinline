@@ -2,10 +2,12 @@
 
 namespace App\Console\Commands;
 
+use App\Models\CheckpointExitReview;
 use App\Models\EntryPermit;
 use App\Models\GuestVisitPermit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Models\Visitor;
 use App\Services\DssPermitVehicleService;
 use App\Services\GuestVisitPermitService;
 use Carbon\Carbon;
@@ -22,6 +24,7 @@ class CleanupOldTasksAndPermits extends Command
      */
     protected $signature = 'cleanup:old-tasks-permits 
                             {--days=7 : Количество дней (задачи старше этого срока будут обработаны)}
+                            {--pending-hours= : Через сколько часов зависшие pending visitor/exit-review закрывать автоматически}
                             {--dry-run : Показать что будет сделано, без реальных изменений}
                             {--force : Выполнить без подтверждения}';
 
@@ -30,7 +33,7 @@ class CleanupOldTasksAndPermits extends Command
      *
      * @var string
      */
-    protected $description = 'Завершает старые задачи со статусом "новый", деактивирует просроченные одноразовые и гостевые разрешения';
+    protected $description = 'Завершает старые задачи со статусом "новый", деактивирует просроченные разрешения и закрывает зависшие pending visitor/exit-review';
 
     /**
      * Execute the console command.
@@ -40,11 +43,19 @@ class CleanupOldTasksAndPermits extends Command
         $days = (int) $this->option('days');
         $dryRun = $this->option('dry-run');
         $force = $this->option('force');
+        $pendingHoursOption = $this->option('pending-hours');
+        $pendingHours = $pendingHoursOption !== null
+            ? max(0, (int) $pendingHoursOption)
+            : max(0, (int) config('dss.retention.pending_reviews_hours', 24));
         
         $cutoffDate = Carbon::now()->subDays($days);
+        $pendingCutoffDate = $pendingHours > 0 ? Carbon::now()->subHours($pendingHours) : null;
         
         $this->info("=== Очистка старых задач и разрешений ===");
         $this->info("Дата отсечки: {$cutoffDate->format('Y-m-d H:i:s')} (старше {$days} дней)");
+        $this->info($pendingCutoffDate
+            ? "Pending TTL: {$pendingHours} ч. (старше {$pendingCutoffDate->format('Y-m-d H:i:s')})"
+            : 'Pending TTL: отключён');
         
         if ($dryRun) {
             $this->warn(">>> РЕЖИМ ПРЕДПРОСМОТРА (dry-run) - изменения НЕ будут применены <<<");
@@ -165,12 +176,53 @@ class CleanupOldTasksAndPermits extends Command
         }
 
         $this->newLine();
+
+        // === 4. Находим зависшие pending visitor ===
+        $stalePendingVisitors = collect();
+
+        if ($pendingCutoffDate) {
+            $stalePendingVisitors = Visitor::query()
+                ->where('confirmation_status', Visitor::CONFIRMATION_PENDING)
+                ->whereNull('exit_date')
+                ->where(function ($query) use ($pendingCutoffDate) {
+                    $query->where('entry_date', '<', $pendingCutoffDate)
+                        ->orWhere(function ($fallbackQuery) use ($pendingCutoffDate) {
+                            $fallbackQuery->whereNull('entry_date')
+                                ->where('created_at', '<', $pendingCutoffDate);
+                        });
+                })
+                ->get();
+        }
+
+        $this->info('Найдено зависших pending visitor: ' . $stalePendingVisitors->count());
+        $this->newLine();
+
+        // === 5. Находим зависшие pending exit-review ===
+        $stalePendingExitReviews = collect();
+
+        if ($pendingCutoffDate) {
+            $stalePendingExitReviews = CheckpointExitReview::query()
+                ->where('status', 'pending')
+                ->where(function ($query) use ($pendingCutoffDate) {
+                    $query->where('capture_time', '<', $pendingCutoffDate)
+                        ->orWhere(function ($fallbackQuery) use ($pendingCutoffDate) {
+                            $fallbackQuery->whereNull('capture_time')
+                                ->where('created_at', '<', $pendingCutoffDate);
+                        });
+                })
+                ->get();
+        }
+
+        $this->info('Найдено зависших pending exit-review: ' . $stalePendingExitReviews->count());
+
+        $this->newLine();
         
         // === Подтверждение ===
         if (!$dryRun && !$force) {
             $totalPermitsToRevoke = $expiredPermits->count() + $expiredGuestPermitLinks->count();
+            $totalPendingToClose = $stalePendingVisitors->count() + $stalePendingExitReviews->count();
 
-            if (!$this->confirm("Продолжить? Будет обновлено {$oldTasks->count()} задач и деактивировано/отозвано {$totalPermitsToRevoke} разрешений")) {
+            if (!$this->confirm("Продолжить? Будет обновлено {$oldTasks->count()} задач, деактивировано/отозвано {$totalPermitsToRevoke} разрешений и закрыто {$totalPendingToClose} зависших pending записей")) {
                 $this->info("Операция отменена.");
                 return 0;
             }
@@ -207,6 +259,8 @@ class CleanupOldTasksAndPermits extends Command
                 'skipped' => 0,
             ];
             $guestPermitsRevoked = 0;
+            $stalePendingVisitorsClosed = 0;
+            $stalePendingExitReviewsClosed = 0;
             if ($inactiveStatus) {
                 foreach ($expiredPermits as $permit) {
                     if ($activeStatus && (int) $permit->status_id !== (int) $activeStatus->id) {
@@ -247,6 +301,35 @@ class CleanupOldTasksAndPermits extends Command
                     $dssRevokeSummary['skipped']++;
                 }
             }
+
+            $autoClosedAt = Carbon::now();
+
+            foreach ($stalePendingVisitors as $visitor) {
+                $updateData = [
+                    'confirmation_status' => Visitor::CONFIRMATION_REJECTED,
+                    'confirmed_by_user_id' => null,
+                    'confirmed_at' => $autoClosedAt,
+                    'exit_date' => $visitor->exit_date ?? $autoClosedAt,
+                ];
+
+                if ($leftTerritoryStatus) {
+                    $updateData['status_id'] = $leftTerritoryStatus->id;
+                }
+
+                $visitor->update($updateData);
+                $stalePendingVisitorsClosed++;
+            }
+
+            foreach ($stalePendingExitReviews as $review) {
+                $existingNote = trim((string) $review->note);
+                $review->status = 'rejected';
+                $review->resolved_at = $autoClosedAt;
+                $review->resolved_by_user_id = null;
+                $review->note = ($existingNote !== '' ? $existingNote . "\n" : '')
+                    . '[AUTO] Pending exit review закрыт по TTL ' . $autoClosedAt->format('d.m.Y H:i');
+                $review->save();
+                $stalePendingExitReviewsClosed++;
+            }
             
             DB::commit();
             
@@ -255,16 +338,21 @@ class CleanupOldTasksAndPermits extends Command
             $this->info("✓ Задач обновлено (статус -> {$targetStatus->name}): {$tasksUpdated}");
             $this->info("✓ Разрешений деактивировано: {$permitsDeactivated}");
             $this->info("✓ Гостевых разрешений отозвано: {$guestPermitsRevoked}");
+            $this->info("✓ Pending visitor автоматически закрыто: {$stalePendingVisitorsClosed}");
+            $this->info("✓ Pending exit-review автоматически закрыто: {$stalePendingExitReviewsClosed}");
             $this->info("✓ DSS отзывов: {$dssRevokeSummary['success']} успешно, {$dssRevokeSummary['failed']} с ошибкой, {$dssRevokeSummary['skipped']} пропущено");
             
             // Логируем только если были изменения
-            if ($tasksUpdated > 0 || $permitsDeactivated > 0 || $guestPermitsRevoked > 0) {
+            if ($tasksUpdated > 0 || $permitsDeactivated > 0 || $guestPermitsRevoked > 0 || $stalePendingVisitorsClosed > 0 || $stalePendingExitReviewsClosed > 0) {
                 Log::info('CleanupOldTasksAndPermits выполнено', [
                     'tasks_updated' => $tasksUpdated,
                     'permits_deactivated' => $permitsDeactivated,
                     'guest_permits_revoked' => $guestPermitsRevoked,
+                    'stale_pending_visitors_closed' => $stalePendingVisitorsClosed,
+                    'stale_pending_exit_reviews_closed' => $stalePendingExitReviewsClosed,
                     'dss_revoke_summary' => $dssRevokeSummary,
                     'cutoff_date' => $cutoffDate->format('Y-m-d'),
+                    'pending_cutoff_date' => $pendingCutoffDate?->format('Y-m-d H:i:s'),
                 ]);
             }
             

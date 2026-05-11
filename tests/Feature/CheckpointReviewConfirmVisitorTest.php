@@ -273,6 +273,65 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
         $this->assertStringContainsString('обязательное выездное взвешивание', (string) $review->note);
     }
 
+    public function test_checkpoint_review_queue_returns_only_pending_visitors(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Entry');
+        $truck = $this->createTruck(['plate_number' => 'PEN12305']);
+
+        $pendingVisitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'entrance_device_id' => $device->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_PENDING,
+            'entry_date' => now()->subMinutes(5),
+        ]);
+
+        $this->createVisitor([
+            'plate_number' => 'CNF12305',
+            'original_plate_number' => 'CNF12305',
+            'yard_id' => $yard->id,
+            'entrance_device_id' => $device->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(4),
+            'entry_date' => now()->subMinutes(4),
+        ]);
+
+        $this->createVisitor([
+            'plate_number' => 'REJ12305',
+            'original_plate_number' => 'REJ12305',
+            'yard_id' => $yard->id,
+            'entrance_device_id' => $device->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_REJECTED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(3),
+            'entry_date' => now()->subMinutes(3),
+        ]);
+
+        $response = $this->postJson('/api/security/checkpoint-review-queue', [
+            'checkpoint_id' => $checkpoint->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.visitor_id', $pendingVisitor->id)
+            ->assertJsonPath('data.0.confirmation_status', Visitor::CONFIRMATION_PENDING);
+    }
+
     public function test_checkpoint_exit_review_queue_returns_active_exit_permit_comment(): void
     {
         $statuses = $this->seedDssStatuses();
@@ -329,6 +388,61 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
             ->assertJsonPath('data.0.candidate_visitors.0.has_active_exit_permit', true)
             ->assertJsonPath('data.0.candidate_visitors.0.exit_permit.id', $exitPermit->id)
             ->assertJsonPath('data.0.candidate_visitors.0.exit_permit.comment', 'Проверить пломбу на воротах 3');
+    }
+
+    public function test_checkpoint_exit_review_queue_returns_only_pending_reviews(): void
+    {
+        $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Exit');
+
+        $pendingReview = CheckpointExitReview::create([
+            'device_id' => $device->id,
+            'checkpoint_id' => $checkpoint->id,
+            'yard_id' => $yard->id,
+            'plate_number' => 'QPEND05',
+            'normalized_plate' => 'qpend05',
+            'capture_time' => now()->subMinutes(2),
+            'status' => 'pending',
+        ]);
+
+        CheckpointExitReview::create([
+            'device_id' => $device->id,
+            'checkpoint_id' => $checkpoint->id,
+            'yard_id' => $yard->id,
+            'plate_number' => 'QCONF05',
+            'normalized_plate' => 'qconf05',
+            'capture_time' => now()->subMinute(),
+            'status' => 'confirmed',
+            'resolved_at' => now()->subSeconds(30),
+        ]);
+
+        CheckpointExitReview::create([
+            'device_id' => $device->id,
+            'checkpoint_id' => $checkpoint->id,
+            'yard_id' => $yard->id,
+            'plate_number' => 'QREJ005',
+            'normalized_plate' => 'qrej005',
+            'capture_time' => now(),
+            'status' => 'rejected',
+            'resolved_at' => now()->subSeconds(10),
+        ]);
+
+        $response = $this->postJson('/api/security/checkpoint-exit-review-queue', [
+            'checkpoint_id' => $checkpoint->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.review_id', $pendingReview->id)
+            ->assertJsonPath('data.0.status', 'pending');
     }
 
     public function test_checkpoint_exit_review_queue_auto_closes_previous_active_visits_and_keeps_latest_candidate(): void
@@ -631,6 +745,125 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
             $permitSelectQueryCount,
             'getVisitors should bulk-load permits instead of issuing per-visitor queries.'
         );
+    }
+
+    public function test_get_visitors_returns_expired_one_time_permit_metadata_for_active_visit_without_active_permit(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $operator = User::factory()->create();
+        $driver = User::factory()->create();
+        Sanctum::actingAs($operator);
+
+        $yard = $this->createYard(false);
+        $truck = $this->createTruck([
+            'plate_number' => 'EXP57905',
+        ]);
+
+        $task = Task::create([
+            'name' => 'Просроченное разовое разрешение',
+            'status_id' => $statuses['on_territory']->id,
+            'truck_id' => $truck->id,
+            'yard_id' => $yard->id,
+            'user_id' => $driver->id,
+            'begin_date' => now()->subDays(2),
+            'end_date' => now()->subDay(),
+        ]);
+
+        $entryPermit = $this->createPermit($truck, $yard, [
+            'task_id' => $task->id,
+            'one_permission' => true,
+            'status_id' => $statuses['active']->id,
+            'begin_date' => now()->subDays(2),
+            'end_date' => now()->subDay(),
+        ]);
+
+        $visitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'task_id' => $task->id,
+            'entry_permit_id' => $entryPermit->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $operator->id,
+            'confirmed_at' => now()->subHours(12),
+            'entry_date' => now()->subHours(12),
+        ]);
+
+        $response = $this->postJson('/api/security/getvisitors', [
+            'yard_id' => $yard->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.0.id', $visitor->id)
+            ->assertJsonPath('data.0.has_permit', false)
+            ->assertJsonPath('data.0.permit_status', 'expired')
+            ->assertJsonPath('data.0.permit_type', 'one_time')
+            ->assertJsonPath('data.0.permit_end_date', $entryPermit->end_date?->toIso8601String())
+            ->assertJsonPath('data.0.name', 'Просроченное разовое разрешение');
+    }
+
+    public function test_cleanup_command_closes_old_pending_visitors_and_exit_reviews(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        Status::firstOrCreate(['key' => 'new'], ['name' => 'Новый']);
+        Status::firstOrCreate(['key' => 'canceled'], ['name' => 'Отменён']);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $entryCheckpoint = $this->createCheckpoint($yard);
+        $entryDevice = $this->createDevice($zone, $entryCheckpoint, 'Entry');
+        $exitCheckpoint = $this->createCheckpoint($yard, ['name' => 'КПП Выезд']);
+        $exitDevice = $this->createDevice($zone, $exitCheckpoint, 'Exit');
+        $truck = $this->createTruck(['plate_number' => 'OLD77705']);
+
+        $pendingVisitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'entrance_device_id' => $entryDevice->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_PENDING,
+            'entry_date' => now()->subDays(2),
+            'created_at' => now()->subDays(2),
+            'updated_at' => now()->subDays(2),
+        ]);
+
+        $pendingReview = CheckpointExitReview::create([
+            'device_id' => $exitDevice->id,
+            'checkpoint_id' => $exitCheckpoint->id,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'normalized_plate' => strtolower($truck->plate_number),
+            'capture_time' => now()->subDays(2),
+            'status' => 'pending',
+            'created_at' => now()->subDays(2),
+            'updated_at' => now()->subDays(2),
+        ]);
+
+        $this->artisan('cleanup:old-tasks-permits', [
+            '--force' => true,
+            '--days' => 365,
+            '--pending-hours' => 24,
+        ])->assertExitCode(0);
+
+        $pendingVisitor->refresh();
+        $pendingReview->refresh();
+
+        $this->assertSame(Visitor::CONFIRMATION_REJECTED, $pendingVisitor->confirmation_status);
+        $this->assertNotNull($pendingVisitor->confirmed_at);
+        $this->assertNotNull($pendingVisitor->exit_date);
+        $this->assertSame($statuses['left_territory']->id, $pendingVisitor->status_id);
+
+        $this->assertSame('rejected', $pendingReview->status);
+        $this->assertNotNull($pendingReview->resolved_at);
+        $this->assertStringContainsString('Pending exit review закрыт по TTL', (string) $pendingReview->note);
     }
 
     public function test_get_visitors_supports_paginated_history(): void

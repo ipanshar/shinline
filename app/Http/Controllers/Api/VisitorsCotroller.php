@@ -342,12 +342,14 @@ class VisitorsCotroller extends Controller
         }
 
         $activeStatusId = Status::where('key', 'active')->value('id');
-        $entryPermitsByTruckYard = $this->getActiveEntryPermitsByTruckYard($visitors, $activeStatusId);
+        [$entryPermitsByTruckYard, $entryPermitsById] = $this->getRelevantEntryPermits($visitors, $activeStatusId);
         $exitPermitsByVisitorId = $this->getActiveExitPermitsByVisitorId($visitors);
 
-        $visitors = $visitors->map(function ($visitor) use ($entryPermitsByTruckYard, $exitPermitsByVisitorId, $includeCapturePicture) {
+        $visitors = $visitors->map(function ($visitor) use ($entryPermitsByTruckYard, $entryPermitsById, $exitPermitsByVisitorId, $includeCapturePicture) {
             $permitKey = $this->buildTruckYardLookupKey($visitor->truck_id, $visitor->yard_id);
-            $permit = $permitKey ? $entryPermitsByTruckYard->get($permitKey) : null;
+            $activePermit = $permitKey ? $entryPermitsByTruckYard->get($permitKey) : null;
+            $linkedPermit = $visitor->entry_permit_id ? $entryPermitsById->get((int) $visitor->entry_permit_id) : null;
+            $resolvedPermit = $activePermit ?? $linkedPermit;
             $exitPermit = $exitPermitsByVisitorId->get((int) $visitor->id);
             $capture = $includeCapturePicture
                 ? $this->findLatestCaptureForVisitor(
@@ -357,10 +359,14 @@ class VisitorsCotroller extends Controller
                 )
                 : null;
 
-            $visitor->permit_id = $permit?->id;
-            $visitor->permit_type = $permit ? ($permit->one_permission ? 'one_time' : 'permanent') : null;
-            $visitor->has_permit = $permit !== null;
-            $visitor->exit_permit_required = (bool) ($permit?->exit_permit_required ?? false);
+            $visitor->permit_id = $resolvedPermit?->id;
+            $visitor->permit_type = $resolvedPermit ? ($resolvedPermit->one_permission ? 'one_time' : 'permanent') : null;
+            $visitor->has_permit = $activePermit !== null;
+            $visitor->permit_status = $activePermit !== null
+                ? 'active'
+                : ($this->isExpiredEntryPermit($linkedPermit) ? 'expired' : null);
+            $visitor->permit_end_date = $resolvedPermit?->end_date?->toIso8601String();
+            $visitor->exit_permit_required = (bool) ($activePermit?->exit_permit_required ?? false);
             $visitor->has_active_exit_permit = $exitPermit !== null;
             $visitor->exit_permit = $this->buildExitPermitPayload($exitPermit);
             $visitor->capture_picture_url = $this->buildCapturePictureUrl($capture);
@@ -409,12 +415,8 @@ class VisitorsCotroller extends Controller
         $this->normalizeActiveVisitorsForExit($activeVisitors, now());
     }
 
-    private function getActiveEntryPermitsByTruckYard($visitors, ?int $activeStatusId)
+    private function getRelevantEntryPermits($visitors, ?int $activeStatusId): array
     {
-        if (!$activeStatusId) {
-            return collect();
-        }
-
         $truckIds = $visitors->pluck('truck_id')
             ->filter()
             ->map(fn ($truckId) => (int) $truckId)
@@ -427,23 +429,70 @@ class VisitorsCotroller extends Controller
             ->unique()
             ->values();
 
-        if ($truckIds->isEmpty() || $yardIds->isEmpty()) {
-            return collect();
+        $entryPermitIds = $visitors->pluck('entry_permit_id')
+            ->filter()
+            ->map(fn ($permitId) => (int) $permitId)
+            ->unique()
+            ->values();
+
+        $canLoadActivePermits = $activeStatusId && !$truckIds->isEmpty() && !$yardIds->isEmpty();
+
+        if (!$canLoadActivePermits && $entryPermitIds->isEmpty()) {
+            return [collect(), collect()];
         }
 
-        return EntryPermit::query()
-            ->whereIn('truck_id', $truckIds)
-            ->whereIn('yard_id', $yardIds)
-            ->where('status_id', $activeStatusId)
-            ->where(function ($query) {
-                $query->whereNull('end_date')
-                    ->orWhere('end_date', '>=', now()->startOfDay());
+        $permits = EntryPermit::query()
+            ->where(function ($query) use ($canLoadActivePermits, $truckIds, $yardIds, $activeStatusId, $entryPermitIds) {
+                if ($canLoadActivePermits) {
+                    $query->where(function ($activePermitQuery) use ($truckIds, $yardIds, $activeStatusId) {
+                        $activePermitQuery
+                            ->whereIn('truck_id', $truckIds)
+                            ->whereIn('yard_id', $yardIds)
+                            ->where('status_id', $activeStatusId)
+                            ->where(function ($validityQuery) {
+                                $validityQuery->whereNull('end_date')
+                                    ->orWhere('end_date', '>=', now()->startOfDay());
+                            });
+                    });
+                }
+
+                if ($entryPermitIds->isNotEmpty()) {
+                    if ($canLoadActivePermits) {
+                        $query->orWhereIn('id', $entryPermitIds);
+                    } else {
+                        $query->whereIn('id', $entryPermitIds);
+                    }
+                }
             })
             ->orderByDesc('created_at')
             ->orderByDesc('id')
-            ->get()
+            ->get();
+
+        $activePermitsByTruckYard = $permits
+            ->filter(fn (EntryPermit $permit) => $this->isActiveEntryPermit($permit, $activeStatusId))
             ->unique(fn ($permit) => $this->buildTruckYardLookupKey($permit->truck_id, $permit->yard_id))
             ->keyBy(fn ($permit) => $this->buildTruckYardLookupKey($permit->truck_id, $permit->yard_id));
+
+        return [
+            $activePermitsByTruckYard,
+            $permits->keyBy(fn (EntryPermit $permit) => (int) $permit->id),
+        ];
+    }
+
+    private function isActiveEntryPermit(EntryPermit $permit, ?int $activeStatusId): bool
+    {
+        if (!$activeStatusId || (int) $permit->status_id !== (int) $activeStatusId) {
+            return false;
+        }
+
+        return !$this->isExpiredEntryPermit($permit);
+    }
+
+    private function isExpiredEntryPermit(?EntryPermit $permit): bool
+    {
+        return $permit !== null
+            && $permit->end_date !== null
+            && $permit->end_date->lt(now()->startOfDay());
     }
 
     private function getActiveExitPermitsByVisitorId($visitors)
@@ -1074,11 +1123,7 @@ class VisitorsCotroller extends Controller
             $limit = $validate['limit'] ?? 20;
 
             $visitors = Visitor::query()
-                ->whereIn('visitors.confirmation_status', [
-                    Visitor::CONFIRMATION_PENDING,
-                    Visitor::CONFIRMATION_CONFIRMED,
-                    Visitor::CONFIRMATION_REJECTED,
-                ])
+                ->where('visitors.confirmation_status', Visitor::CONFIRMATION_PENDING)
                 ->leftJoin('yards', 'visitors.yard_id', '=', 'yards.id')
                 ->leftJoin('trucks', 'visitors.truck_id', '=', 'trucks.id')
                 ->leftJoin('tasks', 'visitors.task_id', '=', 'tasks.id')
@@ -1337,7 +1382,7 @@ class VisitorsCotroller extends Controller
 
             $reviewsQuery = CheckpointExitReview::query()
                 ->where('checkpoint_id', $validate['checkpoint_id'])
-                ->whereIn('status', ['pending', 'confirmed', 'rejected'])
+                ->where('status', 'pending')
                 ->orderByDesc('capture_time');
 
             $totalCount = (clone $reviewsQuery)->count();

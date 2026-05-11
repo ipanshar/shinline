@@ -452,6 +452,38 @@ const matchExitReviewItem = (event: DssUnknownVehicleDetectedEvent | null, items
   });
 };
 
+const doesEntryEventMatchItem = (event: DssUnknownVehicleDetectedEvent | null, item: CheckpointQueueItem | null) => {
+  if (!event || !item || getEventDirection(event) !== 'entry') return false;
+
+  if (event.checkpoint_id != null && item.checkpoint_id !== event.checkpoint_id) {
+    return false;
+  }
+
+  if (event.vehicle_capture_id != null && item.capture_id != null) {
+    return event.vehicle_capture_id === item.capture_id;
+  }
+
+  const normalizedEventPlate = normalizePlateNumber(event.plate_no);
+  if (!normalizedEventPlate) return false;
+
+  return [item.plate_number, item.original_plate_number, item.matched_plate_number]
+    .some((plate) => normalizePlateNumber(plate) === normalizedEventPlate);
+};
+
+const doesExitEventMatchItem = (event: DssUnknownVehicleDetectedEvent | null, item: ExitReviewItem | null) => {
+  if (!event || !item || getEventDirection(event) !== 'exit') return false;
+
+  if (event.checkpoint_id != null && item.checkpoint_id !== event.checkpoint_id) {
+    return false;
+  }
+
+  if (event.vehicle_capture_id != null && item.capture_id != null) {
+    return event.vehicle_capture_id === item.capture_id;
+  }
+
+  return normalizePlateNumber(event.plate_no) === normalizePlateNumber(item.plate_number);
+};
+
 const getCheckpointKey = (event: DssUnknownVehicleDetectedEvent) => {
   if (event.checkpoint_id != null) return String(event.checkpoint_id);
   return `unknown:${event.point_name || event.channel_name || event.device_name || 'no-checkpoint'}`;
@@ -604,6 +636,26 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
   const exitEvents = useMemo(() => filteredEvents.filter((event) => getEventDirection(event) === 'exit'), [filteredEvents]);
   const latestEntryEvent = useMemo(() => entryEvents[0] ?? null, [entryEvents]);
   const latestExitEvent = useMemo(() => exitEvents[0] ?? null, [exitEvents]);
+  const pendingEntryQueuesByCheckpoint = useMemo(
+    () => Object.entries(entryQueuesByCheckpoint).reduce<Record<number, CheckpointQueueItem[]>>((accumulator, [checkpointId, items]) => {
+      const parsedCheckpointId = Number(checkpointId);
+      if (Number.isFinite(parsedCheckpointId)) {
+        accumulator[parsedCheckpointId] = items.filter((item) => item.confirmation_status === 'pending');
+      }
+      return accumulator;
+    }, {}),
+    [entryQueuesByCheckpoint],
+  );
+  const pendingExitQueuesByCheckpoint = useMemo(
+    () => Object.entries(exitQueuesByCheckpoint).reduce<Record<number, ExitReviewItem[]>>((accumulator, [checkpointId, items]) => {
+      const parsedCheckpointId = Number(checkpointId);
+      if (Number.isFinite(parsedCheckpointId)) {
+        accumulator[parsedCheckpointId] = items.filter((item) => item.status === 'pending');
+      }
+      return accumulator;
+    }, {}),
+    [exitQueuesByCheckpoint],
+  );
 
   useEffect(() => {
     if (!onStatusChange) {
@@ -689,27 +741,51 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
   const entryReviewItem = useMemo(() => {
     if (latestEntryEvent?.checkpoint_id) {
-      return matchEntryReviewItem(latestEntryEvent, entryQueuesByCheckpoint[latestEntryEvent.checkpoint_id] ?? []);
+      return matchEntryReviewItem(latestEntryEvent, pendingEntryQueuesByCheckpoint[latestEntryEvent.checkpoint_id] ?? []);
     }
 
     if (selectedCheckpointId) {
-      return entryQueuesByCheckpoint[selectedCheckpointId]?.[0] ?? null;
+      return pendingEntryQueuesByCheckpoint[selectedCheckpointId]?.[0] ?? null;
     }
 
     return null;
-  }, [entryQueuesByCheckpoint, latestEntryEvent, selectedCheckpointId]);
+  }, [latestEntryEvent, pendingEntryQueuesByCheckpoint, selectedCheckpointId]);
 
   const exitReviewItem = useMemo(() => {
     if (latestExitEvent?.checkpoint_id) {
-      return matchExitReviewItem(latestExitEvent, exitQueuesByCheckpoint[latestExitEvent.checkpoint_id] ?? []);
+      return matchExitReviewItem(latestExitEvent, pendingExitQueuesByCheckpoint[latestExitEvent.checkpoint_id] ?? []);
     }
 
     if (selectedCheckpointId) {
-      return exitQueuesByCheckpoint[selectedCheckpointId]?.[0] ?? null;
+      return pendingExitQueuesByCheckpoint[selectedCheckpointId]?.[0] ?? null;
     }
 
     return null;
-  }, [exitQueuesByCheckpoint, latestExitEvent, selectedCheckpointId]);
+  }, [latestExitEvent, pendingExitQueuesByCheckpoint, selectedCheckpointId]);
+
+  const displayedEntryEvent = useMemo(() => {
+    if (!latestEntryEvent) {
+      return null;
+    }
+
+    if (!entryReviewItem) {
+      return latestEntryEvent;
+    }
+
+    return doesEntryEventMatchItem(latestEntryEvent, entryReviewItem) ? latestEntryEvent : null;
+  }, [entryReviewItem, latestEntryEvent]);
+
+  const displayedExitEvent = useMemo(() => {
+    if (!latestExitEvent) {
+      return null;
+    }
+
+    if (!exitReviewItem) {
+      return latestExitEvent;
+    }
+
+    return doesExitEventMatchItem(latestExitEvent, exitReviewItem) ? latestExitEvent : null;
+  }, [exitReviewItem, latestExitEvent]);
 
   const selectedManualTruck = useMemo(
     () => manualTruckResults.find((truck) => truck.plate_number.toUpperCase() === manualDialog.plateNumber.trim().toUpperCase()) ?? null,
@@ -836,6 +912,44 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       isNew: true,
     };
   }, [confirmDialog.correctedPlate, confirmDialog.item?.has_permit, confirmDialog.selectedTruckId, searchResults]);
+
+  const dismissEntryContext = useCallback((item: CheckpointQueueItem | null | undefined) => {
+    if (!item) {
+      return;
+    }
+
+    setEvents((current) => current.filter((event) => !doesEntryEventMatchItem(event, item)));
+    setEntryQueuesByCheckpoint((current) => {
+      const checkpointQueue = current[item.checkpoint_id];
+      if (!checkpointQueue) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [item.checkpoint_id]: checkpointQueue.filter((queueItem) => queueItem.visitor_id !== item.visitor_id),
+      };
+    });
+  }, []);
+
+  const dismissExitContext = useCallback((item: ExitReviewItem | null | undefined) => {
+    if (!item) {
+      return;
+    }
+
+    setEvents((current) => current.filter((event) => !doesExitEventMatchItem(event, item)));
+    setExitQueuesByCheckpoint((current) => {
+      const checkpointQueue = current[item.checkpoint_id];
+      if (!checkpointQueue) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [item.checkpoint_id]: checkpointQueue.filter((queueItem) => queueItem.review_id !== item.review_id),
+      };
+    });
+  }, []);
 
   const loadExpectedTasks = useCallback(async (yardId: number) => {
     setLoadingExpectedTasks(true);
@@ -1298,6 +1412,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
           }
         }
 
+        dismissEntryContext(item);
         closeConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
       }
@@ -1324,6 +1439,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
       if (response.data?.status) {
         toast.success('Въезд отклонён');
+        dismissEntryContext(item);
         await refreshCheckpointContext(item.checkpoint_id);
       }
     } catch (error: unknown) {
@@ -1364,6 +1480,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
       if (response.data?.status) {
         toast.success('Выезд подтверждён');
+        dismissExitContext(item);
         closeExitConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
       }
@@ -1390,6 +1507,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
       if (response.data?.status) {
         toast.success('Выезд отклонён');
+        dismissExitContext(item);
         await refreshCheckpointContext(item.checkpoint_id);
       }
     } catch (error: unknown) {
@@ -1453,7 +1571,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
   );
 
   const renderEntryCard = () => {
-    const event = latestEntryEvent;
+    const event = displayedEntryEvent;
     const item = entryReviewItem;
     const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
 
@@ -1545,7 +1663,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
   };
 
   const renderExitCard = () => {
-    const event = latestExitEvent;
+    const event = displayedExitEvent;
     const item = exitReviewItem;
     const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
     const exitPermitComments = item ? getExitPermitComments(item.candidate_visitors) : [];
