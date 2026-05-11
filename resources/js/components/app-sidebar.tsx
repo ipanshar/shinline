@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin } from 'lucide-react';
+import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin, CalendarRange } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -205,6 +205,12 @@ export function AppSidebar() {
                     title: 'Зоны терминалов',
                     href: '/spectech/locations',
                     icon: MapPin,
+                    permission: 'spectech.view',
+                },
+                {
+                    title: 'Планирование',
+                    href: '/spectech/planning',
+                    icon: CalendarRange,
                     permission: 'spectech.view',
                 },
             ],

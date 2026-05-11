@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SpectechRequest;
+use App\Models\SpectechSchedule;
 use App\Models\Truck;
 use App\Models\TruckCategory;
+use App\Services\SpectechAvailabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class SpectechRequestController extends Controller
@@ -152,7 +155,7 @@ class SpectechRequestController extends Controller
     }
 
     /**
-     * Создать новую заявку
+     * Создать новую заявку с проверкой доступности техники
      */
     public function store(Request $request): JsonResponse
     {
@@ -165,7 +168,8 @@ class SpectechRequestController extends Controller
             'address'    => 'required|string|max:500',
             'comment'    => 'nullable|string|max:2000',
             'photos'     => 'nullable|array|max:3',
-            'photos.*'   => 'nullable|string', // base64 data URL или путь
+            'photos.*'   => 'nullable|string',
+            'check_availability' => 'nullable|boolean', // проверить доступность перед созданием
         ]);
 
         // Сохраняем фотографии из base64
@@ -179,20 +183,85 @@ class SpectechRequestController extends Controller
             }
         }
 
-        $spectechRequest = SpectechRequest::create([
-            'user_id'    => Auth::id(),
-            'truck_id'   => $validated['truck_id'],
-            'start_date' => now()->toDateString(),
-            'end_date'   => $validated['end_date'],
-            'terminal'   => $validated['terminal'],
-            'zone'       => $validated['zone'],
-            'gate'       => $validated['gate'] ?? null,
-            'address'    => $validated['address'],
-            'comment'    => $validated['comment'] ?? null,
-            'status'     => SpectechRequest::STATUS_NEW,
-            'photos'     => $photoPaths,
-            'timeline'   => SpectechRequest::buildInitialTimeline(),
-        ]);
+        $startDate = now();
+        $endDate = \Carbon\Carbon::parse($validated['end_date'])->endOfDay();
+
+        // Проверяем доступность техники, если запрашивается
+        $availabilityService = new SpectechAvailabilityService();
+        if ($validated['check_availability'] ?? false) {
+            $isAvailable = $availabilityService->isTruckAvailable(
+                $validated['truck_id'],
+                $startDate->toIso8601String(),
+                $endDate->toIso8601String()
+            );
+
+            if (!$isAvailable) {
+                // Ищем свободный аналог
+                $freeTruck = $availabilityService->findFreeAlternativeTruck(
+                    $validated['truck_id'],
+                    $startDate->toIso8601String(),
+                    $endDate->toIso8601String()
+                );
+
+                // Собираем информацию о конфликтах
+                $conflictInfo = $availabilityService->getTypeConflictInfo(
+                    $validated['truck_id'],
+                    $startDate->toIso8601String(),
+                    $endDate->toIso8601String()
+                );
+
+                return response()->json([
+                    'status'        => false,
+                    'conflict'      => true,
+                    'message'       => 'Выбранная техника занята на указанный период',
+                    'free_alternative' => $freeTruck ? [
+                        'id'            => $freeTruck->id,
+                        'name'          => $freeTruck->name,
+                        'plate_number'  => $freeTruck->plate_number,
+                        'message'       => "Предложена свободная техника: {$freeTruck->name}",
+                    ] : null,
+                    'conflict_info' => $conflictInfo,
+                ], 409);
+            }
+        }
+
+        $truck = Truck::findOrFail($validated['truck_id']);
+        $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
+
+        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey) {
+            $schedule = SpectechSchedule::create([
+                'user_id'              => Auth::id(),
+                'truck_id'             => $truck->id,
+                'equipment_type_key'   => $typeKey ?: ($truck->name ?? 'Спецтехника'),
+                'equipment_type_label' => $typeKey ?: ($truck->name ?? 'Спецтехника'),
+                'assigned_truck_name'  => $truck->name . ($truck->plate_number ? " ({$truck->plate_number})" : ''),
+                'scheduled_start'      => $startDate,
+                'scheduled_end'        => $endDate,
+                'purpose'              => $validated['comment'] ?: 'Заявка на спецтехнику',
+                'address'              => $validated['address'],
+                'notes'                => $validated['comment'] ?? null,
+                'status'               => SpectechSchedule::STATUS_PENDING,
+            ]);
+
+            return SpectechRequest::create([
+                'user_id'         => Auth::id(),
+                'truck_id'        => $validated['truck_id'],
+                'start_date'      => now()->toDateString(),
+                'end_date'        => $validated['end_date'],
+                'terminal'        => $validated['terminal'],
+                'zone'            => $validated['zone'],
+                'gate'            => $validated['gate'] ?? null,
+                'address'         => $validated['address'],
+                'comment'         => $validated['comment'] ?? null,
+                'status'          => SpectechRequest::STATUS_NEW,
+                'photos'          => $photoPaths,
+                'timeline'        => SpectechRequest::buildInitialTimeline(),
+                'schedule_id'     => $schedule->id,
+                'requested_start' => $startDate,
+                'requested_end'   => $endDate,
+                'from_scheduling' => false,
+            ]);
+        });
 
         $spectechRequest->load(['truck', 'user']);
 
@@ -300,6 +369,8 @@ class SpectechRequestController extends Controller
             'plate_number'   => $r->truck?->plate_number,
             'start_date'     => $r->start_date?->toDateString(),
             'end_date'       => $r->end_date?->toDateString(),
+            'requested_start'=> $r->requested_start?->toIso8601String(),
+            'requested_end'  => $r->requested_end?->toIso8601String(),
             'terminal'       => $r->terminal,
             'zone'           => $r->zone,
             'gate'           => $r->gate,
@@ -310,8 +381,152 @@ class SpectechRequestController extends Controller
             'photos'         => $photos,
             'timeline'       => $r->timeline ?? [],
             'client_name'    => $r->user?->name,
+            'schedule_id'    => $r->schedule_id,
+            'from_scheduling'=> (bool) $r->from_scheduling,
+            'conflict_info'  => $r->conflict_info ?? [],
             'created_at'     => $r->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * POST /spectech/api/requests/from-schedule
+     * Создать заявку напрямую из планирования (расписания)
+     */
+    public function createFromSchedule(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'schedule_id'   => 'required|exists:spectech_schedules,id',
+            'terminal'      => 'required|string|max:10',
+            'zone'          => 'required|string|max:100',
+            'gate'          => 'nullable|string|max:50',
+            'address'       => 'required|string|max:500',
+            'comment'       => 'nullable|string|max:2000',
+            'photos'        => 'nullable|array|max:3',
+            'photos.*'      => 'nullable|string',
+        ]);
+
+        // Получаем расписание
+        $schedule = SpectechSchedule::findOrFail($validated['schedule_id']);
+
+        if ($schedule->user_id !== Auth::id() && !Auth::user()->isAdmin() && !Auth::user()->hasRole('Оператор')) {
+            return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
+        }
+
+        if (SpectechRequest::where('schedule_id', $schedule->id)->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Для этого планирования заявка уже создана',
+            ], 409);
+        }
+
+        // Сохраняем фотографии
+        $photoPaths = [];
+        if (!empty($validated['photos'])) {
+            foreach ($validated['photos'] as $photoData) {
+                if ($photoData && str_starts_with($photoData, 'data:image')) {
+                    $path = $this->saveBase64Photo($photoData);
+                    if ($path) $photoPaths[] = $path;
+                }
+            }
+        }
+
+        // Создаём заявку
+        $spectechRequest = SpectechRequest::create([
+            'user_id'         => $schedule->user_id,
+            'truck_id'        => $schedule->truck_id,
+            'start_date'      => $schedule->scheduled_start->toDateString(),
+            'end_date'        => $schedule->scheduled_end->toDateString(),
+            'terminal'        => $validated['terminal'],
+            'zone'            => $validated['zone'],
+            'gate'            => $validated['gate'] ?? null,
+            'address'         => $validated['address'],
+            'comment'         => $validated['comment'] ?? null,
+            'status'          => SpectechRequest::STATUS_NEW,
+            'photos'          => $photoPaths,
+            'timeline'        => SpectechRequest::buildInitialTimeline(),
+            'schedule_id'     => $schedule->id,
+            'requested_start' => $schedule->scheduled_start,
+            'requested_end'   => $schedule->scheduled_end,
+            'from_scheduling' => true,
+        ]);
+
+        $spectechRequest->load(['truck', 'user', 'schedule']);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Заявка создана из планирования',
+            'data'    => $this->formatRequest($spectechRequest),
+        ], 201);
+    }
+
+    /**
+     * GET /spectech/api/requests/check-availability
+     * Проверить доступность техники для заявки
+     */
+    public function checkAvailability(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'truck_id' => 'required|exists:trucks,id',
+            'end_date' => 'required_without:requested_end|nullable|date|after_or_equal:today',
+            'requested_start' => 'nullable|date',
+            'requested_end'   => 'nullable|date',
+        ]);
+
+        $truckId = $validated['truck_id'];
+        $startDate = !empty($validated['requested_start'])
+            ? \Carbon\Carbon::parse($validated['requested_start'])
+            : now();
+        $endDate = !empty($validated['requested_end'])
+            ? \Carbon\Carbon::parse($validated['requested_end'])
+            : \Carbon\Carbon::parse($validated['end_date'])->endOfDay();
+
+        $availabilityService = new SpectechAvailabilityService();
+
+        $isAvailable = $availabilityService->isTruckAvailable(
+            $truckId,
+            $startDate->toIso8601String(),
+            $endDate->toIso8601String()
+        );
+
+        if ($isAvailable) {
+            return response()->json([
+                'status'       => true,
+                'available'    => true,
+                'message'      => 'Техника доступна',
+            ]);
+        }
+
+        // Ищем свободный аналог
+        $freeTruck = $availabilityService->findFreeAlternativeTruck(
+            $truckId,
+            $startDate->toIso8601String(),
+            $endDate->toIso8601String()
+        );
+
+        // Собираем информацию о конфликтах
+        $conflictInfo = $availabilityService->getTypeConflictInfo(
+            $truckId,
+            $startDate->toIso8601String(),
+            $endDate->toIso8601String()
+        );
+
+        return response()->json([
+            'status'        => true,
+            'available'     => false,
+            'message'       => 'Техника занята на указанный период',
+            'free_alternative' => $freeTruck ? [
+                'id'            => $freeTruck->id,
+                'name'          => $freeTruck->name,
+                'plate_number'  => $freeTruck->plate_number,
+            ] : null,
+            'conflict_info' => $conflictInfo,
+        ]);
+    }
+
+    private function extractEquipmentTypeKey(string $name): string
+    {
+        $cleaned = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($name));
+        return trim($cleaned ?: $name);
     }
 
     /**

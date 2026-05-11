@@ -9,6 +9,8 @@ export interface SpectechRequestData {
     plate_number?: string;
     start_date: string;
     end_date: string;
+    requested_start?: string;
+    requested_end?: string;
     terminal: string;
     zone: string;
     gate?: string;
@@ -19,6 +21,8 @@ export interface SpectechRequestData {
     photos: string[];
     timeline: { title: string; time: string | null }[];
     client_name?: string;
+    schedule_id?: number | null;
+    from_scheduling?: boolean;
     created_at: string;
 }
 
@@ -69,7 +73,10 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    <span>{request.start_date} — {request.end_date}</span>
+                    <span>{request.requested_start && request.requested_end
+                        ? `${new Date(request.requested_start).toLocaleString('ru-RU')} — ${new Date(request.requested_end).toLocaleString('ru-RU')}`
+                        : `${request.start_date} — ${request.end_date}`}
+                    </span>
                 </div>
                 <div className="flex items-center gap-1">
                     <MapPin className="h-3 w-3" />

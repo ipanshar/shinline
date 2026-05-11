@@ -29,7 +29,8 @@ const EquipmentImage: React.FC<EquipmentImageProps> = ({
 
     useEffect(() => {
         const list: string[] = [];
-        if (imageUrl) list.push(imageUrl);
+        const normalizedImageUrl = normalizeImageUrl(imageUrl);
+        if (normalizedImageUrl) list.push(normalizedImageUrl);
         list.push(...resolveEquipmentPhotoCandidates(name, plate));
         setCandidates(list);
         setCurrentIndex(0);
@@ -64,5 +65,30 @@ const EquipmentImage: React.FC<EquipmentImageProps> = ({
     );
 };
 
+function normalizeImageUrl(imageUrl?: string | null): string | null {
+    if (!imageUrl) return null;
+
+    const value = imageUrl.trim();
+    if (!value) return null;
+
+    if (value.startsWith('/')) return value;
+    if (value.startsWith('data:image')) return value;
+
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+        try {
+            const parsed = new URL(value);
+            if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+                return `${parsed.pathname}${parsed.search}`;
+            }
+            return value;
+        } catch {
+            return value;
+        }
+    }
+
+    return `/${value.replace(/^\/+/, '')}`;
+}
+
 export default EquipmentImage;
+
 
