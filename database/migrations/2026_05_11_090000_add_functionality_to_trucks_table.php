@@ -8,16 +8,20 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('trucks', function (Blueprint $table) {
-            $table->text('functionality')->nullable()->after('description');
-        });
+        if (!Schema::hasColumn('trucks', 'functionality')) {
+            Schema::table('trucks', function (Blueprint $table) {
+                $table->text('functionality')->nullable()->after('description');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('trucks', function (Blueprint $table) {
-            $table->dropColumn('functionality');
-        });
+        if (Schema::hasColumn('trucks', 'functionality')) {
+            Schema::table('trucks', function (Blueprint $table) {
+                $table->dropColumn('functionality');
+            });
+        }
     }
 };
 
