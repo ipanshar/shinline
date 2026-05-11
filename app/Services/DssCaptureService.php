@@ -8,6 +8,7 @@ use App\Models\VehicleCapture;
 use App\Services\AnprTruckSyncService;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use Throwable;
 
 class DssCaptureService extends DssBaseService
 {
@@ -139,6 +140,11 @@ class DssCaptureService extends DssBaseService
         $vehicleCaptureId = $result['vehicle_capture_ids'][0] ?? null;
         $vehicleCapture = $vehicleCaptureId ? VehicleCapture::find($vehicleCaptureId) : null;
 
+        $alarmHandleResult = $this->handleAlarm($alarmPayload, $detail);
+        if (isset($alarmHandleResult['error'])) {
+            return array_merge($result, $alarmHandleResult);
+        }
+
         if ($vehicleCapture && $vehicleCapture->capturePicture && !$vehicleCapture->local_capturePicture) {
             $this->mediaService->downloadVehicleCaptureImage($vehicleCapture);
             $vehicleCapture->refresh();
@@ -151,10 +157,14 @@ class DssCaptureService extends DssBaseService
             'alarm_type' => $alarmType,
             'processed' => $result['processed'] ?? 0,
             'duplicates_skipped' => $result['duplicates_skipped'] ?? 0,
+            'alarm_handle_status' => $alarmHandleResult['handle_status'] ?? null,
             'broadcasted' => true,
         ]);
 
-        return $result;
+        return array_merge($result, [
+            'alarm_handled' => true,
+            'alarm_handle_status' => $alarmHandleResult['handle_status'] ?? null,
+        ]);
     }
 
     private function processCaptureItems(array $pageData): array
@@ -308,6 +318,98 @@ class DssCaptureService extends DssBaseService
         }
 
         return $responseData;
+    }
+
+    private function handleAlarm(array $alarmPayload, array $detail): array
+    {
+        if ($error = $this->ensureSettings(['base_url'])) {
+            return $error;
+        }
+
+        $alarmCode = trim((string) ($alarmPayload['alarmCode'] ?? $detail['alarmCode'] ?? ''));
+        if ($alarmCode === '') {
+            return ['error' => 'DSS alarmCode is required for HandleAlarm'];
+        }
+
+        $alarmDate = $this->normalizeCaptureTimestamp($alarmPayload['alarmTime'] ?? $detail['alarmTime'] ?? $detail['captureTime'] ?? null);
+        if ($alarmDate === null) {
+            return ['error' => 'DSS alarmTime is required for HandleAlarm'];
+        }
+
+        $requestUrl = $this->getApiDefinition('HandleAlarm')?->request_url
+            ?: (string) config('dss.endpoints.handle_alarm', '/eams/api/v1.0/BRM/Alarm/HandleAlarm');
+
+        if ($requestUrl === '') {
+            return ['error' => 'DSS HandleAlarm endpoint is not configured'];
+        }
+
+        $payload = [
+            'data' => [
+                'handleUser' => 'system',
+                'handleStatus' => '2',
+                'handleMessage' => 'Проезд подтвержден',
+                'alarmCode' => $alarmCode,
+                'alarmDate' => (string) $alarmDate,
+                'comment' => '',
+            ],
+        ];
+
+        try {
+            $responseData = $this->postHandleAlarmRequest($requestUrl, $payload);
+        } catch (Throwable $exception) {
+            $this->structuredLogger->warning('alarm_handle_failed', [
+                'alarm_code' => $alarmCode,
+                'alarm_date' => (string) $alarmDate,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return ['error' => 'Ошибка подтверждения DSS alarm: ' . $exception->getMessage()];
+        }
+
+        if ((int) ($responseData['code'] ?? 0) !== 1000) {
+            $this->structuredLogger->warning('alarm_handle_failed', [
+                'alarm_code' => $alarmCode,
+                'alarm_date' => (string) $alarmDate,
+                'response_code' => $responseData['code'] ?? null,
+            ]);
+
+            return [
+                'error' => 'Неверный код ответа подтверждения DSS alarm: ' . ($responseData['code'] ?? 'unknown'),
+                'handle_alarm_response' => $responseData,
+            ];
+        }
+
+        return [
+            'success' => true,
+            'handle_status' => '2',
+            'handle_alarm_response' => $responseData,
+        ];
+    }
+
+    private function postHandleAlarmRequest(string $requestUrl, array $payload): array
+    {
+        try {
+            $response = $this->client->post($this->baseUrl . $requestUrl, [
+                'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                'json' => $payload,
+            ]);
+        } catch (RequestException $exception) {
+            $authResult = $this->authService->dssAutorize();
+            if (isset($authResult['error'])) {
+                throw new \RuntimeException((string) $authResult['error'], previous: $exception);
+            }
+
+            $response = $this->client->post($this->baseUrl . $requestUrl, [
+                'headers' => $this->getJsonHeaders($this->dssSettings->token),
+                'json' => $payload,
+            ]);
+        }
+
+        if ($response->getStatusCode() !== 200 || !$response->getBody()) {
+            throw new \RuntimeException('Ошибка запроса подтверждения тревоги: ' . $response->getStatusCode());
+        }
+
+        return json_decode($response->getBody(), true);
     }
 
     private function mapAlarmDetailToCaptureItem(array $detail, array $alarmPayload): ?array

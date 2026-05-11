@@ -117,6 +117,13 @@ class DssContractResponsesTest extends TestCase
                     'vehicleType' => '5',
                 ],
             ], JSON_THROW_ON_ERROR)),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], json_encode([
+                'code' => 1000,
+                'desc' => 'Success',
+                'data' => [
+                    'handled' => true,
+                ],
+            ], JSON_THROW_ON_ERROR)),
         ], $history);
 
         $service = new DssCaptureService(
@@ -139,8 +146,18 @@ class DssContractResponsesTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame(1, $result['processed']);
+        $this->assertTrue($result['alarm_handled']);
+        $this->assertSame('2', $result['alarm_handle_status']);
         $this->assertSame('/eams/api/v1.1/alarm/record/entrance/detail', $history[0]['request']->getUri()->getPath());
         $this->assertStringContainsString('alarmCode=%7B58e60b7d5d3247d3b3aba6546b2c4b0a%7D', $history[0]['request']->getUri()->getQuery());
+        $this->assertSame('/eams/api/v1.0/BRM/Alarm/HandleAlarm', $history[1]['request']->getUri()->getPath());
+
+        $handlePayload = json_decode((string) $history[1]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('system', $handlePayload['data']['handleUser']);
+        $this->assertSame('2', $handlePayload['data']['handleStatus']);
+        $this->assertSame('Проезд подтвержден', $handlePayload['data']['handleMessage']);
+        $this->assertSame('{58e60b7d5d3247d3b3aba6546b2c4b0a}', $handlePayload['data']['alarmCode']);
+        $this->assertSame('1775537635', $handlePayload['data']['alarmDate']);
 
         $capture = VehicleCapture::query()->firstOrFail();
         $this->assertSame('906BAR05', $capture->plateNo);

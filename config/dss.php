@@ -22,6 +22,7 @@ return [
 
     'endpoints' => [
         'alarm_entrance_detail' => env('DSS_ALARM_ENTRANCE_DETAIL_ENDPOINT', '/eams/api/v1.1/alarm/record/entrance/detail'),
+        'handle_alarm' => env('DSS_HANDLE_ALARM_ENDPOINT', '/eams/api/v1.0/BRM/Alarm/HandleAlarm'),
     ],
 
     'broadcast' => [
