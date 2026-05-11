@@ -36,12 +36,20 @@ interface AvailabilityCheckResult {
 interface Props {
     open: boolean;
     onClose: () => void;
-    onCreated: () => void;
+    onCreated: (newRequest?: any) => void;
 }
 
 const TERMINALS = ['T1', 'T2', 'T3', 'T4'] as const;
 
 const today = new Date().toISOString().split('T')[0];
+
+// Минимальное значение для datetime-local — текущий момент (округлён до минуты)
+function nowLocalMin(): string {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function buildAddress(terminal: string, zone: string, gate: string, status: string, purpose: string): string {
     return `Терминал: ${terminal} | Здание: ${zone} | Гейт: ${gate} | Статус: ${status} | Назначение: ${purpose}`;
@@ -54,7 +62,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
     // Форма
     const [truckId, setTruckId] = useState<string>('');
-    const [endDate, setEndDate] = useState('');
+    const [startDateTime, setStartDateTime] = useState('');
+    const [endDateTime, setEndDateTime] = useState('');
     const [selectedTerminal, setSelectedTerminal] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
     const [comment, setComment] = useState('');
@@ -96,7 +105,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     useEffect(() => {
         if (!open) {
             setTruckId('');
-            setEndDate('');
+            setStartDateTime('');
+            setEndDateTime('');
             setSelectedTerminal('');
             setSelectedLocation(null);
             setComment('');
@@ -109,7 +119,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
     // Автоматическая проверка доступности при изменении техники или даты
     useEffect(() => {
-        if (!truckId || !endDate) {
+        if (!truckId || !endDateTime) {
             setAvailabilityResult(null);
             return;
         }
@@ -120,7 +130,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                 const res = await axios.get('/spectech/api/requests/check-availability', {
                     params: {
                         truck_id: truckId,
-                        end_date: endDate,
+                        end_date: endDateTime ? endDateTime.split('T')[0] : '',
                     },
                 });
                 setAvailabilityResult(res.data);
@@ -133,7 +143,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
         const timer = setTimeout(checkAvailability, 300);
         return () => clearTimeout(timer);
-    }, [truckId, endDate]);
+    }, [truckId, endDateTime]);
 
     const filteredLocations = MOCK_LOCATIONS.filter((l) => l.terminal === selectedTerminal);
 
@@ -161,7 +171,11 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     const validate = () => {
         const errs: Record<string, string> = {};
         if (!truckId) errs.truckId = 'Выберите технику';
-        if (!endDate) errs.endDate = 'Укажите дату окончания';
+        if (!startDateTime) errs.startDateTime = 'Укажите дату и время начала';
+        if (!endDateTime) errs.endDateTime = 'Укажите дату и время окончания';
+        if (startDateTime && endDateTime && new Date(startDateTime) >= new Date(endDateTime)) {
+            errs.endDateTime = 'Время окончания должно быть позже начала';
+        }
         if (!selectedTerminal) errs.terminal = 'Выберите терминал';
         if (!selectedLocation) errs.zone = 'Выберите здание/зону';
         return errs;
@@ -196,9 +210,12 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                 selectedLocation!.purpose,
             );
 
-            await axios.post('/spectech/api/requests', {
+            const res = await axios.post('/spectech/api/requests', {
                 truck_id: finalTruckId,
-                end_date: endDate,
+                start_date:       startDateTime ? startDateTime.split('T')[0] : today,
+                end_date:         endDateTime   ? endDateTime.split('T')[0]   : today,
+                requested_start:  startDateTime ? new Date(startDateTime).toISOString() : null,
+                requested_end:    endDateTime   ? new Date(endDateTime).toISOString()   : null,
                 terminal: selectedTerminal,
                 zone: selectedLocation!.building,
                 gate: selectedLocation!.gate,
@@ -208,8 +225,9 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                 check_availability: true,
             });
 
-            onCreated();
+            const created = res.data?.data ?? null;
             onClose();
+            onCreated(created);
         } catch (err: any) {
             const resp = err.response?.data;
 
@@ -264,30 +282,40 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{errors.global}</div>
                         )}
 
-                        {/* Дата начала (только показывается) */}
-                        <div className="flex flex-col gap-1">
-                            <label className="text-muted-foreground text-xs font-medium">Дата начала</label>
-                            <div className="border-border bg-muted text-muted-foreground flex h-9 items-center rounded-md border px-3 text-sm">
-                                {today}
+                        {/* Период: дата+время начала и окончания */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium">
+                                    Начало <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    min={nowLocalMin()}
+                                    value={startDateTime}
+                                    onChange={(e) => {
+                                        setStartDateTime(e.target.value);
+                                        setErrors((p) => ({ ...p, startDateTime: '' }));
+                                    }}
+                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                />
+                                {errors.startDateTime && <span className="text-xs text-red-500">{errors.startDateTime}</span>}
                             </div>
-                        </div>
-
-                        {/* Дата окончания */}
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium">
-                                Дата окончания <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                min={today}
-                                value={endDate}
-                                onChange={(e) => {
-                                    setEndDate(e.target.value);
-                                    setErrors((p) => ({ ...p, endDate: '' }));
-                                }}
-                                className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
-                            />
-                            {errors.endDate && <span className="text-xs text-red-500">{errors.endDate}</span>}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium">
+                                    Окончание <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    min={startDateTime || nowLocalMin()}
+                                    value={endDateTime}
+                                    onChange={(e) => {
+                                        setEndDateTime(e.target.value);
+                                        setErrors((p) => ({ ...p, endDateTime: '' }));
+                                    }}
+                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                />
+                                {errors.endDateTime && <span className="text-xs text-red-500">{errors.endDateTime}</span>}
+                            </div>
                         </div>
 
                         {/* Выбор техники */}
