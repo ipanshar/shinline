@@ -10,6 +10,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Models\Visitor;
 use App\Models\WeighingRequirement;
+use App\Services\DssParkingService;
 use App\Services\DssVisitorFlowService;
 use App\Services\DssPermitVehicleService;
 use Illuminate\Support\Carbon;
@@ -125,6 +126,58 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
         $this->assertSame($statuses['not_active']->id, $permit->status_id);
     }
 
+    public function test_exit_visitor_opens_barrier_when_requested(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Exit', [
+            'barrier_channel_id' => 'exit-barrier-1',
+        ]);
+        $truck = $this->createTruck(['plate_number' => 'BRX12305']);
+        $entryPermit = $this->createPermit($truck, $yard, [
+            'status_id' => $statuses['active']->id,
+            'exit_permit_required' => false,
+        ]);
+
+        $visitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'entry_permit_id' => $entryPermit->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(10),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $parkingService = Mockery::mock(DssParkingService::class);
+        $parkingService->shouldReceive('openBarrierForDevice')
+            ->once()
+            ->with($device->id)
+            ->andReturn(['success' => true]);
+
+        $this->app->instance(DssParkingService::class, $parkingService);
+
+        $response = $this->postJson('/api/security/exitvisitor', [
+            'id' => $visitor->id,
+            'checkpoint_id' => $checkpoint->id,
+            'open_barrier' => true,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.barrier_open_requested', true)
+            ->assertJsonPath('data.barrier_opened', true);
+    }
+
     public function test_exit_visitor_is_blocked_when_exit_weighing_is_required(): void
     {
         $statuses = $this->seedDssStatuses();
@@ -228,6 +281,69 @@ class CheckpointReviewConfirmVisitorTest extends TestCase
 
         $this->assertSame('pending', $review->status);
         $this->assertNull($visitor->exit_date);
+    }
+
+    public function test_confirm_exit_review_opens_barrier_when_requested(): void
+    {
+        $statuses = $this->seedDssStatuses();
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $yard = $this->createYard(false);
+        $zone = $this->createZone($yard);
+        $checkpoint = $this->createCheckpoint($yard);
+        $device = $this->createDevice($zone, $checkpoint, 'Exit', [
+            'barrier_channel_id' => 'exit-barrier-2',
+        ]);
+        $truck = $this->createTruck(['plate_number' => 'BRE12305']);
+        $entryPermit = $this->createPermit($truck, $yard, [
+            'status_id' => $statuses['active']->id,
+            'exit_permit_required' => false,
+        ]);
+        $visitor = $this->createVisitor([
+            'plate_number' => $truck->plate_number,
+            'original_plate_number' => $truck->plate_number,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'entry_permit_id' => $entryPermit->id,
+            'status_id' => $statuses['on_territory']->id,
+            'confirmation_status' => Visitor::CONFIRMATION_CONFIRMED,
+            'confirmed_by_user_id' => $user->id,
+            'confirmed_at' => now()->subMinutes(10),
+            'entry_date' => now()->subHour(),
+        ]);
+
+        $review = CheckpointExitReview::create([
+            'device_id' => $device->id,
+            'checkpoint_id' => $checkpoint->id,
+            'yard_id' => $yard->id,
+            'truck_id' => $truck->id,
+            'plate_number' => $truck->plate_number,
+            'normalized_plate' => strtolower($truck->plate_number),
+            'capture_time' => now(),
+            'status' => 'pending',
+        ]);
+
+        $parkingService = Mockery::mock(DssParkingService::class);
+        $parkingService->shouldReceive('openBarrierForDevice')
+            ->once()
+            ->with($device->id)
+            ->andReturn(['success' => true]);
+
+        $this->app->instance(DssParkingService::class, $parkingService);
+
+        $response = $this->postJson('/api/security/confirm-exit-review', [
+            'review_id' => $review->id,
+            'operator_user_id' => $user->id,
+            'visitor_id' => $visitor->id,
+            'open_barrier' => true,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.barrier_open_requested', true)
+            ->assertJsonPath('data.barrier_opened', true);
     }
 
     public function test_exit_camera_creates_pending_review_when_exit_weighing_is_required(): void

@@ -135,6 +135,7 @@ type ExitReviewItem = {
   yard_name?: string | null;
   device_id?: number | null;
   device_name?: string | null;
+  can_open_barrier?: boolean;
   truck_id?: number | null;
   note?: string | null;
   capture_picture_url?: string | null;
@@ -549,6 +550,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     yardId: number | null;
     search: string;
     selectedVisitorId: number | null;
+    openBarrier: boolean;
     overrideExitPermit: boolean;
     overrideReason: string;
   }>({
@@ -557,6 +559,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     yardId: null,
     search: '',
     selectedVisitorId: null,
+    openBarrier: false,
     overrideExitPermit: false,
     overrideReason: '',
   });
@@ -568,6 +571,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     item: ExitReviewItem | null;
     selectedVisitorId: number | null;
     correctedPlate: string;
+    openBarrier: boolean;
     overrideExitPermit: boolean;
     overrideReason: string;
   }>({
@@ -575,6 +579,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     item: null,
     selectedVisitorId: null,
     correctedPlate: '',
+    openBarrier: false,
     overrideExitPermit: false,
     overrideReason: '',
   });
@@ -1214,6 +1219,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       yardId: checkpoint.yard_id,
       search: '',
       selectedVisitorId: null,
+      openBarrier: false,
       overrideExitPermit: false,
       overrideReason: '',
     });
@@ -1237,6 +1243,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       yardId: null,
       search: '',
       selectedVisitorId: null,
+      openBarrier: false,
       overrideExitPermit: false,
       overrideReason: '',
     });
@@ -1249,6 +1256,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       item,
       selectedVisitorId: item.candidate_visitors.length === 1 ? item.candidate_visitors[0].visitor_id : null,
       correctedPlate: item.plate_number,
+      openBarrier: false,
       overrideExitPermit: false,
       overrideReason: '',
     });
@@ -1261,6 +1269,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       item: null,
       selectedVisitorId: null,
       correctedPlate: '',
+      openBarrier: false,
       overrideExitPermit: false,
       overrideReason: '',
     });
@@ -1332,8 +1341,10 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     setProcessingManualExitVisitorId(visitor.id);
 
     try {
-      await axios.post('/security/exitvisitor', {
+      const response = await axios.post('/security/exitvisitor', {
         id: visitor.id,
+        checkpoint_id: checkpointId,
+        open_barrier: manualExitDialog.openBarrier,
         override_exit_permit: manualExitDialog.overrideExitPermit || undefined,
         override_reason: manualExitDialog.overrideExitPermit ? manualExitDialog.overrideReason.trim() : undefined,
       }, {
@@ -1341,6 +1352,15 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       });
 
       toast.success(manualExitDialog.overrideExitPermit ? 'Выезд зафиксирован вручную' : 'Выезд зафиксирован');
+
+      if (manualExitDialog.openBarrier) {
+        if (response.data?.data?.barrier_opened) {
+          toast.success('Шлагбаум открыт');
+        } else {
+          toast.error(response.data?.data?.barrier_open_error || 'Выезд зафиксирован, но шлагбаум не открылся');
+        }
+      }
+
       closeManualExitDialog();
       await refreshCheckpointContext(checkpointId);
     } catch (error: unknown) {
@@ -1472,6 +1492,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         review_id: item.review_id,
         operator_user_id: userId,
         visitor_id: exitConfirmDialog.selectedVisitorId,
+        open_barrier: exitConfirmDialog.openBarrier,
         override_exit_permit: exitConfirmDialog.overrideExitPermit,
         override_reason: exitConfirmDialog.overrideExitPermit ? exitConfirmDialog.overrideReason : undefined,
       }, {
@@ -1480,6 +1501,15 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
       if (response.data?.status) {
         toast.success('Выезд подтверждён');
+
+        if (exitConfirmDialog.openBarrier) {
+          if (response.data?.data?.barrier_opened) {
+            toast.success('Шлагбаум открыт');
+          } else {
+            toast.error(response.data?.data?.barrier_open_error || 'Выезд подтверждён, но шлагбаум не открылся');
+          }
+        }
+
         dismissExitContext(item);
         closeExitConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
@@ -1570,6 +1600,22 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     </div>
   );
 
+  const renderGuardDecisionHint = (title: string, description: string, tone: 'neutral' | 'warning' | 'danger' = 'neutral') => {
+    const toneClassName = tone === 'danger'
+      ? 'border-red-200 bg-red-50 text-red-900'
+      : tone === 'warning'
+        ? 'border-amber-200 bg-amber-50 text-amber-900'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-900';
+
+    return (
+      <div className={`rounded-xl border px-3 py-2.5 ${toneClassName}`}>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-80">Решение охраны</div>
+        <div className="mt-1 text-sm font-semibold leading-5">{title}</div>
+        <div className="mt-1 text-xs leading-5 opacity-90 sm:text-sm">{description}</div>
+      </div>
+    );
+  };
+
   const renderEntryCard = () => {
     const event = displayedEntryEvent;
     const item = entryReviewItem;
@@ -1605,6 +1651,29 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         : 'Без разрешения';
     const taskLabel = item?.task_name || 'Задание не назначено';
     const weighingLabel = item?.has_weighing_task ? (item?.weighing_reason || 'Весовой контроль назначен') : 'Весовой контроль не требуется';
+    const entryDecisionHint = !item
+      ? renderGuardDecisionHint(
+        'Нужно вручную проверить въезд',
+        'Сверьте номер и фото. Если это реальное ТС у шлагбаума, нажмите «Исправить номер и добавить».',
+        'warning',
+      )
+      : item.yard_strict_mode && !item.has_permit
+        ? renderGuardDecisionHint(
+          'Без разрешения въезд подтверждать нельзя',
+          'Исправьте номер, выберите правильное ТС или задание. Если основания для въезда нет, отклоните запись.',
+          'danger',
+        )
+        : !item.matched_truck_id
+          ? renderGuardDecisionHint(
+            'Нужно подтвердить, какое это ТС',
+            'Проверьте номер, выберите правильное ТС и только после этого подтверждайте въезд или отклоняйте запись.',
+            'warning',
+          )
+          : renderGuardDecisionHint(
+            'Сверьте основание для въезда',
+            'Если номер, ТС и основание въезда совпадают, подтвердите въезд. При несоответствии отклоните запись.',
+            'neutral',
+          );
 
     return (
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -1627,6 +1696,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
               {renderCompactSummaryTile('Задание', taskLabel, item?.task_name ? 'text-foreground' : 'text-muted-foreground')}
               {renderCompactSummaryTile('Весовой контроль', weighingLabel, item?.has_weighing_task ? 'text-foreground' : 'text-muted-foreground')}
             </div>
+
+            {entryDecisionHint}
           </div>
         </div>
 
@@ -1688,6 +1759,30 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     const canOpenExitFallback = checkpointId != null && !item;
     const suggestedCandidate = item?.candidate_visitors[0] ?? null;
     const hasSuggestedCandidate = suggestedCandidate !== null;
+    const hasMissingRequiredExitPermit = item?.candidate_visitors.some((candidate) => candidate.exit_permit_required && !candidate.has_active_exit_permit) ?? false;
+    const exitDecisionHint = !item
+      ? renderGuardDecisionHint(
+        'Нужно вручную определить ТС на выезде',
+        'Сверьте номер и фото. Если ТС реально стоит на выезде, выберите его из списка машин на территории.',
+        'warning',
+      )
+      : !hasSuggestedCandidate
+        ? renderGuardDecisionHint(
+          'Система не выбрала активный визит автоматически',
+          'Найдите ТС на территории, выберите нужный визит и только потом подтверждайте выезд или отклоняйте запись.',
+          'warning',
+        )
+        : hasMissingRequiredExitPermit
+          ? renderGuardDecisionHint(
+            'Проверьте разрешение на выезд',
+            'Подтверждайте выезд только для визита с действующим разрешением или выпускайте вручную с указанием причины.',
+            'danger',
+          )
+          : renderGuardDecisionHint(
+            'Сверьте ТС и активный визит',
+            'Если номер и выбранный визит совпадают, подтвердите выезд. Если камера ошиблась или это не то ТС, отклоните запись.',
+            'neutral',
+          );
 
     return (
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -1708,6 +1803,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
               {renderCompactSummaryTile('Сопоставление', item?.truck_id ? 'ТС найдено в базе' : 'Нужен ручной выбор', item?.truck_id ? 'text-emerald-700' : 'text-amber-700')}
               {renderCompactSummaryTile('Комментарий к выезду', exitPermitComments.length > 0 ? 'Есть комментарий' : 'Нет комментария', exitPermitComments.length > 0 ? 'text-emerald-700' : 'text-muted-foreground')}
             </div>
+
+            {exitDecisionHint}
           </div>
         </div>
 
@@ -2123,6 +2220,19 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                 <input
                   type="checkbox"
                   className="mt-1"
+                  checked={manualExitDialog.openBarrier}
+                  onChange={(event) => setManualExitDialog((current) => ({ ...current, openBarrier: event.target.checked }))}
+                />
+                <span>
+                  Открыть шлагбаум
+                  <span className="block text-xs text-muted-foreground">После фиксации выезда будет отправлена команда на открытие выездного шлагбаума.</span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
                   checked={manualExitDialog.overrideExitPermit}
                   onChange={(event) => setManualExitDialog((current) => ({ ...current, overrideExitPermit: event.target.checked }))}
                 />
@@ -2205,6 +2315,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                           ? selectedExitTerritoryVisitor.has_active_exit_permit ? 'Разрешение активно' : 'Нужно разрешение'
                           : 'Выезд свободный')
                         : 'Не выбрано', (selectedExitSystemCandidate?.has_active_exit_permit || selectedExitTerritoryVisitor?.has_active_exit_permit) ? 'text-emerald-700' : 'text-muted-foreground')}
+                    {renderSummaryTile('Шлагбаум', exitConfirmDialog.item.can_open_barrier ? (exitConfirmDialog.openBarrier ? 'Открыть после подтверждения' : 'Доступно') : 'Недоступно', exitConfirmDialog.item.can_open_barrier ? (exitConfirmDialog.openBarrier ? 'text-sky-700' : 'text-foreground') : 'text-muted-foreground')}
                     {renderSummaryTile('Ручной override', exitConfirmDialog.overrideExitPermit ? 'Включён' : 'Не используется', exitConfirmDialog.overrideExitPermit ? 'text-amber-700' : 'text-muted-foreground')}
                   </div>
                 </div>
@@ -2324,6 +2435,23 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                   ) : (
                     <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">ТС на территории не найдено.</div>
                   )}
+                </div>
+
+                <div className="rounded-xl border p-2.5">
+                  <div className="mb-3 text-sm font-medium text-foreground">Шлагбаум</div>
+                  <label className={`flex items-start gap-3 rounded-xl border px-3 py-2 text-sm ${exitConfirmDialog.item.can_open_barrier ? 'hover:bg-muted/30' : 'opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={exitConfirmDialog.openBarrier}
+                      onChange={(event) => setExitConfirmDialog((current) => ({ ...current, openBarrier: event.target.checked }))}
+                      disabled={!exitConfirmDialog.item.can_open_barrier}
+                    />
+                    <span>
+                      Открыть шлагбаум после подтверждения выезда
+                      <span className="block text-xs text-muted-foreground">Команда будет отправлена на выездное устройство текущего события DSS.</span>
+                    </span>
+                  </label>
                 </div>
 
                 <div className="rounded-xl border p-2.5">

@@ -752,6 +752,8 @@ class VisitorsCotroller extends Controller
                 'operator_user_id' => 'nullable|integer|exists:users,id',
                 'override_exit_permit' => 'nullable|boolean',
                 'override_reason' => 'nullable|string|max:500',
+                'checkpoint_id' => 'nullable|integer|exists:checkpoints,id',
+                'open_barrier' => 'nullable|boolean',
             ]);
             $visitor = Visitor::find($request->id);
             if (!$visitor) {
@@ -776,6 +778,14 @@ class VisitorsCotroller extends Controller
             $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
             $overrideExitPermit = $request->boolean('override_exit_permit');
             $overrideReason = trim((string) ($validate['override_reason'] ?? ''));
+            $shouldOpenBarrier = !empty($validate['open_barrier']);
+            $exitDevice = !empty($validate['checkpoint_id'])
+                ? Devaice::query()
+                    ->where('checkpoint_id', $validate['checkpoint_id'])
+                    ->where('type', 'Exit')
+                    ->orderBy('id')
+                    ->first()
+                : null;
 
             if ($exitPermitRequired && !$exitPermit && !$overrideExitPermit) {
                 return response()->json([
@@ -801,11 +811,28 @@ class VisitorsCotroller extends Controller
                 $visitor->save();
             }
 
-            $this->visitorFlowService->closeVisitorExit($visitor);
+            $this->visitorFlowService->closeVisitorExit($visitor, $exitDevice);
+
+            $barrierOpenResult = null;
+            if ($shouldOpenBarrier) {
+                if ($exitDevice?->id) {
+                    $barrierOpenResult = $this->dssParkingService->openBarrierForDevice($exitDevice->id);
+                } else {
+                    $barrierOpenResult = [
+                        'success' => false,
+                        'error' => 'На выбранном КПП не найдено устройство выезда для открытия шлагбаума.',
+                    ];
+                }
+            }
 
             return response()->json([
                 'status' => true,
                 'message' => 'Visitor Exited Successfully',
+                'data' => [
+                    'barrier_open_requested' => $shouldOpenBarrier,
+                    'barrier_opened' => isset($barrierOpenResult['success']) && $barrierOpenResult['success'] === true,
+                    'barrier_open_error' => $barrierOpenResult['error'] ?? null,
+                ],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -1412,6 +1439,7 @@ class VisitorsCotroller extends Controller
                     'yard_name' => $yard?->name,
                     'device_id' => $review->device_id,
                     'device_name' => $device?->channelName,
+                    'can_open_barrier' => filled($device?->barrier_channel_id),
                     'truck_id' => $review->truck_id,
                     'note' => $review->note,
                     'capture_picture_url' => $this->buildCapturePictureUrl($capture),
@@ -1444,6 +1472,7 @@ class VisitorsCotroller extends Controller
                 'visitor_id' => 'nullable|integer|exists:visitors,id',
                 'override_exit_permit' => 'nullable|boolean',
                 'override_reason' => 'nullable|string|max:500',
+                'open_barrier' => 'nullable|boolean',
             ]);
 
             $review = CheckpointExitReview::findOrFail($validate['review_id']);
@@ -1480,6 +1509,7 @@ class VisitorsCotroller extends Controller
             $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
             $overrideExitPermit = $request->boolean('override_exit_permit');
             $overrideReason = trim((string) ($validate['override_reason'] ?? ''));
+            $shouldOpenBarrier = !empty($validate['open_barrier']);
 
             if ($exitPermitRequired && !$exitPermit && !$overrideExitPermit) {
                 return response()->json([
@@ -1521,9 +1551,26 @@ class VisitorsCotroller extends Controller
             $review->resolved_visitor_id = $visitor->id;
             $review->save();
 
+            $barrierOpenResult = null;
+            if ($shouldOpenBarrier) {
+                if ($device?->id) {
+                    $barrierOpenResult = $this->dssParkingService->openBarrierForDevice($device->id);
+                } else {
+                    $barrierOpenResult = [
+                        'success' => false,
+                        'error' => 'Для этого события не найдено устройство выезда для открытия шлагбаума.',
+                    ];
+                }
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Exit confirmed successfully',
+                'data' => [
+                    'barrier_open_requested' => $shouldOpenBarrier,
+                    'barrier_opened' => isset($barrierOpenResult['success']) && $barrierOpenResult['success'] === true,
+                    'barrier_open_error' => $barrierOpenResult['error'] ?? null,
+                ],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
