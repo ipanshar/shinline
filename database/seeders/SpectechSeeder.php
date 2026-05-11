@@ -61,7 +61,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'аренда',
                 'description' => 'Максимальная грузоподъёмность — 25 тонн при минимальном вылете стрелы. 5-секционная телескопическая стрела длиной от 10.4 до 39.2 м, с гуськом 8.3 м (общая длина до 47.8 м).',
                 'functionality' => $autocraneFunctionality,
-                'image_url'   => '/equipment/image1.jpg',
+                'image_url'   => '/equipment/autocrane-25t-282fd02.jpg',
             ],
             [
                 'name'        => 'Мини-погрузчик Bobcat (ковш 3 м)',
@@ -69,7 +69,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'собственный',
                 'description' => 'Многофункциональная машина для погрузочно-разгрузочных, землеройных, строительных, уборочных и других работ.',
                 'functionality' => $bobcatFunctionality,
-                'image_url'   => '/equipment/image2.jpg',
+                'image_url'   => '/equipment/bobcat-mini-loader-no-number-1.jpg',
             ],
             [
                 'name'        => 'Самосвал Shacman',
@@ -77,7 +77,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'собственный',
                 'description' => 'Самосвал для перевозки объёмных и тяжёлых грузов в строительстве и логистике.',
                 'functionality' => $shacmanFunctionality,
-                'image_url'   => '/equipment/image3.jpg',
+                'image_url'   => '/equipment/shacman-dump-truck-932bc05.jpg',
             ],
             [
                 'name'        => 'Кран-манипулятор',
@@ -85,7 +85,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'собственный',
                 'description' => 'Используется в логистике, строительстве, коммунальном хозяйстве и энергетике для погрузки/перевозки грузов.',
                 'functionality' => $manipulatorFunctionality,
-                'image_url'   => '/equipment/image4.jpg',
+                'image_url'   => '/equipment/manipulator-crane-835bf05.jpg',
             ],
             [
                 'name'        => 'Кран-манипулятор',
@@ -93,7 +93,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'собственный',
                 'description' => 'Универсальная спецтехника для монтажных и транспортных задач на объектах разного типа.',
                 'functionality' => $manipulatorFunctionality,
-                'image_url'   => '/equipment/image5.jpg',
+                'image_url'   => '/equipment/manipulator-crane-236bg05.jpg',
             ],
             [
                 'name'        => 'Автокран 25т',
@@ -101,7 +101,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'аренда',
                 'description' => 'Максимальная грузоподъёмность — 25 тонн при минимальном вылете стрелы. 5-секционная телескопическая стрела длиной от 10.4 до 39.2 м, с гуськом 8.3 м (общая длина до 47.8 м).',
                 'functionality' => $autocraneFunctionality,
-                'image_url'   => '/equipment/image6.jpg',
+                'image_url'   => '/equipment/autocrane-25t-646ef02.jpg',
             ],
             [
                 'name'        => 'Мини-погрузчик Bobcat (ковш 3 м)',
@@ -109,7 +109,7 @@ class SpectechSeeder extends Seeder
                 'own'         => 'собственный',
                 'description' => 'Многофункциональная машина для погрузочно-разгрузочных, землеройных, строительных, уборочных и других работ.',
                 'functionality' => $bobcatFunctionality,
-                'image_url'   => '/equipment/image7.jpg',
+                'image_url'   => '/equipment/bobcat-mini-loader-no-number-2.jpg',
             ],
         ];
 
@@ -144,18 +144,32 @@ class SpectechSeeder extends Seeder
                     $created++;
                 }
             } else {
-                // Без номера — ищем по имени + категории + image_url (уникальный идентификатор)
+                // Без номера — ищем по имени + категории + совпадению image_url
+                // (либо по старому шаблону image*.jpg, оставшемуся от предыдущей версии сидера)
                 $truck = Truck::where('name', $data['name'])
                     ->where('truck_category_id', $catId)
-                    ->where('image_url', $data['image_url'])
+                    ->where(function ($q) use ($data) {
+                        $q->where('image_url', $data['image_url'])
+                          ->orWhere('image_url', 'LIKE', '/equipment/image%.jpg');
+                    })
+                    ->whereNull('plate_number')
+                    ->orderBy('id')
                     ->first();
 
                 if ($truck) {
                     $truck->update($spetchFields);
                     $updated++;
                 } else {
-                    Truck::create(array_merge($spetchFields, ['plate_number' => null]));
-                    $created++;
+                    // Создаём только если такой записи с правильным image_url ещё нет
+                    $exists = Truck::where('name', $data['name'])
+                        ->where('truck_category_id', $catId)
+                        ->where('image_url', $data['image_url'])
+                        ->whereNull('plate_number')
+                        ->exists();
+                    if (!$exists) {
+                        Truck::create(array_merge($spetchFields, ['plate_number' => null]));
+                        $created++;
+                    }
                 }
             }
         }
