@@ -54,8 +54,8 @@ class TruckCotroller extends Controller
             $validate = $request->validate([
                 'id' => 'required|integer',
                 'name' => 'nullable|string|max:255',
-                'user_id' => 'required|integer',
-                'plate_number' => 'required|string|max:255',
+                'user_id' => 'nullable|integer',
+                'plate_number' => 'nullable|string|max:255',
                 'truck_brand_id' => 'nullable|integer',
                 'vin' => 'nullable|string|max:255',
                 'truck_model_id' => 'nullable|integer',
@@ -67,9 +67,18 @@ class TruckCotroller extends Controller
                 'trailer_width' => 'nullable|numeric',
                 'trailer_length' => 'nullable|numeric',
                 'trailer_load_capacity' => 'nullable|numeric',
-                'own' => 'nullable|string|in:не указано,собственный,арендованный,личный,государственный',
+                'own' => 'nullable|string|in:не указано,собственный,арендованный,аренда,личный,государственный',
                 'vip_level' => 'nullable|integer|in:0,1,2,3',
-                'truck_category_id' => 'nullable|integer'
+                'truck_category_id' => 'nullable|integer',
+                'description' => 'nullable|string',
+                'functionality' => 'nullable|string',
+                'functionality' => 'nullable|string',
+                'image_url' => 'nullable|string|max:500',
+                'anpr_source' => 'nullable|boolean',
+                'last_seen_at' => 'nullable|date',
+                'last_seen_gate' => 'nullable|string|max:255',
+                'anpr_confidence' => 'nullable|numeric',
+                'plate_score' => 'nullable|numeric',
             ]);
             $truck = Truck::find($validate['id']);
             if ($truck) {
@@ -134,7 +143,7 @@ class TruckCotroller extends Controller
             if ($request->has('trailer_type_id')) {
                 $query->where('trailer_type_id', $request->input('trailer_type_id'));
             }
-            
+
             $query->leftJoin('users', 'trucks.user_id', '=', 'users.id')
                 ->leftJoin('truck_brands', 'trucks.truck_brand_id', '=', 'truck_brands.id')
                 ->leftJoin('truck_models', 'trucks.truck_model_id', '=', 'truck_models.id')
@@ -161,7 +170,7 @@ class TruckCotroller extends Controller
                 $total = $trucks->total();
                 $trucks = $trucks->items();
             } else {
-  
+
                 $trucks =  $query->get();
                 $total = count($trucks);
             }

@@ -33,7 +33,7 @@ class RouteController extends Controller
     }
     public function chat(){
         $whatsappSettings = \App\Models\WhatsAppBusinesSeting::first();
-        
+
         return Inertia::render('chat', [
             'whatsappPhone' => $whatsappSettings->business_account_id ?? '+77022630436'
         ]);
@@ -71,19 +71,19 @@ class RouteController extends Controller
     public function whatsappBusinessSettings(){
         return Inertia::render('integration_whatsapp_business');
     }
-    
+
     public function references(){
         return Inertia::render('references');
     }
-    
+
     public function referencesEmpty(){
         return Inertia::render('references_empty');
     }
-    
+
     public function chatCounterparty(){
         return Inertia::render('chat_counterparty');
     }
-    
+
     public function permits(){
         return Inertia::render('permits');
     }
@@ -100,4 +100,20 @@ class RouteController extends Controller
         return view('telegram-miniapp');
     }
 
+    // Spectech pages
+    public function spectechCatalog(){
+        return Inertia::render('spectech/catalog');
+    }
+    public function spectechRequests(){
+        return Inertia::render('spectech/requests');
+    }
+    public function spectechDashboard(){
+        return Inertia::render('spectech/dashboard');
+    }
+    public function spectechLocations(){
+        return Inertia::render('spectech/locations');
+    }
+    public function spectechReferences(){
+        return Inertia::render('spectech/references');
+    }
 }

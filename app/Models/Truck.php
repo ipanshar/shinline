@@ -24,8 +24,15 @@ class Truck extends Model
             'trailer_height',
             'trailer_width',
             'trailer_length',
-            'trailer_load_capacity'
-
+            'trailer_load_capacity',
+            'description',
+            'functionality',
+            'image_url',
+            'anpr_source',
+            'last_seen_at',
+            'last_seen_gate',
+            'anpr_confidence',
+            'plate_score',
     ];
 
     public static function normalizePlateNumber(?string $plateNumber): ?string

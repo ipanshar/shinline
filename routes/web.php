@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\ClientRegistrationController;
+use App\Http\Controllers\Api\SpectechRequestController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -272,13 +273,13 @@ Route::post('/task/addtask', [TaskCotroller::class,'addTask']); //Добавит
 Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing']); //Обработка QR кода
 Route::post('/task/processShortCode', [TaskCotroller::class,'processShortCode']); //Обработка QR кода
 Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
-Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings']); //Получить задачи все взвешивания 
-Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing']); //Обновить задачи взвешивание 
+Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings']); //Получить задачи все взвешивания
+Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing']); //Обновить задачи взвешивание
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
 Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime']); //Обновить время задачи
 
 
-Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику 
+Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику
 Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingStats']);
 Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
@@ -293,6 +294,25 @@ Route::get('/users/without-roles', [UsersController::class, 'getUsersWithoutRole
     // Region routes
 Route::post('/regions/getregions', [RegionController::class, 'getRegions']); // Получить все регионы
 Route::post('/regions/createupdate', [RegionController::class, 'createUpdateRegion']); // Создать или обновить регион
+
+// Spectech
+// Страницы
+Route::get('/spectech/catalog',     [RouteController::class, 'spectechCatalog'])->middleware('permission:spectech.view');
+Route::get('/spectech/requests',    [RouteController::class, 'spectechRequests'])->middleware('permission:spectech.view');
+Route::get('/spectech/dashboard',   [RouteController::class, 'spectechDashboard'])->middleware('permission:spectech.manage');
+Route::get('/spectech/locations',   [RouteController::class, 'spectechLocations'])->middleware('permission:spectech.view');
+Route::get('/spectech/references',  [RouteController::class, 'spectechReferences'])->middleware('permission:spectech.view');
+
+// API заявок (JSON)
+Route::get('/spectech/api/requests',             [SpectechRequestController::class, 'index'])->middleware('permission:spectech.view');
+Route::post('/spectech/api/requests',            [SpectechRequestController::class, 'store'])->middleware('permission:spectech.view');
+Route::patch('/spectech/api/requests/{id}/status', [SpectechRequestController::class, 'updateStatus'])->middleware('permission:spectech.manage');
+
+// API справочника спецтехники (фильтр по категории «Спец техника» на бэкенде)
+Route::get('/spectech/api/trucks',          [SpectechRequestController::class, 'trucksList']);
+Route::post('/spectech/api/trucks',         [SpectechRequestController::class, 'truckCreate'])->middleware('permission:spectech.manage');
+Route::put('/spectech/api/trucks/{id}',     [SpectechRequestController::class, 'truckUpdate'])->middleware('permission:spectech.manage');
+Route::delete('/spectech/api/trucks/{id}',  [SpectechRequestController::class, 'truckDelete'])->middleware('permission:spectech.manage');
 
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
@@ -316,7 +336,7 @@ Route::post('/counterparty/chat/getorcreatechat', [\App\Http\Controllers\Api\Cou
 
 });
 
- 
+
 
 
 

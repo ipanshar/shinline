@@ -5,11 +5,14 @@ namespace App\Services;
 use App\Events\DssUnknownVehicleDetected;
 use App\Jobs\EnrichVehicleCaptureJob;
 use App\Models\VehicleCapture;
+use App\Services\AnprTruckSyncService;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
 class DssCaptureService extends DssBaseService
 {
+    private AnprTruckSyncService $anprTruckSync;
+
     public function __construct(
         private DssAuthService $authService,
         private DssDeviceSyncService $deviceSyncService,
@@ -18,6 +21,7 @@ class DssCaptureService extends DssBaseService
         ?Client $client = null,
     ) {
         parent::__construct($client);
+        $this->anprTruckSync = new AnprTruckSyncService();
     }
 
     public function dssVehicleCapture(int $lookbackSeconds = 4): array
@@ -207,6 +211,9 @@ class DssCaptureService extends DssBaseService
             if ($isNew || $vehicleCapture->isDirty()) {
                 $vehicleCapture->save();
             }
+
+            // ANPR-синхронизация: обновить или создать запись в справочнике техники
+            $this->anprTruckSync->syncFromCaptureItem($item);
 
             $vehicleCaptureIds[] = $vehicleCapture->id;
 

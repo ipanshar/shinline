@@ -21,7 +21,7 @@ class PermissionsSeeder extends Seeder
             ['name' => 'visitors.exit', 'description' => 'Регистрация выезда', 'group' => 'visitors'],
             ['name' => 'visitors.history', 'description' => 'Просмотр истории', 'group' => 'visitors'],
             ['name' => 'visitors.shift_report', 'description' => 'Отчёт о передаче смены', 'group' => 'visitors'],
-            
+
             // Разрешения на въезд
             ['name' => 'permits.view', 'description' => 'Просмотр разрешений', 'group' => 'permits'],
             ['name' => 'permits.create', 'description' => 'Создание разрешений', 'group' => 'permits'],
@@ -35,11 +35,11 @@ class PermissionsSeeder extends Seeder
             ['name' => 'guest_visits.close', 'description' => 'Закрытие гостевых визитов', 'group' => 'guest_visits'],
             ['name' => 'guest_visits.cancel', 'description' => 'Отмена гостевых визитов', 'group' => 'guest_visits'],
             ['name' => 'guest_visits.issue_permits', 'description' => 'Выпуск пропусков для гостевых визитов', 'group' => 'guest_visits'],
-            
+
             // Весовой контроль
             ['name' => 'weighing.view', 'description' => 'Просмотр взвешиваний', 'group' => 'weighing'],
             ['name' => 'weighing.manage', 'description' => 'Проведение взвешивания', 'group' => 'weighing'],
-            
+
             // Задания
             ['name' => 'tasks.view', 'description' => 'Просмотр заданий', 'group' => 'tasks'],
             ['name' => 'tasks.create', 'description' => 'Создание заданий', 'group' => 'tasks'],
@@ -47,37 +47,37 @@ class PermissionsSeeder extends Seeder
             ['name' => 'tasks.delete', 'description' => 'Удаление заданий', 'group' => 'tasks'],
             ['name' => 'tasks.schedule', 'description' => 'Почасовое расписание', 'group' => 'tasks'],
             ['name' => 'tasks.operator', 'description' => 'Рабочее место оператора', 'group' => 'tasks'],
-            
+
             // Транспортные средства
             ['name' => 'trucks.view', 'description' => 'Просмотр ТС', 'group' => 'trucks'],
             ['name' => 'trucks.create', 'description' => 'Добавление ТС', 'group' => 'trucks'],
             ['name' => 'trucks.edit', 'description' => 'Редактирование ТС', 'group' => 'trucks'],
             ['name' => 'trucks.delete', 'description' => 'Удаление ТС', 'group' => 'trucks'],
-            
+
             // Склады и дворы
             ['name' => 'warehouses.view', 'description' => 'Просмотр складов', 'group' => 'warehouses'],
             ['name' => 'warehouses.manage', 'description' => 'Управление складами', 'group' => 'warehouses'],
             ['name' => 'yards.view', 'description' => 'Просмотр дворов', 'group' => 'warehouses'],
             ['name' => 'yards.manage', 'description' => 'Управление дворами', 'group' => 'warehouses'],
-            
+
             // Справочники
             ['name' => 'references.view', 'description' => 'Просмотр справочников', 'group' => 'references'],
             ['name' => 'references.manage', 'description' => 'Управление справочниками', 'group' => 'references'],
-            
+
             // Статистика
             ['name' => 'statistics.view', 'description' => 'Просмотр статистики', 'group' => 'statistics'],
             ['name' => 'statistics.export', 'description' => 'Экспорт статистики', 'group' => 'statistics'],
-            
+
             // Чат / Коммуникации
             ['name' => 'chat.view', 'description' => 'Просмотр чатов', 'group' => 'chat'],
             ['name' => 'chat.send', 'description' => 'Отправка сообщений', 'group' => 'chat'],
-            
+
             // Интеграции (DSS, WhatsApp)
             ['name' => 'integrations.dss', 'description' => 'Настройка DSS', 'group' => 'integrations'],
             ['name' => 'integrations.whatsapp', 'description' => 'Настройка WhatsApp', 'group' => 'integrations'],
             ['name' => 'integrations.devices', 'description' => 'Управление устройствами', 'group' => 'integrations'],
             ['name' => 'integrations.zones', 'description' => 'Управление зонами', 'group' => 'integrations'],
-            
+
             // Администрирование
             ['name' => 'admin.roles', 'description' => 'Управление ролями', 'group' => 'admin'],
             ['name' => 'admin.users', 'description' => 'Управление пользователями', 'group' => 'admin'],
@@ -88,6 +88,10 @@ class PermissionsSeeder extends Seeder
             ['name' => 'telegram_users.view', 'description' => 'Просмотр Telegram-пользователей бота', 'group' => 'telegram_users'],
             ['name' => 'telegram_users.approve', 'description' => 'Одобрение Telegram-пользователей', 'group' => 'telegram_users'],
             ['name' => 'telegram_users.block', 'description' => 'Блокировка Telegram-пользователей', 'group' => 'telegram_users'],
+
+            // Заявки на спецтехнику
+            ['name' => 'spectech.view',   'description' => 'Просмотр и создание заявок на спецтехнику', 'group' => 'spectech'],
+            ['name' => 'spectech.manage', 'description' => 'Управление заявками на спецтехнику (оператор)', 'group' => 'spectech'],
         ];
 
         // Создаём разрешения
@@ -139,6 +143,7 @@ class PermissionsSeeder extends Seeder
                 'guest_visits.view', 'guest_visits.create', 'guest_visits.update', 'guest_visits.close', 'guest_visits.cancel', 'guest_visits.issue_permits',
                 'chat.view', 'chat.send',
                 'statistics.view',
+                'spectech.view', 'spectech.manage', // Спецтехника
             ]);
         }
 
@@ -161,6 +166,7 @@ class PermissionsSeeder extends Seeder
             $this->syncPermissions($supplier, [
                 'tasks.view', 'tasks.create',
                 'trucks.view',
+                'spectech.view', // Просмотр и создание своих заявок
             ]);
         }
 

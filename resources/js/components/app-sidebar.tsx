@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound } from 'lucide-react';
+import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -22,7 +22,7 @@ interface NavGroupWithPermission extends Omit<NavGroup, 'items'> {
 }
 
 export function AppSidebar() {
-    const { user, setUser } = useUser(); 
+    const { user, setUser } = useUser();
 
 
     const { t } = useTranslation();
@@ -106,6 +106,12 @@ export function AppSidebar() {
                     permission: 'references.view',
                 },
                 {
+                    title: 'Спецтехника',
+                    href: '/spectech/references',
+                    icon: Truck,
+                    permission: 'spectech.view',
+                },
+                {
                     title: 'Камеры наблюдения',
                     href: '/integration_dss/devices',
                     icon: Camera,
@@ -176,6 +182,30 @@ export function AppSidebar() {
                     href: '/weighing',
                     icon: Scale,
                     permission: 'weighing.view',
+                },
+            ],
+        },
+        {
+            title: 'Спецтехника',
+            icon: Truck,
+            items: [
+                {
+                    title: 'Мои заявки',
+                    href: '/spectech/requests',
+                    icon: ClipboardList,
+                    permission: 'spectech.view',
+                },
+                {
+                    title: 'Панель оператора',
+                    href: '/spectech/dashboard',
+                    icon: LayoutDashboard,
+                    permission: 'spectech.manage',
+                },
+                {
+                    title: 'Зоны терминалов',
+                    href: '/spectech/locations',
+                    icon: MapPin,
+                    permission: 'spectech.view',
                 },
             ],
         },
