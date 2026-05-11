@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GuestVisit;
 use App\Models\SpectechRequest;
+use App\Models\SpectechSchedule;
 use App\Models\User;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
@@ -510,6 +511,162 @@ class TelegramMiniAppController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /** GET /telegram/miniapp/spectech/equipment-types */
+    public function spectechEquipmentTypes(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $categoryId = TruckCategory::query()->where('name', 'Спец техника')->value('id');
+
+        $trucks = Truck::query()
+            ->when($categoryId, fn($q) => $q->where('truck_category_id', $categoryId))
+            ->whereNotNull('name')
+            ->get(['id', 'name', 'plate_number']);
+
+        $groups = [];
+        foreach ($trucks as $truck) {
+            $key = $this->extractEquipmentTypeKey($truck->name ?? '');
+            if (!$key) continue;
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = ['key' => $key, 'label' => $key, 'trucks' => []];
+            }
+            $groups[$key]['trucks'][] = [
+                'id'           => $truck->id,
+                'name'         => $truck->name,
+                'plate_number' => $truck->plate_number,
+            ];
+        }
+
+        return response()->json(['data' => array_values($groups)]);
+    }
+
+    /** GET /telegram/miniapp/spectech/schedules */
+    public function spectechSchedules(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+        $user = $this->resolveApprovedUser($chat);
+
+        $schedules = SpectechSchedule::query()
+            ->with(['truck:id,name,plate_number'])
+            ->where('user_id', $user->id)
+            ->orderByDesc('scheduled_start')
+            ->limit(50)
+            ->get()
+            ->map(fn(SpectechSchedule $s) => $this->formatScheduleForTelegram($s))
+            ->values();
+
+        return response()->json(['data' => $schedules]);
+    }
+
+    /** POST /telegram/miniapp/spectech/schedules */
+    public function createSpectechSchedule(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+        $user = $this->resolveApprovedUser($chat);
+
+        $validated = $request->validate([
+            'equipment_type_key'   => ['required', 'string', 'max:100'],
+            'equipment_type_label' => ['required', 'string', 'max:100'],
+            'scheduled_start'      => ['required', 'date', 'after_or_equal:now'],
+            'scheduled_end'        => ['required', 'date', 'after:scheduled_start'],
+            'purpose'              => ['required', 'string', 'max:500'],
+            'address'              => ['nullable', 'string', 'max:500'],
+            'notes'                => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $typeKey = $validated['equipment_type_key'];
+        $start   = $validated['scheduled_start'];
+        $end     = $validated['scheduled_end'];
+
+        $categoryId = TruckCategory::query()->where('name', 'Спец техника')->value('id');
+
+        $allTrucks = Truck::query()
+            ->when($categoryId, fn($q) => $q->where('truck_category_id', $categoryId))
+            ->get(['id', 'name', 'plate_number'])
+            ->filter(fn($t) => $this->extractEquipmentTypeKey($t->name ?? '') === $typeKey)
+            ->values();
+
+        if ($allTrucks->isEmpty()) {
+            return response()->json(['status' => false, 'message' => 'Техника данного типа не найдена'], 422);
+        }
+
+        $assignedTruck = null;
+        $conflictInfo  = [];
+
+        foreach ($allTrucks as $truck) {
+            if (!SpectechSchedule::isTruckOccupied($truck->id, $start, $end)) {
+                $assignedTruck = $truck;
+                break;
+            }
+
+            $freeAt = SpectechSchedule::getNextFreeAt($truck->id, $start, $end);
+            $conflictInfo[] = [
+                'truck_name'   => $truck->name,
+                'plate_number' => $truck->plate_number,
+                'free_at'      => $freeAt ? Carbon::parse($freeAt)->format('d.m.Y H:i') : 'неизвестно',
+            ];
+        }
+
+        if (!$assignedTruck) {
+            return response()->json([
+                'status'        => false,
+                'conflict'      => true,
+                'message'       => 'Все единицы техники заняты на указанный период',
+                'conflict_info' => $conflictInfo,
+            ], 409);
+        }
+
+        $schedule = SpectechSchedule::create([
+            'user_id'              => $user->id,
+            'truck_id'             => $assignedTruck->id,
+            'equipment_type_key'   => $typeKey,
+            'equipment_type_label' => $validated['equipment_type_label'],
+            'assigned_truck_name'  => $assignedTruck->name . ($assignedTruck->plate_number ? " ({$assignedTruck->plate_number})" : ''),
+            'scheduled_start'      => $start,
+            'scheduled_end'        => $end,
+            'purpose'              => $validated['purpose'],
+            'address'              => $validated['address'] ?? null,
+            'notes'                => $validated['notes'] ?? null,
+            'status'               => SpectechSchedule::STATUS_PENDING,
+        ]);
+
+        $schedule->load(['truck:id,name,plate_number']);
+
+        return response()->json([
+            'data'    => $this->formatScheduleForTelegram($schedule),
+            'message' => "Запланировано: {$assignedTruck->name}",
+        ], 201);
+    }
+
+    private function formatScheduleForTelegram(SpectechSchedule $s): array
+    {
+        return [
+            'id'                   => $s->id,
+            'equipment_type_label' => $s->equipment_type_label,
+            'assigned_truck_name'  => $s->assigned_truck_name,
+            'truck_name'           => $s->truck?->name,
+            'plate_number'         => $s->truck?->plate_number,
+            'scheduled_start'      => $s->scheduled_start?->toIso8601String(),
+            'scheduled_end'        => $s->scheduled_end?->toIso8601String(),
+            'purpose'              => $s->purpose,
+            'address'              => $s->address,
+            'notes'                => $s->notes,
+            'status'               => $s->status,
+            'status_label'         => SpectechSchedule::STATUS_LABELS[$s->status] ?? $s->status,
+            'created_at'           => $s->created_at?->toIso8601String(),
+        ];
+    }
+
+    private function extractEquipmentTypeKey(string $name): string
+    {
+        $cleaned = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($name));
+        return trim($cleaned ?: $name);
     }
 
     private function notifySpectechOperators(SpectechRequest $request, TelegramBotChat $chat): void
