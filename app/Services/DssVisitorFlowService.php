@@ -29,6 +29,7 @@ class DssVisitorFlowService
         private WeighingService $weighingService,
         private DssPermitVehicleService $permitVehicleService,
         private ExitPermitService $exitPermitService,
+        private GuestVisitTelegramNotifier $guestVisitTelegramNotifier,
     )
     {
     }
@@ -309,8 +310,12 @@ class DssVisitorFlowService
         $this->guestVisitVisitorFlowService->attachToVisitor($visitor);
 
         if ($autoConfirm) {
+            $visitor->refresh();
+            $guestVisitId = $visitor->guest_visit_id;
+
             $visitor->load(['yard', 'truck', 'task']);
             $this->processConfirmedVisitorEntry($visitor, $task, $zone->yard_id);
+            $this->notifyGuestVisitArrival($visitor, $guestVisitId);
             $this->createAutomaticExitPermitForIntegrationPermit($visitor, $permit);
             $this->weighingService->createRequirement($visitor);
         }
@@ -464,6 +469,15 @@ class DssVisitorFlowService
                 : ''),
             ['task_id' => $task->id, 'yard_id' => $yardId]
         );
+    }
+
+    private function notifyGuestVisitArrival(Visitor $visitor, ?int $guestVisitId): void
+    {
+        if (!$guestVisitId || (int) $visitor->guest_visit_id !== (int) $guestVisitId) {
+            return;
+        }
+
+        $this->guestVisitTelegramNotifier->notifyArrival($guestVisitId, $visitor);
     }
 
     private function createAutomaticExitPermitForIntegrationPermit(Visitor $visitor, ?EntryPermit $permit): void
