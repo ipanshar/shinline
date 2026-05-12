@@ -276,15 +276,16 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveApprovedUser($chat);
 
         $validated = $request->validate([
-            'truck_id' => ['required', 'integer', 'exists:trucks,id'],
-            'end_date' => ['required', 'date', 'after_or_equal:today'],
-            'terminal' => ['required', 'string', 'max:10'],
-            'zone' => ['required', 'string', 'max:100'],
-            'gate' => ['nullable', 'string', 'max:50'],
-            'address' => ['required', 'string', 'max:500'],
-            'comment' => ['nullable', 'string', 'max:2000'],
-            'photos' => ['nullable', 'array', 'max:3'],
-            'photos.*' => ['nullable', 'string'],
+            'truck_id'        => ['required', 'integer', 'exists:trucks,id'],
+            'requested_start' => ['required', 'date', 'after_or_equal:now'],
+            'requested_end'   => ['required', 'date', 'after:requested_start'],
+            'terminal'        => ['required', 'string', 'max:10'],
+            'zone'            => ['required', 'string', 'max:100'],
+            'gate'            => ['nullable', 'string', 'max:50'],
+            'address'         => ['required', 'string', 'max:500'],
+            'comment'         => ['nullable', 'string', 'max:2000'],
+            'photos'          => ['nullable', 'array', 'max:3'],
+            'photos.*'        => ['nullable', 'string'],
         ]);
 
         $photoPaths = [];
@@ -300,18 +301,20 @@ class TelegramMiniAppController extends Controller
         }
 
         $spectechRequest = SpectechRequest::query()->create([
-            'user_id' => $user->id,
-            'truck_id' => (int) $validated['truck_id'],
-            'start_date' => now()->toDateString(),
-            'end_date' => Carbon::parse($validated['end_date'])->toDateString(),
-            'terminal' => trim((string) $validated['terminal']),
-            'zone' => trim((string) $validated['zone']),
-            'gate' => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
-            'address' => trim((string) $validated['address']),
-            'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
-            'status' => SpectechRequest::STATUS_NEW,
-            'photos' => $photoPaths,
-            'timeline' => SpectechRequest::buildInitialTimeline(),
+            'user_id'         => $user->id,
+            'truck_id'        => (int) $validated['truck_id'],
+            'start_date'      => Carbon::parse($validated['requested_start'])->toDateString(),
+            'end_date'        => Carbon::parse($validated['requested_end'])->toDateString(),
+            'requested_start' => Carbon::parse($validated['requested_start']),
+            'requested_end'   => Carbon::parse($validated['requested_end']),
+            'terminal'        => trim((string) $validated['terminal']),
+            'zone'            => trim((string) $validated['zone']),
+            'gate'            => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
+            'address'         => trim((string) $validated['address']),
+            'comment'         => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
+            'status'          => SpectechRequest::STATUS_NEW,
+            'photos'          => $photoPaths,
+            'timeline'        => SpectechRequest::buildInitialTimeline(),
         ]);
 
         $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name']);
@@ -446,8 +449,10 @@ class TelegramMiniAppController extends Controller
                 ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС ' . $item->truck->plate_number : 'ТС #' . $item->truck_id))
                 : '—',
             'plate_number' => $item->truck?->plate_number,
-            'start_date' => $item->start_date?->toDateString(),
-            'end_date' => $item->end_date?->toDateString(),
+            'start_date'      => $item->start_date?->toDateString(),
+            'end_date'        => $item->end_date?->toDateString(),
+            'requested_start' => $item->requested_start?->toIso8601String(),
+            'requested_end'   => $item->requested_end?->toIso8601String(),
             'terminal' => $item->terminal,
             'zone' => $item->zone,
             'gate' => $item->gate,
