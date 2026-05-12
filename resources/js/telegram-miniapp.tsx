@@ -114,6 +114,8 @@ interface SpectechRequestItem {
     plate_number?: string | null;
     start_date: string;
     end_date: string;
+    requested_start?: string | null;
+    requested_end?: string | null;
     terminal: string;
     zone: string;
     gate?: string | null;
@@ -680,7 +682,14 @@ function SpectechCreateForm({
 }) {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [truckId, setTruckId] = useState<number | ''>('');
-    const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [requestedStart, setRequestedStart] = useState(() => {
+        const d = new Date(); d.setMinutes(0, 0, 0);
+        return d.toISOString().slice(0, 16);
+    });
+    const [requestedEnd, setRequestedEnd] = useState(() => {
+        const d = new Date(); d.setHours(d.getHours() + 8); d.setMinutes(0, 0, 0);
+        return d.toISOString().slice(0, 16);
+    });
     const [terminal, setTerminal] = useState('T1');
     const [zone, setZone] = useState('');
     const [gate, setGate] = useState('');
@@ -719,7 +728,8 @@ function SpectechCreateForm({
             await axios.post('/api/telegram/miniapp/spectech/requests', {
                 init_data: initData,
                 truck_id: truckId,
-                end_date: endDate,
+                requested_start: new Date(requestedStart).toISOString(),
+                requested_end: new Date(requestedEnd).toISOString(),
                 terminal,
                 zone: zone.trim(),
                 gate: gate.trim() || null,
@@ -757,8 +767,11 @@ function SpectechCreateForm({
                 ))}
             </select>
 
-            <label>Дата окончания</label>
-            <input style={inputStyle} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            <label>Дата и время начала</label>
+            <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
+
+            <label>Дата и время окончания</label>
+            <input style={inputStyle} type="datetime-local" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} required />
 
             <label>Терминал</label>
             <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
@@ -804,7 +817,15 @@ function SpectechRequestList({
                 <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
                     <strong>#{request.id} {request.equipment_name}</strong>
                     <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
-                    <div>Период: {request.start_date} - {request.end_date}</div>
+                    <div>Период: {
+                        request.requested_start
+                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : request.start_date
+                    } — {
+                        request.requested_end
+                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : request.end_date
+                    }</div>
                     <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
                     <div>Адрес: {request.address}</div>
                     {request.comment && <div>Комментарий: {request.comment}</div>}
