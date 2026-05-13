@@ -191,7 +191,7 @@ const ChatForm: React.FC<ChatFormProps> = ({ contactName, messages, onSendMessag
     }
 
     // Используем WhatsApp номер напрямую
-    let whatsappNumber = user_whatsapp;
+    const whatsappNumber = user_whatsapp;
     let senderUserId = currentUserId;
 
     // Если currentUserId не передан, используем ID из последнего исходящего сообщения

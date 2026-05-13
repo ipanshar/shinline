@@ -16,7 +16,7 @@ const handleApiError = (error: any) => {
   throw error;
 };
 
-let vehicleDatabase: { [key: string]: Vehicle[] } = {
+const vehicleDatabase: { [key: string]: Vehicle[] } = {
   '439': [
     { id: '1', plate_number: '439AWP02', truck_model_name: 'Toyota Camry', allowed: true },
     { id: '2', plate_number: '439QWE02', truck_model_name: 'Honda Civic', allowed: true },

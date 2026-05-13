@@ -281,10 +281,15 @@ Route::post('/weighing/list', [WeighingController::class, 'index'])->middleware(
 Route::prefix('rbac')->middleware('auth:sanctum')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\RbacController::class, 'index']); // Получить все роли и разрешения
     Route::get('/stats', [\App\Http\Controllers\Api\RbacController::class, 'getStats']); // Статистика RBAC
-    Route::get('/users', [\App\Http\Controllers\Api\RbacController::class, 'getUsers']); // Пользователи с пагинацией
-    Route::put('/users/{user}/roles', [\App\Http\Controllers\Api\RbacController::class, 'updateUserRoles']); // Обновить роли пользователя
-    Route::post('/users/bulk-assign', [\App\Http\Controllers\Api\RbacController::class, 'bulkAssignRole']); // Массовое назначение роли
-    Route::post('/users/bulk-revoke', [\App\Http\Controllers\Api\RbacController::class, 'bulkRevokeRole']); // Массовое удаление роли
+    Route::middleware('permission:admin.users')->group(function () {
+        Route::get('/users', [\App\Http\Controllers\Api\RbacController::class, 'getUsers']); // Пользователи с пагинацией
+        Route::put('/users/{user}', [\App\Http\Controllers\Api\RbacController::class, 'updateUser']); // Обновить профиль пользователя
+        Route::put('/users/{user}/password', [\App\Http\Controllers\Api\RbacController::class, 'updateUserPassword']); // Сменить пароль пользователя
+        Route::put('/users/{user}/roles', [\App\Http\Controllers\Api\RbacController::class, 'updateUserRoles']); // Обновить роли пользователя
+        Route::delete('/users/{user}', [\App\Http\Controllers\Api\RbacController::class, 'deleteUser']); // Удалить пользователя
+        Route::post('/users/bulk-assign', [\App\Http\Controllers\Api\RbacController::class, 'bulkAssignRole']); // Массовое назначение роли
+        Route::post('/users/bulk-revoke', [\App\Http\Controllers\Api\RbacController::class, 'bulkRevokeRole']); // Массовое удаление роли
+    });
     Route::post('/roles', [\App\Http\Controllers\Api\RbacController::class, 'createRole']); // Создать роль
     Route::put('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'updateRole']); // Обновить роль
     Route::delete('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'deleteRole']); // Удалить роль
