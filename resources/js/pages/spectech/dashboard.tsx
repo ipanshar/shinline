@@ -223,7 +223,11 @@ export default function SpectechDashboard() {
 													<td className="px-3 py-2">#{req.id}</td>
 													<td className="px-3 py-2">{req.client_name || '—'}</td>
 													<td className="px-3 py-2">{req.equipment_name}</td>
-													<td className="px-3 py-2 whitespace-nowrap">{formatDate(req.start_date)} - {formatDate(req.end_date)}</td>
+													<td className="px-3 py-2 whitespace-nowrap">{
+                                                        req.requested_start && req.requested_end
+                                                            ? `${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}`
+                                                            : `${formatDate(req.start_date)} — ${formatDate(req.end_date)}`
+                                                    }</td>
 													<td className="px-3 py-2">
 														<span className="rounded border px-2 py-1 text-[11px] font-medium" style={{ background: st.bg, color: st.text, borderColor: st.border }}>
 															{getCurrentStage(req)}
