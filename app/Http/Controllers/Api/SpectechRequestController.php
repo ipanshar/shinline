@@ -137,8 +137,8 @@ class SpectechRequestController extends Controller
         $query = SpectechRequest::with(['truck', 'user'])
             ->orderBy('created_at', 'desc');
 
-        // Если не оператор/администратор — только свои заявки
-        if (! $user->isAdmin() && ! $user->hasRole('Оператор')) {
+        // Пользователь без прав управления видит только свои заявки
+        if (! $this->canManageSpectechRequests()) {
             $query->where('user_id', $user->id);
         }
 
@@ -317,7 +317,7 @@ class SpectechRequestController extends Controller
     {
         $user = Auth::user();
 
-        if (! $user->isAdmin() && ! $user->hasRole('Оператор')) {
+        if (! $this->canManageSpectechRequests()) {
             return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
         }
 
@@ -481,7 +481,7 @@ class SpectechRequestController extends Controller
         // Получаем расписание
         $schedule = SpectechSchedule::findOrFail($validated['schedule_id']);
 
-        if ($schedule->user_id !== Auth::id() && ! Auth::user()->isAdmin() && ! Auth::user()->hasRole('Оператор')) {
+        if ($schedule->user_id !== Auth::id() && ! $this->canManageSpectechRequests()) {
             return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
         }
 
@@ -659,7 +659,7 @@ class SpectechRequestController extends Controller
     {
         $user = Auth::user();
 
-        return $user->isAdmin() || $user->hasRole('Оператор');
+        return $user?->hasPermission('spectech.manage') ?? false;
     }
 
     private function forceCompleteRequest(SpectechRequest $request): void

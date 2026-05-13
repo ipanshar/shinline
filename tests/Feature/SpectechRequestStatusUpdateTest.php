@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Middleware\CheckPermission;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SpectechRequest;
 use App\Models\Truck;
@@ -54,6 +55,29 @@ class SpectechRequestStatusUpdateTest extends TestCase
         $this->assertSame(SpectechRequest::STATUS_WORK_STARTED, $request->fresh()->status);
     }
 
+    public function test_spectech_operator_with_manage_permission_can_update_status(): void
+    {
+        [$owner, $request] = $this->makeFrozenRequest();
+
+        $spectechOperator = User::query()->create([
+            'name' => 'Spectech Operator',
+            'login' => 'spectech-operator',
+            'email' => 'spectech-operator@example.com',
+            'password' => 'secret',
+        ]);
+
+        $this->grantSpectechManagePermission($spectechOperator);
+
+        $this->actingAs($spectechOperator)
+            ->patchJson("/spectech/api/requests/{$request->id}/status", [
+                'status' => SpectechRequest::STATUS_RETURNED,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.status', SpectechRequest::STATUS_RETURNED);
+
+        $this->assertSame(SpectechRequest::STATUS_RETURNED, $request->fresh()->status);
+    }
+
     private function makeFrozenRequest(): array
     {
         $operator = User::query()->create([
@@ -64,6 +88,16 @@ class SpectechRequestStatusUpdateTest extends TestCase
         ]);
 
         $operatorRole = Role::query()->create(['name' => 'Оператор']);
+        $managePermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.manage'],
+            ['description' => 'Управление заявками на спецтехнику', 'group' => 'spectech']
+        );
+        $viewPermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.view'],
+            ['description' => 'Просмотр и создание заявок на спецтехнику', 'group' => 'spectech']
+        );
+
+        $operatorRole->permissions()->syncWithoutDetaching([$managePermission->id, $viewPermission->id]);
         $operator->roles()->attach($operatorRole);
 
         $category = TruckCategory::query()->create(['name' => 'Спец техника']);
@@ -92,5 +126,29 @@ class SpectechRequestStatusUpdateTest extends TestCase
         ]);
 
         return [$operator, $request];
+    }
+
+    private function grantSpectechManagePermission(User $user): void
+    {
+        $role = Role::query()->firstOrCreate(
+            ['name' => 'Оператор спецтехники'],
+            [
+                'level' => 55,
+                'description' => 'Управление заявками на спецтехнику через веб и Telegram Mini App',
+            ]
+        );
+
+        $managePermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.manage'],
+            ['description' => 'Управление заявками на спецтехнику', 'group' => 'spectech']
+        );
+
+        $viewPermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.view'],
+            ['description' => 'Просмотр и создание заявок на спецтехнику', 'group' => 'spectech']
+        );
+
+        $role->permissions()->syncWithoutDetaching([$managePermission->id, $viewPermission->id]);
+        $user->roles()->syncWithoutDetaching([$role->id]);
     }
 }
