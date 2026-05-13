@@ -22,20 +22,21 @@ class SpectechAvailabilityService
     /**
      * Проверить, свободна ли техника в периоде
      */
-    public function isTruckAvailable(int $truckId, string $start, string $end): bool
+    public function isTruckAvailable(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): bool
     {
-        return !SpectechSchedule::isTruckOccupied($truckId, $start, $end);
+        return !SpectechSchedule::isTruckOccupied($truckId, $start, $end, $excludeScheduleId);
     }
 
     /**
      * Получить информацию о занятости техники
      */
-    public function getTruckOccupancyInfo(int $truckId, string $start, string $end): ?array
+    public function getTruckOccupancyInfo(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): ?array
     {
         $conflicts = SpectechSchedule::where('truck_id', $truckId)
             ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
             ->where('scheduled_start', '<', $end)
             ->where('scheduled_end', '>', $start)
+            ->when($excludeScheduleId, fn($q) => $q->where('id', '!=', $excludeScheduleId))
             ->orderBy('scheduled_start')
             ->get(['id', 'scheduled_start', 'scheduled_end', 'purpose', 'status'])
             ->map(fn($s) => [
@@ -51,7 +52,7 @@ class SpectechAvailabilityService
             return null;
         }
 
-        $freeAt = SpectechSchedule::getNextFreeAt($truckId, $start, $end);
+        $freeAt = SpectechSchedule::getNextFreeAt($truckId, $start, $end, $excludeScheduleId);
 
         return [
             'conflicts' => $conflicts,
@@ -63,7 +64,7 @@ class SpectechAvailabilityService
      * Найти свободную машину того же типа (по названию)
      * Возвращает первую свободную машину, если есть
      */
-    public function findFreeAlternativeTruck(int $truckId, string $start, string $end): ?Truck
+    public function findFreeAlternativeTruck(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): ?Truck
     {
         $truck = Truck::find($truckId);
         if (!$truck) {
@@ -86,7 +87,7 @@ class SpectechAvailabilityService
 
         // Ищем первую свободную
         foreach ($allTrucks as $t) {
-            if (!SpectechSchedule::isTruckOccupied($t->id, $start, $end)) {
+            if (!SpectechSchedule::isTruckOccupied($t->id, $start, $end, $excludeScheduleId)) {
                 return $t;
             }
         }
@@ -97,7 +98,7 @@ class SpectechAvailabilityService
     /**
      * Получить список всех конфликтов для машин данного типа
      */
-    public function getTypeConflictInfo(int $truckId, string $start, string $end): array
+    public function getTypeConflictInfo(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): array
     {
         $truck = Truck::find($truckId);
         if (!$truck) {
@@ -121,14 +122,15 @@ class SpectechAvailabilityService
         $conflictInfo = [];
 
         foreach ($allTrucks as $t) {
-            $busy = SpectechSchedule::isTruckOccupied($t->id, $start, $end);
+            $busy = SpectechSchedule::isTruckOccupied($t->id, $start, $end, $excludeScheduleId);
 
             if ($busy) {
-                $freeAt = SpectechSchedule::getNextFreeAt($t->id, $start, $end);
+                $freeAt = SpectechSchedule::getNextFreeAt($t->id, $start, $end, $excludeScheduleId);
                 $conflicts = SpectechSchedule::where('truck_id', $t->id)
                     ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
                     ->where('scheduled_start', '<', $end)
                     ->where('scheduled_end', '>', $start)
+                    ->when($excludeScheduleId, fn($q) => $q->where('id', '!=', $excludeScheduleId))
                     ->orderBy('scheduled_start')
                     ->get(['scheduled_start', 'scheduled_end', 'purpose'])
                     ->map(fn($s) => [
@@ -162,4 +164,3 @@ class SpectechAvailabilityService
         return trim($cleaned ?: $name);
     }
 }
-
