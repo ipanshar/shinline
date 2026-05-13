@@ -214,8 +214,9 @@ export default function SpectechDashboard() {
                                         const next = NEXT_STATUS[req.status];
                                         const isExpanded = expandedId === req.id;
                                         const isFrozen = !!req.status_frozen;
-                                        const canCompleteFrozen =
+                                        const canFinalizeFrozen =
                                             isFrozen && ['new', 'departure', 'on_location', 'work_started'].includes(req.status);
+                                        const isFinalStatus = req.status === 'returned';
 
                                         return (
                                             <React.Fragment key={req.id}>
@@ -246,15 +247,17 @@ export default function SpectechDashboard() {
                                                         </div>
                                                     </td>
                                                     <td className="px-3 py-2">
-                                                        {canCompleteFrozen ? (
+                                                        {canFinalizeFrozen ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleStatusChange(req.id, 'completed')}
+                                                                onClick={() => handleStatusChange(req.id, 'returned')}
                                                                 disabled={updatingId === req.id}
                                                                 className="h-8 rounded-md bg-amber-600 px-3 text-[12px] font-medium text-white hover:bg-amber-700 disabled:opacity-60"
                                                             >
-                                                                Завершить как выполнено
+                                                                Завершить как возврат
                                                             </button>
+                                                        ) : isFinalStatus ? (
+                                                            <span className="text-xs text-[#6B6B6B]">Готово</span>
                                                         ) : isFrozen ? (
                                                             <span className="inline-flex h-8 items-center rounded-md border border-amber-200 bg-amber-50 px-3 text-[12px] font-medium text-amber-700">
                                                                 Заморожено

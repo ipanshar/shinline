@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\SpectechSchedule;
 use App\Models\Truck;
 use App\Models\TruckCategory;
+use Illuminate\Support\Carbon;
 
 class SpectechAvailabilityService
 {
@@ -16,6 +17,7 @@ class SpectechAvailabilityService
             $cat = TruckCategory::where('name', 'Спец техника')->first();
             $this->spectechCatId = $cat?->id;
         }
+
         return $this->spectechCatId;
     }
 
@@ -24,7 +26,7 @@ class SpectechAvailabilityService
      */
     public function isTruckAvailable(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): bool
     {
-        return !SpectechSchedule::isTruckOccupied($truckId, $start, $end, $excludeScheduleId);
+        return ! SpectechSchedule::isTruckOccupied($truckId, $start, $end, $excludeScheduleId);
     }
 
     /**
@@ -32,19 +34,22 @@ class SpectechAvailabilityService
      */
     public function getTruckOccupancyInfo(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): ?array
     {
+        $start = $this->normalizeDateTime($start);
+        $end = $this->normalizeDateTime($end);
+
         $conflicts = SpectechSchedule::where('truck_id', $truckId)
             ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
             ->where('scheduled_start', '<', $end)
             ->where('scheduled_end', '>', $start)
-            ->when($excludeScheduleId, fn($q) => $q->where('id', '!=', $excludeScheduleId))
+            ->when($excludeScheduleId, fn ($q) => $q->where('id', '!=', $excludeScheduleId))
             ->orderBy('scheduled_start')
             ->get(['id', 'scheduled_start', 'scheduled_end', 'purpose', 'status'])
-            ->map(fn($s) => [
-                'id'              => $s->id,
+            ->map(fn ($s) => [
+                'id' => $s->id,
                 'scheduled_start' => $s->scheduled_start?->format('d.m.Y H:i'),
-                'scheduled_end'   => $s->scheduled_end?->format('d.m.Y H:i'),
-                'purpose'         => $s->purpose,
-                'status_label'    => SpectechSchedule::STATUS_LABELS[$s->status] ?? $s->status,
+                'scheduled_end' => $s->scheduled_end?->format('d.m.Y H:i'),
+                'purpose' => $s->purpose,
+                'status_label' => SpectechSchedule::STATUS_LABELS[$s->status] ?? $s->status,
             ])
             ->toArray();
 
@@ -56,7 +61,7 @@ class SpectechAvailabilityService
 
         return [
             'conflicts' => $conflicts,
-            'free_at'   => $freeAt ? (new \DateTime($freeAt))->format('d.m.Y H:i') : 'неизвестно',
+            'free_at' => $freeAt ? (new \DateTime($freeAt))->format('d.m.Y H:i') : 'неизвестно',
         ];
     }
 
@@ -67,12 +72,12 @@ class SpectechAvailabilityService
     public function findFreeAlternativeTruck(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): ?Truck
     {
         $truck = Truck::find($truckId);
-        if (!$truck) {
+        if (! $truck) {
             return null;
         }
 
         $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
-        if (!$typeKey) {
+        if (! $typeKey) {
             return null;
         }
 
@@ -80,14 +85,14 @@ class SpectechAvailabilityService
 
         // Находим все машины того же типа
         $allTrucks = Truck::query()
-            ->when($spectechCatId, fn($q) => $q->where('truck_category_id', $spectechCatId))
+            ->when($spectechCatId, fn ($q) => $q->where('truck_category_id', $spectechCatId))
             ->get(['id', 'name', 'plate_number'])
-            ->filter(fn($t) => $this->extractEquipmentTypeKey($t->name ?? '') === $typeKey)
+            ->filter(fn ($t) => $this->extractEquipmentTypeKey($t->name ?? '') === $typeKey)
             ->values();
 
         // Ищем первую свободную
         foreach ($allTrucks as $t) {
-            if (!SpectechSchedule::isTruckOccupied($t->id, $start, $end, $excludeScheduleId)) {
+            if (! SpectechSchedule::isTruckOccupied($t->id, $start, $end, $excludeScheduleId)) {
                 return $t;
             }
         }
@@ -100,13 +105,16 @@ class SpectechAvailabilityService
      */
     public function getTypeConflictInfo(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): array
     {
+        $start = $this->normalizeDateTime($start);
+        $end = $this->normalizeDateTime($end);
+
         $truck = Truck::find($truckId);
-        if (!$truck) {
+        if (! $truck) {
             return [];
         }
 
         $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
-        if (!$typeKey) {
+        if (! $typeKey) {
             return [];
         }
 
@@ -114,9 +122,9 @@ class SpectechAvailabilityService
 
         // Находим все машины того же типа
         $allTrucks = Truck::query()
-            ->when($spectechCatId, fn($q) => $q->where('truck_category_id', $spectechCatId))
+            ->when($spectechCatId, fn ($q) => $q->where('truck_category_id', $spectechCatId))
             ->get(['id', 'name', 'plate_number'])
-            ->filter(fn($t) => $this->extractEquipmentTypeKey($t->name ?? '') === $typeKey)
+            ->filter(fn ($t) => $this->extractEquipmentTypeKey($t->name ?? '') === $typeKey)
             ->values();
 
         $conflictInfo = [];
@@ -130,22 +138,22 @@ class SpectechAvailabilityService
                     ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
                     ->where('scheduled_start', '<', $end)
                     ->where('scheduled_end', '>', $start)
-                    ->when($excludeScheduleId, fn($q) => $q->where('id', '!=', $excludeScheduleId))
+                    ->when($excludeScheduleId, fn ($q) => $q->where('id', '!=', $excludeScheduleId))
                     ->orderBy('scheduled_start')
                     ->get(['scheduled_start', 'scheduled_end', 'purpose'])
-                    ->map(fn($s) => [
-                        'from'    => $s->scheduled_start?->format('d.m.Y H:i'),
-                        'to'      => $s->scheduled_end?->format('d.m.Y H:i'),
+                    ->map(fn ($s) => [
+                        'from' => $s->scheduled_start?->format('d.m.Y H:i'),
+                        'to' => $s->scheduled_end?->format('d.m.Y H:i'),
                         'purpose' => $s->purpose,
                     ])
                     ->toArray();
 
                 $conflictInfo[] = [
-                    'truck_id'     => $t->id,
-                    'truck_name'   => $t->name,
+                    'truck_id' => $t->id,
+                    'truck_name' => $t->name,
                     'plate_number' => $t->plate_number,
-                    'free_at'      => $freeAt ? (new \DateTime($freeAt))->format('d.m.Y H:i') : 'неизвестно',
-                    'conflicts'    => $conflicts,
+                    'free_at' => $freeAt ? (new \DateTime($freeAt))->format('d.m.Y H:i') : 'неизвестно',
+                    'conflicts' => $conflicts,
                 ];
             }
         }
@@ -161,6 +169,12 @@ class SpectechAvailabilityService
     private function extractEquipmentTypeKey(string $name): string
     {
         $cleaned = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($name));
+
         return trim($cleaned ?: $name);
+    }
+
+    private function normalizeDateTime(string $value): string
+    {
+        return Carbon::parse($value)->toDateTimeString();
     }
 }
