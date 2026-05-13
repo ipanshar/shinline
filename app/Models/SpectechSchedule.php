@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 class SpectechSchedule extends Model
 {
@@ -25,22 +26,26 @@ class SpectechSchedule extends Model
 
     protected $casts = [
         'scheduled_start' => 'datetime',
-        'scheduled_end'   => 'datetime',
-        'conflict_info'   => 'array',
+        'scheduled_end' => 'datetime',
+        'conflict_info' => 'array',
     ];
 
-    const STATUS_PENDING     = 'pending';
-    const STATUS_CONFIRMED   = 'confirmed';
+    const STATUS_PENDING = 'pending';
+
+    const STATUS_CONFIRMED = 'confirmed';
+
     const STATUS_IN_PROGRESS = 'in_progress';
-    const STATUS_DONE        = 'done';
-    const STATUS_CANCELLED   = 'cancelled';
+
+    const STATUS_DONE = 'done';
+
+    const STATUS_CANCELLED = 'cancelled';
 
     const STATUS_LABELS = [
-        'pending'     => 'Ожидает',
-        'confirmed'   => 'Подтверждено',
+        'pending' => 'Ожидает',
+        'confirmed' => 'Подтверждено',
         'in_progress' => 'В работе',
-        'done'        => 'Выполнено',
-        'cancelled'   => 'Отменено',
+        'done' => 'Выполнено',
+        'cancelled' => 'Отменено',
     ];
 
     const ACTIVE_STATUSES = ['pending', 'confirmed', 'in_progress'];
@@ -65,11 +70,14 @@ class SpectechSchedule extends Model
      */
     public static function isTruckOccupied(int $truckId, string $start, string $end, ?int $excludeId = null): bool
     {
+        $start = Carbon::parse($start)->toDateTimeString();
+        $end = Carbon::parse($end)->toDateTimeString();
+
         return self::where('truck_id', $truckId)
             ->whereIn('status', self::ACTIVE_STATUSES)
             ->where('scheduled_start', '<', $end)
             ->where('scheduled_end', '>', $start)
-            ->when($excludeId, fn($q) => $q->where('id', '!=', $excludeId))
+            ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
             ->exists();
     }
 
@@ -78,11 +86,14 @@ class SpectechSchedule extends Model
      */
     public static function getNextFreeAt(int $truckId, string $start, string $end, ?int $excludeId = null): ?string
     {
+        $start = Carbon::parse($start)->toDateTimeString();
+        $end = Carbon::parse($end)->toDateTimeString();
+
         $overlap = self::where('truck_id', $truckId)
             ->whereIn('status', self::ACTIVE_STATUSES)
             ->where('scheduled_start', '<', $end)
             ->where('scheduled_end', '>', $start)
-            ->when($excludeId, fn($q) => $q->where('id', '!=', $excludeId))
+            ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
             ->orderBy('scheduled_end', 'desc')
             ->first();
 

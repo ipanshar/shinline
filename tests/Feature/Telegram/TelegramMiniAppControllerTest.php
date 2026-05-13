@@ -4,6 +4,7 @@ namespace Tests\Feature\Telegram;
 
 use App\Models\GuestVisit;
 use App\Models\GuestVisitVehicle;
+use App\Models\SpectechSchedule;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
 use App\Models\TruckCategory;
@@ -312,6 +313,8 @@ class TelegramMiniAppControllerTest extends TestCase
     public function test_approved_user_can_create_spectech_request_from_miniapp(): void
     {
         $initData = $this->makeInitData(['id' => 7007, 'first_name' => 'Spectech']);
+        $requestedStart = now()->addHour()->startOfHour();
+        $requestedEnd = (clone $requestedStart)->addHours(4);
 
         $category = TruckCategory::query()->create(['name' => 'Спец техника']);
         $truck = Truck::query()->create([
@@ -339,7 +342,8 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->postJson('/api/telegram/miniapp/spectech/requests', [
             'init_data' => $initData,
             'truck_id' => $truck->id,
-            'end_date' => now()->addDay()->toDateString(),
+            'requested_start' => $requestedStart->toIso8601String(),
+            'requested_end' => $requestedEnd->toIso8601String(),
             'terminal' => 'T1',
             'zone' => 'Зона A',
             'gate' => 'G-1',
@@ -358,6 +362,74 @@ class TelegramMiniAppControllerTest extends TestCase
             'zone' => 'Зона A',
             'status' => 'new',
         ]);
+
+        $this->assertDatabaseHas('spectech_schedules', [
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'status' => SpectechSchedule::STATUS_PENDING,
+            'address' => 'Терминал T1, Зона A, Гейт G-1',
+        ]);
+    }
+
+    public function test_busy_spectech_is_rejected_in_miniapp(): void
+    {
+        $initData = $this->makeInitData(['id' => 7010, 'first_name' => 'Busy']);
+        $requestedStart = now()->addHours(2)->startOfHour();
+        $requestedEnd = (clone $requestedStart)->addHours(3);
+
+        $category = TruckCategory::query()->create(['name' => 'Спец техника']);
+        $truck = Truck::query()->create([
+            'name' => 'Автокран 1',
+            'plate_number' => '777ABC01',
+            'truck_category_id' => $category->id,
+        ]);
+
+        $user = User::create([
+            'name' => 'TG Busy User',
+            'login' => 'tg_7010',
+            'email' => 'tg7010@example.com',
+            'password' => 'x',
+            'phone' => '+77000007010',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7010',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'TG Busy User',
+            'display_phone' => '+77000007010',
+        ]);
+
+        SpectechSchedule::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'equipment_type_key' => 'Автокран',
+            'equipment_type_label' => 'Автокран',
+            'assigned_truck_name' => 'Автокран 1 (777ABC01)',
+            'scheduled_start' => $requestedStart->copy()->subHour(),
+            'scheduled_end' => $requestedEnd->copy()->addHour(),
+            'purpose' => 'Уже занято',
+            'address' => 'Территория 1',
+            'status' => SpectechSchedule::STATUS_PENDING,
+        ]);
+
+        $this->postJson('/api/telegram/miniapp/spectech/requests', [
+            'init_data' => $initData,
+            'truck_id' => $truck->id,
+            'requested_start' => $requestedStart->toIso8601String(),
+            'requested_end' => $requestedEnd->toIso8601String(),
+            'terminal' => 'T1',
+            'zone' => 'Зона A',
+            'gate' => 'G-1',
+            'address' => 'Терминал T1, Зона A, Гейт G-1',
+            'comment' => 'Нужно срочно',
+            'photos' => [],
+        ])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Выбранная техника занята на указанный период')
+            ->assertJsonPath('conflict', true);
+
+        $this->assertDatabaseCount('spectech_requests', 0);
     }
 
     public function test_spectech_requests_endpoint_returns_only_current_user_requests(): void
@@ -429,7 +501,7 @@ class TelegramMiniAppControllerTest extends TestCase
 
         $initData = $this->makeInitData(['id' => 7008, 'first_name' => 'Owner']);
 
-        $response = $this->getJson('/api/telegram/miniapp/spectech/requests?init_data=' . urlencode($initData));
+        $response = $this->getJson('/api/telegram/miniapp/spectech/requests?init_data='.urlencode($initData));
         $response->assertOk();
 
         $items = $response->json('data');
@@ -446,7 +518,7 @@ class TelegramMiniAppControllerTest extends TestCase
             'user' => json_encode($user, JSON_UNESCAPED_UNICODE),
         ];
         ksort($params);
-        $check = collect($params)->map(fn ($v, $k) => $k . '=' . $v)->implode("\n");
+        $check = collect($params)->map(fn ($v, $k) => $k.'='.$v)->implode("\n");
         $secret = hash_hmac('sha256', $this->token, 'WebAppData', true);
         $params['hash'] = hash_hmac('sha256', $check, $secret);
 
