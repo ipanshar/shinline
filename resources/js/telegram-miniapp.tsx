@@ -108,6 +108,33 @@ interface SpectechTruckOption {
     plate_number?: string | null;
 }
 
+interface SpectechAvailabilityConflict {
+    from: string;
+    to: string;
+    purpose: string;
+}
+
+interface SpectechAvailabilityBusyTruck {
+    truck_id: number;
+    truck_name: string;
+    plate_number?: string | null;
+    free_at: string;
+    conflicts: SpectechAvailabilityConflict[];
+}
+
+interface SpectechAvailabilityAlternative {
+    id: number;
+    name: string;
+    plate_number?: string | null;
+}
+
+interface SpectechAvailabilityResponse {
+    available: boolean;
+    message: string;
+    free_alternative?: SpectechAvailabilityAlternative | null;
+    conflict_info?: SpectechAvailabilityBusyTruck[];
+}
+
 interface SpectechRequestItem {
     id: number;
     equipment_name: string;
@@ -125,6 +152,8 @@ interface SpectechRequestItem {
     status_label: string;
     created_at?: string | null;
 }
+
+const APP_TIME_ZONE = 'Asia/Almaty';
 
 
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
@@ -191,15 +220,62 @@ const emptyVisitVehicle = (): VisitVehicle => ({
     comment: null,
 });
 
-const toDateTimeLocalValue = (value?: string | null) => {
+const getTimeZoneDateParts = (value?: string | Date | null) => {
     if (!value) {
+        return null;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: APP_TIME_ZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        hourCycle: 'h23',
+    }).formatToParts(date);
+
+    const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+    return {
+        year: byType.year,
+        month: byType.month,
+        day: byType.day,
+        hour: byType.hour,
+        minute: byType.minute,
+    };
+};
+
+const toDateTimeLocalValue = (value?: string | Date | null) => {
+    const parts = getTimeZoneDateParts(value);
+    if (!parts) {
         return '';
     }
 
-    const date = new Date(value);
-    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+};
 
-    return localDate.toISOString().slice(0, 16);
+const formatDateTimeInAppTimeZone = (value?: string | null) => {
+    const parts = getTimeZoneDateParts(value);
+    if (!parts) {
+        return '—';
+    }
+
+    return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}`;
+};
+
+const createDefaultDateTimeValue = (hoursToAdd: number) => {
+    const date = new Date();
+    date.setHours(date.getHours() + hoursToAdd);
+    date.setMinutes(0, 0, 0);
+
+    return toDateTimeLocalValue(date);
 };
 
 const normalizeVisitVehicles = (vehicles?: VisitVehicle[]) => {
@@ -344,7 +420,7 @@ function CreateVisitForm({
     const [guestPosition, setGuestPosition] = useState(visit?.guest_position ?? '');
     const [company, setCompany] = useState(visit?.guest_company_name ?? '');
     const [guestIin, setGuestIin] = useState(visit?.guest_iin ?? '');
-    const [startsAt, setStartsAt] = useState(() => visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : new Date(Date.now() + 3600_000).toISOString().slice(0, 16));
+    const [startsAt, setStartsAt] = useState(() => visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : createDefaultDateTimeValue(1));
     const [endsAt, setEndsAt] = useState(() => toDateTimeLocalValue(visit?.visit_ends_at));
     const [permitKind, setPermitKind] = useState<'one_time' | 'multi_time'>((visit?.permit_kind as 'one_time' | 'multi_time') ?? 'one_time');
     const [visitPurpose, setVisitPurpose] = useState(visit?.comment ?? '');
@@ -359,7 +435,7 @@ function CreateVisitForm({
         setGuestPosition(visit?.guest_position ?? '');
         setCompany(visit?.guest_company_name ?? '');
         setGuestIin(visit?.guest_iin ?? '');
-        setStartsAt(visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : new Date(Date.now() + 3600_000).toISOString().slice(0, 16));
+        setStartsAt(visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : createDefaultDateTimeValue(1));
         setEndsAt(toDateTimeLocalValue(visit?.visit_ends_at));
         setPermitKind((visit?.permit_kind as 'one_time' | 'multi_time') ?? 'one_time');
         setVisitPurpose(visit?.comment ?? '');
@@ -682,14 +758,8 @@ function SpectechCreateForm({
 }) {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [truckId, setTruckId] = useState<number | ''>('');
-    const [requestedStart, setRequestedStart] = useState(() => {
-        const d = new Date(); d.setMinutes(0, 0, 0);
-        return d.toISOString().slice(0, 16);
-    });
-    const [requestedEnd, setRequestedEnd] = useState(() => {
-        const d = new Date(); d.setHours(d.getHours() + 8); d.setMinutes(0, 0, 0);
-        return d.toISOString().slice(0, 16);
-    });
+    const [requestedStart, setRequestedStart] = useState(() => createDefaultDateTimeValue(0));
+    const [requestedEnd, setRequestedEnd] = useState(() => createDefaultDateTimeValue(8));
     const [terminal, setTerminal] = useState('T1');
     const [zone, setZone] = useState('');
     const [gate, setGate] = useState('');
@@ -697,6 +767,8 @@ function SpectechCreateForm({
     const [comment, setComment] = useState('');
     const [busy, setBusy] = useState(false);
     const [loadingTrucks, setLoadingTrucks] = useState(true);
+    const [checkingAvailability, setCheckingAvailability] = useState(false);
+    const [availability, setAvailability] = useState<SpectechAvailabilityResponse | null>(null);
     const [err, setErr] = useState<string | null>(null);
 
     useEffect(() => {
@@ -715,6 +787,36 @@ function SpectechCreateForm({
             .finally(() => setLoadingTrucks(false));
     }, [initData]);
 
+    useEffect(() => {
+        if (!truckId || !requestedStart || !requestedEnd) {
+            setAvailability(null);
+            return;
+        }
+
+        const timer = window.setTimeout(async () => {
+            setCheckingAvailability(true);
+            try {
+                const response = await axios.get<SpectechAvailabilityResponse>('/api/telegram/miniapp/spectech/check-availability', {
+                    params: {
+                        init_data: initData,
+                        truck_id: truckId,
+                        requested_start: requestedStart,
+                        requested_end: requestedEnd,
+                    },
+                    headers: { 'X-Telegram-Init-Data': initData },
+                });
+
+                setAvailability(response.data);
+            } catch {
+                setAvailability(null);
+            } finally {
+                setCheckingAvailability(false);
+            }
+        }, 300);
+
+        return () => window.clearTimeout(timer);
+    }, [initData, requestedEnd, requestedStart, truckId]);
+
     const submit = async (e: FormEvent) => {
         e.preventDefault();
         if (!truckId) {
@@ -722,14 +824,33 @@ function SpectechCreateForm({
             return;
         }
 
+        if (!requestedStart || !requestedEnd) {
+            setErr('Укажите период заявки');
+            return;
+        }
+
+        if (requestedStart >= requestedEnd) {
+            setErr('Время окончания должно быть позже времени начала');
+            return;
+        }
+
+        if (availability && !availability.available && !availability.free_alternative) {
+            setErr(availability.message);
+            return;
+        }
+
+        const finalTruckId = availability && !availability.available && availability.free_alternative
+            ? availability.free_alternative.id
+            : truckId;
+
         setBusy(true);
         setErr(null);
         try {
             await axios.post('/api/telegram/miniapp/spectech/requests', {
                 init_data: initData,
-                truck_id: truckId,
-                requested_start: new Date(requestedStart).toISOString(),
-                requested_end: new Date(requestedEnd).toISOString(),
+                truck_id: finalTruckId,
+                requested_start: requestedStart,
+                requested_end: requestedEnd,
                 terminal,
                 zone: zone.trim(),
                 gate: gate.trim() || null,
@@ -742,6 +863,14 @@ function SpectechCreateForm({
 
             await onDone();
         } catch (error: any) {
+            if (error?.response?.status === 409 && error?.response?.data) {
+                setAvailability({
+                    available: false,
+                    message: error.response.data.message ?? 'Выбранная техника занята на указанный период',
+                    free_alternative: error.response.data.free_alternative ?? null,
+                    conflict_info: error.response.data.conflict_info ?? [],
+                });
+            }
             setErr(getErrorMessage(error, 'Не удалось создать заявку'));
         } finally {
             setBusy(false);
@@ -773,6 +902,35 @@ function SpectechCreateForm({
             <label>Дата и время окончания</label>
             <input style={inputStyle} type="datetime-local" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} required />
 
+            {checkingAvailability && <p style={{ color: '#555' }}>Проверяем доступность техники…</p>}
+
+            {!checkingAvailability && availability && (
+                <div
+                    style={{
+                        marginBottom: 12,
+                        borderRadius: 8,
+                        padding: 10,
+                        background: availability.available ? '#ecfdf5' : '#fff7ed',
+                        border: `1px solid ${availability.available ? '#86efac' : '#fdba74'}`,
+                        color: availability.available ? '#166534' : '#9a3412',
+                    }}
+                >
+                    <div>{availability.message}</div>
+                    {!availability.available && availability.free_alternative && (
+                        <div style={{ marginTop: 6 }}>
+                            Свободная альтернатива: <strong>{availability.free_alternative.name}</strong>
+                            {availability.free_alternative.plate_number ? ` (${availability.free_alternative.plate_number})` : ''}
+                            . При создании заявки будет использована она.
+                        </div>
+                    )}
+                    {!availability.available && !availability.free_alternative && availability.conflict_info && availability.conflict_info.length > 0 && (
+                        <div style={{ marginTop: 6 }}>
+                            Ближайшее освобождение: {availability.conflict_info[0]?.free_at ?? 'неизвестно'}
+                        </div>
+                    )}
+                </div>
+            )}
+
             <label>Терминал</label>
             <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
                 <option value="T1">T1</option>
@@ -794,7 +952,9 @@ function SpectechCreateForm({
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
 
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
-            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
+            <button type="submit" disabled={busy || checkingAvailability} style={btn}>
+                {busy ? 'Создание…' : checkingAvailability ? 'Проверяем…' : 'Создать заявку'}
+            </button>
             <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
         </form>
     );
@@ -819,17 +979,17 @@ function SpectechRequestList({
                     <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
                     <div>Период: {
                         request.requested_start
-                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            ? formatDateTimeInAppTimeZone(request.requested_start)
                             : request.start_date
                     } — {
                         request.requested_end
-                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            ? formatDateTimeInAppTimeZone(request.requested_end)
                             : request.end_date
                     }</div>
                     <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
                     <div>Адрес: {request.address}</div>
                     {request.comment && <div>Комментарий: {request.comment}</div>}
-                    {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
+                    {request.created_at && <div>Создана: {formatDateTimeInAppTimeZone(request.created_at)}</div>}
                 </div>
             ))}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
