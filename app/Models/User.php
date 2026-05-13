@@ -172,4 +172,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(TelegramBotChat::class);
     }
+
+    public function telegramApprovedChat()
+    {
+        return $this->hasOne(TelegramBotChat::class, 'approved_user_id');
+    }
 }

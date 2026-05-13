@@ -5,7 +5,6 @@
 import { createRoot } from 'react-dom/client';
 import { useState, useEffect, useCallback, FormEvent } from 'react';
 import axios from 'axios';
-
 // Без CSRF/credentials — Mini App авторизуется через initData
 axios.defaults.withCredentials = false;
 
@@ -102,16 +101,17 @@ interface ActiveVisitorItem {
     } | null;
 }
 
-interface SpectechTruckOption {
+interface UtilizationTruckOption {
     id: number;
     name?: string | null;
     plate_number?: string | null;
 }
 
-interface SpectechRequestItem {
+interface UtilizationRequestItem {
     id: number;
     equipment_name: string;
     plate_number?: string | null;
+    driver_name?: string | null;
     start_date: string;
     end_date: string;
     requested_start?: string | null;
@@ -123,8 +123,12 @@ interface SpectechRequestItem {
     comment?: string | null;
     status: string;
     status_label: string;
+    photos?: string[];
+    photo_urls?: string[];
     created_at?: string | null;
 }
+
+const MAX_UTILIZATION_PHOTOS = 5;
 
 
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
@@ -174,13 +178,13 @@ const visitStatusLabels: Record<string, string> = {
     canceled: 'Отозван',
 };
 
-const spectechStatusLabels: Record<string, string> = {
+const utilizationStatusLabels: Record<string, string> = {
     new: 'Новая',
-    departure: 'Выезд',
-    on_location: 'На объекте',
-    work_started: 'Работы начаты',
-    completed: 'Выполнено',
-    returned: 'Возврат',
+    reviewing: 'На рассмотрении',
+    approved: 'Одобрена',
+    in_progress: 'В работе',
+    completed: 'Выполнена',
+    rejected: 'Отклонена',
 };
 
 const emptyVisitVehicle = (): VisitVehicle => ({
@@ -208,6 +212,56 @@ const normalizeVisitVehicles = (vehicles?: VisitVehicle[]) => {
     }
 
     return vehicles.map((vehicle) => ({ ...emptyVisitVehicle(), ...vehicle }));
+};
+
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+    reader.readAsDataURL(file);
+});
+
+const compressImageDataUrl = async (dataUrl: string): Promise<string> => {
+    if (!dataUrl.startsWith('data:image/')) {
+        return dataUrl;
+    }
+
+    if (typeof Image === 'undefined') {
+        return dataUrl;
+    }
+
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Не удалось загрузить изображение'));
+        img.src = dataUrl;
+    });
+
+    const maxWidth = 1600;
+    const maxHeight = 1600;
+    const quality = 0.78;
+    const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+        return dataUrl;
+    }
+
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    try {
+        return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+        return dataUrl;
+    }
 };
 
 const getErrorMessage = (error: any, fallback: string) => {
@@ -300,15 +354,15 @@ function Dashboard({
     onCreate,
     onVisits,
     onExitPermits,
-    onSpectechCreate,
-    onSpectechRequests,
+    onUtilizationCreate,
+    onUtilizationRequests,
 }: {
     session: SessionPayload;
     onCreate: () => void;
     onVisits: () => void;
     onExitPermits: () => void;
-    onSpectechCreate: () => void;
-    onSpectechRequests: () => void;
+    onUtilizationCreate: () => void;
+    onUtilizationRequests: () => void;
 }) {
     return (
         <>
@@ -317,8 +371,9 @@ function Dashboard({
             <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
             <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
-            <button style={btn} onClick={onSpectechCreate}>Создать заявку на спецтехнику</button>
-            <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки</button>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>Утилизация доступна отдельно, без ожидания одобрения.</p>
+            <button style={btn} onClick={onUtilizationCreate}>Экстренный выезд</button>
+            <button style={btnSecondary} onClick={onUtilizationRequests}>Мои заявки на выезд</button>
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btnSecondary} onClick={onVisits}>Мои визиты</button>
         </>
@@ -671,7 +726,7 @@ function ExitPermitList({
     );
 }
 
-function SpectechCreateForm({
+function UtilizationCreateForm({
     initData,
     onDone,
     onCancel,
@@ -680,7 +735,7 @@ function SpectechCreateForm({
     onDone: () => void | Promise<void>;
     onCancel: () => void;
 }) {
-    const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
+    const [trucks, setTrucks] = useState<UtilizationTruckOption[]>([]);
     const [truckId, setTruckId] = useState<number | ''>('');
     const [requestedStart, setRequestedStart] = useState(() => {
         const d = new Date(); d.setMinutes(0, 0, 0);
@@ -694,7 +749,9 @@ function SpectechCreateForm({
     const [zone, setZone] = useState('');
     const [gate, setGate] = useState('');
     const [address, setAddress] = useState('');
+    const [driverName, setDriverName] = useState('');
     const [comment, setComment] = useState('');
+    const [photos, setPhotos] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
     const [loadingTrucks, setLoadingTrucks] = useState(true);
     const [err, setErr] = useState<string | null>(null);
@@ -702,7 +759,7 @@ function SpectechCreateForm({
     useEffect(() => {
         setLoadingTrucks(true);
         axios
-            .get<{ data: SpectechTruckOption[] }>('/api/telegram/miniapp/spectech/trucks', {
+            .get<{ data: UtilizationTruckOption[] }>('/api/telegram/miniapp/utilization/trucks', {
                 params: { init_data: initData },
                 headers: { 'X-Telegram-Init-Data': initData },
             })
@@ -710,10 +767,38 @@ function SpectechCreateForm({
                 setTrucks(response.data.data ?? []);
             })
             .catch(() => {
-                setErr('Не удалось загрузить список спецтехники');
+                setErr('Не удалось загрузить список заявок');
             })
             .finally(() => setLoadingTrucks(false));
     }, [initData]);
+
+    const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files ?? []);
+
+        if (files.length === 0) {
+            return;
+        }
+
+        try {
+            const availableSlots = Math.max(0, MAX_UTILIZATION_PHOTOS - photos.length);
+            const selectedFiles = files.slice(0, availableSlots);
+            const compressed = await Promise.all(selectedFiles.map(async (file) => {
+                const dataUrl = await readFileAsDataUrl(file);
+                return compressImageDataUrl(dataUrl);
+            }));
+
+            setPhotos((current) => [...current, ...compressed].slice(0, MAX_UTILIZATION_PHOTOS));
+            setErr(null);
+        } catch (error) {
+            setErr(error instanceof Error ? error.message : 'Не удалось добавить фото');
+        } finally {
+            event.target.value = '';
+        }
+    };
+
+    const removePhoto = (index: number) => {
+        setPhotos((current) => current.filter((_, photoIndex) => photoIndex !== index));
+    };
 
     const submit = async (e: FormEvent) => {
         e.preventDefault();
@@ -721,13 +806,18 @@ function SpectechCreateForm({
             setErr('Выберите технику');
             return;
         }
+        if (driverName.trim() === '') {
+            setErr('Укажите имя водителя');
+            return;
+        }
 
         setBusy(true);
         setErr(null);
         try {
-            await axios.post('/api/telegram/miniapp/spectech/requests', {
+            await axios.post('/api/telegram/miniapp/utilization/requests', {
                 init_data: initData,
                 truck_id: truckId,
+                driver_name: driverName.trim(),
                 requested_start: new Date(requestedStart).toISOString(),
                 requested_end: new Date(requestedEnd).toISOString(),
                 terminal,
@@ -735,7 +825,7 @@ function SpectechCreateForm({
                 gate: gate.trim() || null,
                 address: address.trim(),
                 comment: comment.trim() || null,
-                photos: [],
+                photos,
             }, {
                 headers: { 'X-Telegram-Init-Data': initData },
             });
@@ -750,7 +840,7 @@ function SpectechCreateForm({
 
     return (
         <form onSubmit={submit}>
-            <h3>Новая заявка на спецтехнику</h3>
+            <h3>Экстренный выезд</h3>
             <label>Техника</label>
             <select
                 style={inputStyle}
@@ -766,6 +856,9 @@ function SpectechCreateForm({
                     </option>
                 ))}
             </select>
+
+            <label>Имя водителя</label>
+            <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
 
             <label>Дата и время начала</label>
             <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
@@ -793,30 +886,59 @@ function SpectechCreateForm({
             <label>Комментарий</label>
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
 
+            <label>Фото запчастей</label>
+            <input
+                type="file"
+                accept="image/*"
+                multiple
+                capture="environment"
+                onChange={handlePhotoSelection}
+                style={{ ...inputStyle, padding: 8 }}
+            />
+            <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                Можно загрузить до {MAX_UTILIZATION_PHOTOS} фото. Они будут сжаты перед отправкой.
+            </div>
+            {photos.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+                    {photos.map((photo, index) => (
+                        <div key={`${index}-${photo.slice(0, 24)}`} style={{ position: 'relative', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
+                            <img src={photo} alt={`Фото ${index + 1}`} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+                            <button
+                                type="button"
+                                onClick={() => removePhoto(index)}
+                                style={{ position: 'absolute', top: 8, right: 8, border: 'none', borderRadius: 999, background: 'rgba(192,57,43,.92)', color: '#fff', width: 28, height: 28, cursor: 'pointer' }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
-            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
+            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Отправить заявку'}</button>
             <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
         </form>
     );
 }
 
-function SpectechRequestList({
+function UtilizationRequestList({
     requests,
     onBack,
     onCreate,
 }: {
-    requests: SpectechRequestItem[];
+    requests: UtilizationRequestItem[];
     onBack: () => void;
     onCreate: () => void;
 }) {
     return (
         <>
-            <h3>Мои заявки на спецтехнику</h3>
+            <h3>Мои заявки на экстренный выезд</h3>
             {requests.length === 0 && <p>Заявок пока нет.</p>}
             {requests.map((request) => (
                 <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
                     <strong>#{request.id} {request.equipment_name}</strong>
-                    <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
+                    <div>Статус: {request.status_label || utilizationStatusLabels[request.status] || request.status}</div>
                     <div>Период: {
                         request.requested_start
                             ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -829,6 +951,7 @@ function SpectechRequestList({
                     <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
                     <div>Адрес: {request.address}</div>
                     {request.comment && <div>Комментарий: {request.comment}</div>}
+                    {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
                 </div>
             ))}
@@ -845,10 +968,10 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'utilization-create' | 'utilization-requests'>('home');
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
-    const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
+    const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
 
     useEffect(() => {
@@ -963,27 +1086,27 @@ function TelegramMiniApp() {
         await loadVisits();
     }, [initData, loadVisits]);
 
-    const loadSpectechRequests = useCallback(() => {
+    const loadUtilizationRequests = useCallback(() => {
         if (!initData) return Promise.resolve();
 
         return axios
-            .get<{ data: SpectechRequestItem[] }>('/api/telegram/miniapp/spectech/requests', {
+            .get<{ data: UtilizationRequestItem[] }>('/api/telegram/miniapp/utilization/requests', {
                 params: { init_data: initData },
                 headers: { 'X-Telegram-Init-Data': initData },
             })
-            .then((response) => setSpectechRequests(response.data.data ?? []))
-            .catch(() => setSpectechRequests([]));
+            .then((response) => setUtilizationRequests(response.data.data ?? []))
+            .catch(() => setUtilizationRequests([]));
     }, [initData]);
 
     useEffect(() => {
-        if (view !== 'spectech-requests') return;
-        void loadSpectechRequests();
-    }, [view, loadSpectechRequests]);
+        if (view !== 'utilization-requests') return;
+        void loadUtilizationRequests();
+    }, [view, loadUtilizationRequests]);
 
-    const handleSpectechCreated = useCallback(async () => {
-        await loadSpectechRequests();
-        setView('spectech-requests');
-    }, [loadSpectechRequests]);
+    const handleUtilizationCreated = useCallback(async () => {
+        await loadUtilizationRequests();
+        setView('utilization-requests');
+    }, [loadUtilizationRequests]);
 
     if (loading) {
         return (
@@ -1040,14 +1163,14 @@ function TelegramMiniApp() {
                 <p style={{ color: 'crimson' }}>Доступ заблокирован администратором.</p>
             )}
 
-            {status === 'approved' && view === 'home' && (
+            {view === 'home' && status !== 'blocked' && (
                 <Dashboard
                     session={session}
                     onCreate={() => setView('create')}
                     onVisits={() => setView('visits')}
                     onExitPermits={() => setView('exit-permits')}
-                    onSpectechCreate={() => setView('spectech-create')}
-                    onSpectechRequests={() => setView('spectech-requests')}
+                    onUtilizationCreate={() => setView('utilization-create')}
+                    onUtilizationRequests={() => setView('utilization-requests')}
                 />
             )}
 
@@ -1095,18 +1218,18 @@ function TelegramMiniApp() {
                 />
             )}
 
-            {status === 'approved' && view === 'spectech-create' && (
-                <SpectechCreateForm
+            {status !== 'blocked' && view === 'utilization-create' && (
+                <UtilizationCreateForm
                     initData={initData}
-                    onDone={handleSpectechCreated}
+                    onDone={handleUtilizationCreated}
                     onCancel={() => setView('home')}
                 />
             )}
 
-            {status === 'approved' && view === 'spectech-requests' && (
-                <SpectechRequestList
-                    requests={spectechRequests}
-                    onCreate={() => setView('spectech-create')}
+            {status !== 'blocked' && view === 'utilization-requests' && (
+                <UtilizationRequestList
+                    requests={utilizationRequests}
+                    onCreate={() => setView('utilization-create')}
                     onBack={() => setView('home')}
                 />
             )}

@@ -215,6 +215,18 @@ export function AppSidebar() {
                 },
             ],
         },
+        {
+            title: 'Утилизация',
+            icon: ClipboardList,
+            items: [
+                {
+                    title: 'Экстренные перемещения',
+                    href: '/utilization/requests',
+                    icon: ClipboardList,
+                    permission: 'utilization.view',
+                },
+            ],
+        },
     ];
 
 // Навигация нижнего меню

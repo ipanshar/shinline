@@ -10,6 +10,7 @@ class SpectechRequest extends Model
     protected $fillable = [
         'user_id',
         'truck_id',
+        'driver_name',
         'start_date',
         'end_date',
         'terminal',

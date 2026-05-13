@@ -4,6 +4,7 @@ namespace Tests\Feature\Telegram;
 
 use App\Models\GuestVisit;
 use App\Models\GuestVisitVehicle;
+use App\Models\SpectechRequest;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
 use App\Models\TruckCategory;
@@ -437,6 +438,104 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->assertSame('Owner address', $items[0]['address']);
     }
 
+    public function test_create_spectech_request_saves_driver_name_and_photos(): void
+    {
+        $initData = $this->makeInitData(['id' => 7010, 'first_name' => 'Owner']);
+
+        $user = User::create([
+            'name' => 'Spectech Owner',
+            'login' => 'tg_7010',
+            'email' => 'tg7010@example.com',
+            'password' => 'x',
+            'phone' => '+77000007010',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7010',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Spectech Owner',
+            'display_phone' => '+77000007010',
+        ]);
+
+        $truck = Truck::create([
+            'name' => 'Машина вывоза',
+            'plate_number' => 'A111AA777',
+        ]);
+
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/spectech/requests', [
+            'init_data' => $initData,
+            'truck_id' => $truck->id,
+            'driver_name' => 'Иван Петров',
+            'requested_start' => now()->addHour()->toIso8601String(),
+            'requested_end' => now()->addHours(3)->toIso8601String(),
+            'terminal' => 'T1',
+            'zone' => 'Склад утилизации',
+            'gate' => 'G1',
+            'address' => 'Ул. Примерная, 1',
+            'comment' => 'Старые запчасти',
+            'photos' => [$photo, $photo, $photo, $photo, $photo],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.driver_name', 'Иван Петров')
+            ->assertJsonCount(5, 'data.photo_urls');
+
+        $this->assertDatabaseHas('spectech_requests', [
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'driver_name' => 'Иван Петров',
+            'terminal' => 'T1',
+            'zone' => 'Склад утилизации',
+            'comment' => 'Старые запчасти',
+        ]);
+
+        $request = SpectechRequest::query()->latest('id')->first();
+        $this->assertNotNull($request);
+        $this->assertCount(5, $request->photos ?? []);
+    }
+
+    public function test_create_spectech_request_rejects_more_than_five_photos(): void
+    {
+        $initData = $this->makeInitData(['id' => 7011, 'first_name' => 'Owner']);
+
+        $user = User::create([
+            'name' => 'Spectech Owner 2',
+            'login' => 'tg_7011',
+            'email' => 'tg7011@example.com',
+            'password' => 'x',
+            'phone' => '+77000007011',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7011',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Spectech Owner 2',
+            'display_phone' => '+77000007011',
+        ]);
+
+        $truck = Truck::create([
+            'name' => 'Машина вывоза 2',
+            'plate_number' => 'B222BB777',
+        ]);
+
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/spectech/requests', [
+            'init_data' => $initData,
+            'truck_id' => $truck->id,
+            'driver_name' => 'Иван Петров',
+            'requested_start' => now()->addHour()->toIso8601String(),
+            'requested_end' => now()->addHours(3)->toIso8601String(),
+            'terminal' => 'T1',
+            'zone' => 'Склад утилизации',
+            'address' => 'Ул. Примерная, 1',
+            'photos' => [$photo, $photo, $photo, $photo, $photo, $photo],
+        ])->assertStatus(422);
+    }
+
     private function makeInitData(array $user, ?int $authDate = null): string
     {
         $authDate = $authDate ?? time();
@@ -451,5 +550,10 @@ class TelegramMiniAppControllerTest extends TestCase
         $params['hash'] = hash_hmac('sha256', $check, $secret);
 
         return http_build_query($params);
+    }
+
+    private function tinyPngDataUrl(): string
+    {
+        return 'data:image/png;base64,' . base64_encode(hex2bin('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c636000000200015d0b2a0b0000000049454e44ae426082'));
     }
 }

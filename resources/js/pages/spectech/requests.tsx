@@ -179,6 +179,16 @@ const RequestItem: React.FC<{
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Комментарий</p>
                             <p className="text-[12.5px] text-[#444] mb-3">{req.comment || '—'}</p>
+                            {req.driver_name && (
+                                <p className="text-[12px] text-[#444] mb-2">Водитель: {req.driver_name}</p>
+                            )}
+                            {req.source_label && (
+                                <div className="mb-3">
+                                    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                        {req.source_label}
+                                    </span>
+                                </div>
+                            )}
                             {(req.photos ?? []).length > 0 && (
                                 <>
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Фото</p>
@@ -202,6 +212,7 @@ export default function SpectechRequests() {
     const [requests, setRequests] = useState<SpectechRequestData[]>([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('');
+    const [telegramOnly, setTelegramOnly] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [toast, setToast] = useState('');
     const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -225,13 +236,14 @@ export default function SpectechRequests() {
     const sorted = useMemo(() => [...requests].sort((a, b) => b.id - a.id), [requests]);
 
     const visible = useMemo(() => {
+        const base = telegramOnly ? sorted.filter((req) => req.is_telegram_miniapp) : sorted;
         const q = searchQuery.trim().toLowerCase();
-        if (!q) return sorted;
-        return sorted.filter(req =>
-            [String(req.id), req.equipment_name, req.address, req.comment ?? '', req.status_label]
+        if (!q) return base;
+        return base.filter(req =>
+            [String(req.id), req.equipment_name, req.address, req.comment ?? '', req.status_label, req.driver_name ?? '', req.source_label ?? '']
                 .join(' ').toLowerCase().includes(q)
         );
-    }, [searchQuery, sorted]);
+    }, [searchQuery, sorted, telegramOnly]);
 
     const stats = useMemo(() => {
         const active    = requests.filter(r => !['completed', 'returned'].includes(r.status)).length;
@@ -316,6 +328,17 @@ export default function SpectechRequests() {
                         />
                     </div>
                     <div className="flex flex-wrap gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => setTelegramOnly((current) => !current)}
+                            className={`px-3 h-7 rounded-full text-xs font-medium border transition-colors ${
+                                telegramOnly
+                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    : 'border-[#E0E0E0] bg-white text-[#555] hover:bg-[#F5F5F5]'
+                            }`}
+                        >
+                            Telegram Mini App
+                        </button>
                         {STATUS_FILTERS.map(f => (
                             <button
                                 key={f.value}

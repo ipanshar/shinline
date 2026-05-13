@@ -133,7 +133,7 @@ class SpectechRequestController extends Controller
     {
         $user = Auth::user();
 
-        $query = SpectechRequest::with(['truck', 'user'])
+        $query = SpectechRequest::with(['truck', 'user.telegramApprovedChat'])
             ->orderBy('created_at', 'desc');
 
         // Если не оператор/администратор — только свои заявки
@@ -367,6 +367,7 @@ class SpectechRequestController extends Controller
                 ? ($r->truck->name ?: ($r->truck->plate_number ? 'ТС ' . $r->truck->plate_number : 'ТС #' . $r->truck_id))
                 : '—',
             'plate_number'   => $r->truck?->plate_number,
+            'driver_name'    => $r->driver_name,
             'start_date'     => $r->start_date?->toDateString(),
             'end_date'       => $r->end_date?->toDateString(),
             'requested_start'=> $r->requested_start?->toIso8601String(),
@@ -381,6 +382,8 @@ class SpectechRequestController extends Controller
             'photos'         => $photos,
             'timeline'       => $r->timeline ?? [],
             'client_name'    => $r->user?->name,
+            'is_telegram_miniapp' => (bool) ($r->user?->telegramApprovedChat),
+            'source_label'   => $r->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id'    => $r->schedule_id,
             'from_scheduling'=> (bool) $r->from_scheduling,
             'conflict_info'  => $r->conflict_info ?? [],

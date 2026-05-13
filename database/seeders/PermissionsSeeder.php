@@ -92,6 +92,10 @@ class PermissionsSeeder extends Seeder
             // Заявки на спецтехнику
             ['name' => 'spectech.view',   'description' => 'Просмотр и создание заявок на спецтехнику', 'group' => 'spectech'],
             ['name' => 'spectech.manage', 'description' => 'Управление заявками на спецтехнику (оператор)', 'group' => 'spectech'],
+
+            // Экстренные перемещения в утилизацию
+            ['name' => 'utilization.view',   'description' => 'Просмотр заявок на утилизацию', 'group' => 'utilization'],
+            ['name' => 'utilization.manage', 'description' => 'Управление заявками на утилизацию', 'group' => 'utilization'],
         ];
 
         // Создаём разрешения
@@ -144,6 +148,7 @@ class PermissionsSeeder extends Seeder
                 'chat.view', 'chat.send',
                 'statistics.view',
                 'spectech.view', 'spectech.manage', // Спецтехника
+                'utilization.view', 'utilization.manage',
             ]);
         }
 
@@ -167,6 +172,7 @@ class PermissionsSeeder extends Seeder
                 'tasks.view', 'tasks.create',
                 'trucks.view',
                 'spectech.view', // Просмотр и создание своих заявок
+                'utilization.view',
             ]);
         }
 

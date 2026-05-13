@@ -232,6 +232,13 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     Route::post('/telegram/miniapp/visits/cancel', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'cancelVisit']);
     Route::get('/telegram/miniapp/active-visitors', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'activeVisitors']);
     Route::post('/telegram/miniapp/exit-permits', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createExitPermit']);
+
+    // Новый отдельный модуль утилизации (Mini App)
+    Route::get('/telegram/miniapp/utilization/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'utilizationTrucks']);
+    Route::get('/telegram/miniapp/utilization/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'utilizationRequests']);
+    Route::post('/telegram/miniapp/utilization/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createUtilizationRequest']);
+
+    // Legacy endpoints (оставлены для обратной совместимости)
     Route::get('/telegram/miniapp/spectech/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTrucks']);
     Route::get('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechRequests']);
     Route::post('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createSpectechRequest']);

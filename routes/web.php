@@ -30,6 +30,7 @@ use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\ClientRegistrationController;
 use App\Http\Controllers\Api\SpectechScheduleController;
 use App\Http\Controllers\Api\SpectechRequestController;
+use App\Http\Controllers\Api\UtilizationRequestController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -326,6 +327,11 @@ Route::patch('/spectech/api/schedule/{id}/status',          [SpectechScheduleCon
 Route::delete('/spectech/api/schedule/{id}',                [SpectechScheduleController::class, 'cancel'])->middleware('permission:spectech.view');
 Route::get('/spectech/api/schedule/equipment-types',        [SpectechScheduleController::class, 'equipmentTypes'])->middleware('permission:spectech.view');
 Route::get('/spectech/api/schedule/check-availability',     [SpectechScheduleController::class, 'checkAvailability'])->middleware('permission:spectech.view');
+
+// Utilization (отдельный модуль)
+Route::get('/utilization/requests', [RouteController::class, 'utilizationRequests'])->middleware('permission:utilization.view');
+Route::get('/utilization/api/requests', [UtilizationRequestController::class, 'index'])->middleware('permission:utilization.view');
+Route::patch('/utilization/api/requests/{id}/status', [UtilizationRequestController::class, 'updateStatus'])->middleware('permission:utilization.manage');
 
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
