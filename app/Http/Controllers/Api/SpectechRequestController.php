@@ -170,21 +170,32 @@ class SpectechRequestController extends Controller
             'photos'     => 'nullable|array|max:3',
             'photos.*'   => 'nullable|string',
             'check_availability' => 'nullable|boolean', // проверить доступность перед созданием
+            'force_complete_previous' => 'nullable|boolean',
+            'previous_request_id' => 'nullable|integer|exists:spectech_requests,id',
         ]);
-
-        // Сохраняем фотографии из base64
-        $photoPaths = [];
-        if (!empty($validated['photos'])) {
-            foreach ($validated['photos'] as $photoData) {
-                if ($photoData && str_starts_with($photoData, 'data:image')) {
-                    $path = $this->saveBase64Photo($photoData);
-                    if ($path) $photoPaths[] = $path;
-                }
-            }
-        }
 
         $startDate = now();
         $endDate = \Carbon\Carbon::parse($validated['end_date'])->endOfDay();
+        $activeRequestConflict = $this->findActiveRequestConflict((int) $validated['truck_id']);
+        $excludeScheduleId = $activeRequestConflict && ($validated['force_complete_previous'] ?? false)
+            ? $activeRequestConflict->schedule_id
+            : null;
+
+        if ($activeRequestConflict) {
+            $forceCompletePrevious = (bool) ($validated['force_complete_previous'] ?? false);
+            $previousRequestId = isset($validated['previous_request_id']) ? (int) $validated['previous_request_id'] : null;
+
+            if (!$forceCompletePrevious || $previousRequestId !== (int) $activeRequestConflict->id) {
+                return $this->activeRequestConflictResponse($activeRequestConflict);
+            }
+
+            if (!$this->canManageSpectechRequests()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Недостаточно прав для принудительного завершения предыдущей заявки',
+                ], 403);
+            }
+        }
 
         // Проверяем доступность техники, если запрашивается
         $availabilityService = new SpectechAvailabilityService();
@@ -192,7 +203,8 @@ class SpectechRequestController extends Controller
             $isAvailable = $availabilityService->isTruckAvailable(
                 $validated['truck_id'],
                 $startDate->toIso8601String(),
-                $endDate->toIso8601String()
+                $endDate->toIso8601String(),
+                $excludeScheduleId,
             );
 
             if (!$isAvailable) {
@@ -200,14 +212,16 @@ class SpectechRequestController extends Controller
                 $freeTruck = $availabilityService->findFreeAlternativeTruck(
                     $validated['truck_id'],
                     $startDate->toIso8601String(),
-                    $endDate->toIso8601String()
+                    $endDate->toIso8601String(),
+                    $excludeScheduleId,
                 );
 
                 // Собираем информацию о конфликтах
                 $conflictInfo = $availabilityService->getTypeConflictInfo(
                     $validated['truck_id'],
                     $startDate->toIso8601String(),
-                    $endDate->toIso8601String()
+                    $endDate->toIso8601String(),
+                    $excludeScheduleId,
                 );
 
                 return response()->json([
@@ -225,10 +239,25 @@ class SpectechRequestController extends Controller
             }
         }
 
+        // Сохраняем фотографии из base64 только после проверки конфликтов
+        $photoPaths = [];
+        if (!empty($validated['photos'])) {
+            foreach ($validated['photos'] as $photoData) {
+                if ($photoData && str_starts_with($photoData, 'data:image')) {
+                    $path = $this->saveBase64Photo($photoData);
+                    if ($path) $photoPaths[] = $path;
+                }
+            }
+        }
+
         $truck = Truck::findOrFail($validated['truck_id']);
         $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
 
-        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey) {
+        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey, $activeRequestConflict) {
+            if ($activeRequestConflict && ($validated['force_complete_previous'] ?? false)) {
+                $this->forceCompleteRequest($activeRequestConflict);
+            }
+
             $schedule = SpectechSchedule::create([
                 'user_id'              => Auth::id(),
                 'truck_id'             => $truck->id,
@@ -289,7 +318,31 @@ class SpectechRequestController extends Controller
             'status' => 'required|in:new,departure,on_location,work_started,completed,returned',
         ]);
 
-        $newStatus = $validated['status'];
+        if ($spectechRequest->isStatusFrozen()) {
+            $allowedFrozenStatuses = [
+                SpectechRequest::STATUS_NEW,
+                SpectechRequest::STATUS_DEPARTURE,
+                SpectechRequest::STATUS_ON_LOCATION,
+                SpectechRequest::STATUS_WORK_STARTED,
+            ];
+            $requestedStatus = $validated['status'];
+            $canCompleteFrozenRequest = in_array($spectechRequest->status, $allowedFrozenStatuses, true)
+                && $requestedStatus === SpectechRequest::STATUS_COMPLETED;
+
+            if (!$canCompleteFrozenRequest) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Статус заявки заморожен: ' . $spectechRequest->getStatusFreezeReason(),
+                    'data' => $this->formatRequest($spectechRequest->load(['truck', 'user'])),
+                ], 409);
+            }
+        }
+
+        if ($spectechRequest->isStatusFrozen()) {
+            $newStatus = SpectechRequest::STATUS_COMPLETED;
+        } else {
+            $newStatus = $validated['status'];
+        }
 
         // Обновляем timeline
         $timeline = $spectechRequest->timeline ?? SpectechRequest::buildInitialTimeline();
@@ -313,6 +366,8 @@ class SpectechRequestController extends Controller
             'status'   => $newStatus,
             'timeline' => $timeline,
         ]);
+
+        $this->syncScheduleStatus($spectechRequest->fresh());
 
         $spectechRequest->load(['truck', 'user']);
 
@@ -359,6 +414,8 @@ class SpectechRequestController extends Controller
             fn ($photo) => $this->normalizePhotoUrl(is_string($photo) ? $photo : ''),
             $r->photos ?? []
         )));
+        $effectiveEndAt = $r->getEffectiveEndAt();
+        $statusFrozen = $r->isStatusFrozen();
 
         return [
             'id'             => $r->id,
@@ -378,6 +435,9 @@ class SpectechRequestController extends Controller
             'comment'        => $r->comment,
             'status'         => $r->status,
             'status_label'   => SpectechRequest::STATUS_LABELS[$r->status] ?? $r->status,
+            'status_frozen'  => $statusFrozen,
+            'status_frozen_reason' => $statusFrozen ? $r->getStatusFreezeReason() : null,
+            'effective_end_at' => $effectiveEndAt?->toIso8601String(),
             'photos'         => $photos,
             'timeline'       => $r->timeline ?? [],
             'client_name'    => $r->user?->name,
@@ -403,6 +463,8 @@ class SpectechRequestController extends Controller
             'comment'       => 'nullable|string|max:2000',
             'photos'        => 'nullable|array|max:3',
             'photos.*'      => 'nullable|string',
+            'force_complete_previous' => 'nullable|boolean',
+            'previous_request_id' => 'nullable|integer|exists:spectech_requests,id',
         ]);
 
         // Получаем расписание
@@ -419,6 +481,26 @@ class SpectechRequestController extends Controller
             ], 409);
         }
 
+        $activeRequestConflict = $schedule->truck_id
+            ? $this->findActiveRequestConflict((int) $schedule->truck_id)
+            : null;
+
+        if ($activeRequestConflict) {
+            $forceCompletePrevious = (bool) ($validated['force_complete_previous'] ?? false);
+            $previousRequestId = isset($validated['previous_request_id']) ? (int) $validated['previous_request_id'] : null;
+
+            if (!$forceCompletePrevious || $previousRequestId !== (int) $activeRequestConflict->id) {
+                return $this->activeRequestConflictResponse($activeRequestConflict);
+            }
+
+            if (!$this->canManageSpectechRequests()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Недостаточно прав для принудительного завершения предыдущей заявки',
+                ], 403);
+            }
+        }
+
         // Сохраняем фотографии
         $photoPaths = [];
         if (!empty($validated['photos'])) {
@@ -431,24 +513,30 @@ class SpectechRequestController extends Controller
         }
 
         // Создаём заявку
-        $spectechRequest = SpectechRequest::create([
-            'user_id'         => $schedule->user_id,
-            'truck_id'        => $schedule->truck_id,
-            'start_date'      => $schedule->scheduled_start->toDateString(),
-            'end_date'        => $schedule->scheduled_end->toDateString(),
-            'terminal'        => $validated['terminal'],
-            'zone'            => $validated['zone'],
-            'gate'            => $validated['gate'] ?? null,
-            'address'         => $validated['address'],
-            'comment'         => $validated['comment'] ?? null,
-            'status'          => SpectechRequest::STATUS_NEW,
-            'photos'          => $photoPaths,
-            'timeline'        => SpectechRequest::buildInitialTimeline(),
-            'schedule_id'     => $schedule->id,
-            'requested_start' => $schedule->scheduled_start,
-            'requested_end'   => $schedule->scheduled_end,
-            'from_scheduling' => true,
-        ]);
+        $spectechRequest = DB::transaction(function () use ($schedule, $validated, $photoPaths, $activeRequestConflict) {
+            if ($activeRequestConflict && ($validated['force_complete_previous'] ?? false)) {
+                $this->forceCompleteRequest($activeRequestConflict);
+            }
+
+            return SpectechRequest::create([
+                'user_id'         => $schedule->user_id,
+                'truck_id'        => $schedule->truck_id,
+                'start_date'      => $schedule->scheduled_start->toDateString(),
+                'end_date'        => $schedule->scheduled_end->toDateString(),
+                'terminal'        => $validated['terminal'],
+                'zone'            => $validated['zone'],
+                'gate'            => $validated['gate'] ?? null,
+                'address'         => $validated['address'],
+                'comment'         => $validated['comment'] ?? null,
+                'status'          => SpectechRequest::STATUS_NEW,
+                'photos'          => $photoPaths,
+                'timeline'        => SpectechRequest::buildInitialTimeline(),
+                'schedule_id'     => $schedule->id,
+                'requested_start' => $schedule->scheduled_start,
+                'requested_end'   => $schedule->scheduled_end,
+                'from_scheduling' => true,
+            ]);
+        });
 
         $spectechRequest->load(['truck', 'user', 'schedule']);
 
@@ -529,6 +617,72 @@ class SpectechRequestController extends Controller
         return trim($cleaned ?: $name);
     }
 
+    private function findActiveRequestConflict(int $truckId): ?SpectechRequest
+    {
+        return SpectechRequest::with(['truck', 'user'])
+            ->where('truck_id', $truckId)
+            ->whereNotIn('status', [
+                SpectechRequest::STATUS_COMPLETED,
+                SpectechRequest::STATUS_RETURNED,
+            ])
+            ->orderByDesc('created_at')
+            ->first();
+    }
+
+    private function activeRequestConflictResponse(SpectechRequest $request): JsonResponse
+    {
+        return response()->json([
+            'status' => false,
+            'conflict' => true,
+            'conflict_type' => 'active_request',
+            'message' => 'По этой технике уже есть незавершённая заявка',
+            'can_force_complete' => $this->canManageSpectechRequests(),
+            'previous_request' => $this->formatRequest($request),
+        ], 409);
+    }
+
+    private function canManageSpectechRequests(): bool
+    {
+        $user = Auth::user();
+
+        return $user->isAdmin() || $user->hasRole('Оператор');
+    }
+
+    private function forceCompleteRequest(SpectechRequest $request): void
+    {
+        $timeline = $request->timeline ?? SpectechRequest::buildInitialTimeline();
+        if (isset($timeline[4]) && ($timeline[4]['time'] ?? null) === null) {
+            $timeline[4]['time'] = now()->toIso8601String();
+        }
+
+        $request->status = SpectechRequest::STATUS_COMPLETED;
+        $request->timeline = $timeline;
+        $request->save();
+
+        $this->syncScheduleStatus($request);
+    }
+
+    private function syncScheduleStatus(SpectechRequest $request): void
+    {
+        if (!$request->schedule_id) {
+            return;
+        }
+
+        $scheduleStatus = match ($request->status) {
+            SpectechRequest::STATUS_NEW => SpectechSchedule::STATUS_PENDING,
+            SpectechRequest::STATUS_DEPARTURE,
+            SpectechRequest::STATUS_ON_LOCATION,
+            SpectechRequest::STATUS_WORK_STARTED => SpectechSchedule::STATUS_IN_PROGRESS,
+            SpectechRequest::STATUS_COMPLETED,
+            SpectechRequest::STATUS_RETURNED => SpectechSchedule::STATUS_DONE,
+            default => SpectechSchedule::STATUS_PENDING,
+        };
+
+        SpectechSchedule::whereKey($request->schedule_id)->update([
+            'status' => $scheduleStatus,
+        ]);
+    }
+
     /**
      * Нормализует путь/URL фото к браузерно-доступному виду.
      */
@@ -560,5 +714,3 @@ class SpectechRequestController extends Controller
         return Storage::disk('public')->url($normalized);
     }
 }
-
-

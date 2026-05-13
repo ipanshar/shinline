@@ -76,16 +76,16 @@ class SpectechSchedule extends Model
     /**
      * Получить ближайшее окончание занятости для техники
      */
-    public static function getNextFreeAt(int $truckId, string $start, string $end): ?string
+    public static function getNextFreeAt(int $truckId, string $start, string $end, ?int $excludeId = null): ?string
     {
         $overlap = self::where('truck_id', $truckId)
             ->whereIn('status', self::ACTIVE_STATUSES)
             ->where('scheduled_start', '<', $end)
             ->where('scheduled_end', '>', $start)
+            ->when($excludeId, fn($q) => $q->where('id', '!=', $excludeId))
             ->orderBy('scheduled_end', 'desc')
             ->first();
 
         return $overlap?->scheduled_end?->toIso8601String();
     }
 }
-
