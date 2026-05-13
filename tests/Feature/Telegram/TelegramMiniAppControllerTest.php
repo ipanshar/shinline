@@ -432,6 +432,66 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->assertDatabaseCount('spectech_requests', 0);
     }
 
+    public function test_spectech_availability_endpoint_returns_free_alternative_for_miniapp(): void
+    {
+        $initData = $this->makeInitData(['id' => 7011, 'first_name' => 'Alternative']);
+        $requestedStart = now()->addHours(2)->startOfHour();
+        $requestedEnd = (clone $requestedStart)->addHours(3);
+
+        $category = TruckCategory::query()->create(['name' => 'Спец техника']);
+        $busyTruck = Truck::query()->create([
+            'name' => 'Автокран 1',
+            'plate_number' => '111ABC01',
+            'truck_category_id' => $category->id,
+        ]);
+        $freeTruck = Truck::query()->create([
+            'name' => 'Автокран 2',
+            'plate_number' => '222ABC01',
+            'truck_category_id' => $category->id,
+        ]);
+
+        $user = User::create([
+            'name' => 'TG Availability User',
+            'login' => 'tg_7011',
+            'email' => 'tg7011@example.com',
+            'password' => 'x',
+            'phone' => '+77000007011',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7011',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'TG Availability User',
+            'display_phone' => '+77000007011',
+        ]);
+
+        SpectechSchedule::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => $busyTruck->id,
+            'equipment_type_key' => 'Автокран',
+            'equipment_type_label' => 'Автокран',
+            'assigned_truck_name' => 'Автокран 1 (111ABC01)',
+            'scheduled_start' => $requestedStart->copy()->subHour(),
+            'scheduled_end' => $requestedEnd->copy()->addHour(),
+            'purpose' => 'Уже занято',
+            'address' => 'Территория 1',
+            'status' => SpectechSchedule::STATUS_PENDING,
+        ]);
+
+        $this->getJson('/api/telegram/miniapp/spectech/check-availability?'.http_build_query([
+            'init_data' => $initData,
+            'truck_id' => $busyTruck->id,
+            'requested_start' => $requestedStart->format('Y-m-d H:i'),
+            'requested_end' => $requestedEnd->format('Y-m-d H:i'),
+        ]))
+            ->assertOk()
+            ->assertJsonPath('available', false)
+            ->assertJsonPath('message', 'Выбранная техника занята на указанный период')
+            ->assertJsonPath('free_alternative.id', $freeTruck->id)
+            ->assertJsonPath('free_alternative.name', 'Автокран 2');
+    }
+
     public function test_spectech_requests_endpoint_returns_only_current_user_requests(): void
     {
         $category = TruckCategory::query()->create(['name' => 'Спец техника']);

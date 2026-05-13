@@ -381,6 +381,58 @@ class TelegramMiniAppController extends Controller
         ], 201);
     }
 
+    public function checkSpectechAvailability(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $validated = $request->validate([
+            'truck_id' => ['required', 'integer', 'exists:trucks,id'],
+            'requested_start' => ['required', 'date'],
+            'requested_end' => ['required', 'date', 'after:requested_start'],
+        ]);
+
+        $requestedStart = Carbon::parse($validated['requested_start']);
+        $requestedEnd = Carbon::parse($validated['requested_end']);
+        $availabilityService = new SpectechAvailabilityService;
+
+        $isAvailable = $availabilityService->isTruckAvailable(
+            (int) $validated['truck_id'],
+            $requestedStart->toIso8601String(),
+            $requestedEnd->toIso8601String(),
+        );
+
+        if ($isAvailable) {
+            return response()->json([
+                'available' => true,
+                'message' => 'Техника доступна',
+            ]);
+        }
+
+        $freeTruck = $availabilityService->findFreeAlternativeTruck(
+            (int) $validated['truck_id'],
+            $requestedStart->toIso8601String(),
+            $requestedEnd->toIso8601String(),
+        );
+
+        $conflictInfo = $availabilityService->getTypeConflictInfo(
+            (int) $validated['truck_id'],
+            $requestedStart->toIso8601String(),
+            $requestedEnd->toIso8601String(),
+        );
+
+        return response()->json([
+            'available' => false,
+            'message' => 'Выбранная техника занята на указанный период',
+            'free_alternative' => $freeTruck ? [
+                'id' => $freeTruck->id,
+                'name' => $freeTruck->name,
+                'plate_number' => $freeTruck->plate_number,
+            ] : null,
+            'conflict_info' => $conflictInfo,
+        ]);
+    }
+
     private function authChat(Request $request): TelegramBotChat
     {
         $initData = (string) ($request->input('init_data') ?? $request->header('X-Telegram-Init-Data', ''));
