@@ -6,8 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 class RbacController extends Controller
 {
@@ -69,17 +73,109 @@ class RbacController extends Controller
      */
     public function updateUserRoles(Request $request, User $user)
     {
-        $request->validate([
+        $validated = $request->validate([
             'role_ids' => 'array',
             'role_ids.*' => 'exists:roles,id',
         ]);
 
-        $user->roles()->sync($request->role_ids ?? []);
+        $roleIds = array_map('intval', $validated['role_ids'] ?? []);
+
+        if ($this->wouldRemoveLastAdmin($user, $roleIds)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Нельзя снять роль Администратор у последнего администратора системы',
+            ], 422);
+        }
+
+        $user->roles()->sync($roleIds);
 
         return response()->json([
             'status' => true,
             'message' => 'Роли пользователя обновлены',
             'user' => $user->load('roles'),
+        ]);
+    }
+
+    /**
+     * Обновить профиль пользователя
+     */
+    public function updateUser(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'login' => ['required', 'string', 'max:255', Rule::unique('users', 'login')->ignore($user->id)],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'phone' => 'nullable|string|max:255',
+            'company' => 'nullable|string|max:255',
+            'whatsapp_number' => 'nullable|string|max:255',
+        ]);
+
+        $user->fill([
+            'name' => trim($validated['name']),
+            'login' => trim($validated['login']),
+            'email' => $this->normalizeOptionalString($validated['email'] ?? null),
+            'phone' => $this->normalizeOptionalString($validated['phone'] ?? null),
+            'company' => $this->normalizeOptionalString($validated['company'] ?? null),
+            'whatsapp_number' => $this->normalizeOptionalString($validated['whatsapp_number'] ?? null),
+        ])->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Пользователь обновлён',
+            'user' => $user->fresh('roles'),
+        ]);
+    }
+
+    /**
+     * Сменить пароль пользователя
+     */
+    public function updateUserPassword(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'password' => ['required', 'confirmed', Password::defaults()],
+        ]);
+
+        $user->forceFill([
+            'password' => Hash::make($validated['password']),
+        ])->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Пароль пользователя обновлён',
+        ]);
+    }
+
+    /**
+     * Удалить пользователя
+     */
+    public function deleteUser(Request $request, User $user)
+    {
+        if ($request->user()?->is($user)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Нельзя удалить собственную учётную запись',
+            ], 422);
+        }
+
+        if ($this->wouldRemoveLastAdmin($user)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Нельзя удалить последнего администратора системы',
+            ], 422);
+        }
+
+        try {
+            $user->delete();
+        } catch (QueryException $exception) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Нельзя удалить пользователя, так как он связан с другими данными в системе',
+            ], 409);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Пользователь удалён',
         ]);
     }
 
@@ -231,5 +327,45 @@ class RbacController extends Controller
             'status' => true,
             'message' => 'Роль удалена у ' . count($request->user_ids) . ' пользователей',
         ]);
+    }
+
+    private function normalizeOptionalString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+
+        return $normalized === '' ? null : $normalized;
+    }
+
+    /**
+     * @param array<int> $roleIds
+     */
+    private function wouldRemoveLastAdmin(User $user, array $roleIds = []): bool
+    {
+        $adminRole = Role::query()->where('name', 'Администратор')->first();
+
+        if (!$adminRole) {
+            return false;
+        }
+
+        $isAdmin = $user->roles()->where('roles.id', $adminRole->id)->exists();
+
+        if (!$isAdmin) {
+            return false;
+        }
+
+        if (in_array($adminRole->id, $roleIds, true)) {
+            return false;
+        }
+
+        return !User::query()
+            ->whereKeyNot($user->id)
+            ->whereHas('roles', function ($query) use ($adminRole) {
+                $query->where('roles.id', $adminRole->id);
+            })
+            ->exists();
     }
 }

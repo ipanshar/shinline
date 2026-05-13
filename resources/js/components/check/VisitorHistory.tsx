@@ -100,12 +100,12 @@ const VisitorHistory: React.FC = () => {
       });
       
       if (response.data.status) {
-        let data = response.data.data || [];
+        const data = response.data.data || [];
         
         // Сортировка
         data.sort((a: VisitorRecord, b: VisitorRecord) => {
-          let valA = a[sortField] || '';
-          let valB = b[sortField] || '';
+          const valA = a[sortField] || '';
+          const valB = b[sortField] || '';
           if (sortDir === 'asc') {
             return valA > valB ? 1 : -1;
           }

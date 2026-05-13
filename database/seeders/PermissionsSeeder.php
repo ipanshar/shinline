@@ -2,9 +2,9 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\Permission;
 use App\Models\Role;
+use Illuminate\Database\Seeder;
 
 class PermissionsSeeder extends Seeder
 {
@@ -185,10 +185,26 @@ class PermissionsSeeder extends Seeder
             ]);
         }
 
+        // Оператор спецтехники
+        $spectechOperator = Role::firstOrCreate(
+            ['name' => 'Оператор спецтехники'],
+            [
+                'level' => 55,
+                'description' => 'Управление заявками на спецтехнику через веб и Telegram Mini App',
+            ]
+        );
+        $this->syncPermissions($spectechOperator, [
+            'spectech.view',
+            'spectech.manage',
+        ]);
+
         // Telegram приглашающий (роль для одобренных пользователей бота)
         $tgInviter = Role::firstOrCreate(
             ['name' => 'Telegram приглашающий'],
-            ['level' => 0]
+            [
+                'level' => 0,
+                'description' => 'Одобренный пользователь Telegram-бота для гостевых визитов',
+            ]
         );
         $this->syncPermissions($tgInviter, [
             'guest_visits.view', 'guest_visits.create',

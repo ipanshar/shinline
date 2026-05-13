@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 class SpectechRequest extends Model
 {
@@ -71,6 +72,37 @@ class SpectechRequest extends Model
         return $this->belongsTo(SpectechSchedule::class);
     }
 
+    public function getEffectiveEndAt(): ?Carbon
+    {
+        if ($this->requested_end instanceof Carbon) {
+            return $this->requested_end->copy();
+        }
+
+        if ($this->end_date instanceof Carbon) {
+            return $this->end_date->copy()->endOfDay();
+        }
+
+        return null;
+    }
+
+    public function isStatusFrozen(): bool
+    {
+        $effectiveEndAt = $this->getEffectiveEndAt();
+
+        if (!$effectiveEndAt) {
+            return false;
+        }
+
+        return now()->greaterThan($effectiveEndAt);
+    }
+
+    public function getStatusFreezeReason(): ?string
+    {
+        return $this->isStatusFrozen()
+            ? 'Время заявки истекло'
+            : null;
+    }
+
     /**
      * Сформировать начальный timeline при создании заявки.
      */
@@ -86,4 +118,3 @@ class SpectechRequest extends Model
         ];
     }
 }
-

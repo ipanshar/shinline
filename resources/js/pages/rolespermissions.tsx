@@ -89,9 +89,11 @@ interface Role {
 interface User {
     id: number;
     name: string;
-    email: string;
-    phone?: string;
-    login?: string;
+    email?: string | null;
+    phone?: string | null;
+    login?: string | null;
+    company?: string | null;
+    whatsapp_number?: string | null;
     roles: Role[];
 }
 
@@ -112,6 +114,43 @@ interface Stats {
     total_permissions: number;
     role_stats: { id: number; name: string; users_count: number }[];
 }
+
+interface ApiErrorPayload {
+    message?: string;
+    errors?: Record<string, string[]>;
+}
+
+interface UsersResponse {
+    data: User[];
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from: number;
+    to: number;
+}
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+    if (axios.isAxiosError<ApiErrorPayload>(error)) {
+        const validationErrors = Object.values(error.response?.data?.errors ?? {});
+
+        for (const fieldErrors of validationErrors) {
+            if (Array.isArray(fieldErrors) && typeof fieldErrors[0] === 'string') {
+                return fieldErrors[0];
+            }
+        }
+
+        if (typeof error.response?.data?.message === 'string' && error.response.data.message.trim() !== '') {
+            return error.response.data.message;
+        }
+    }
+
+    if (error instanceof Error && error.message.trim() !== '') {
+        return error.message;
+    }
+
+    return fallback;
+};
 
 // ============ Permission Group Labels ============
 const permissionGroupLabels: Record<string, string> = {
@@ -151,6 +190,18 @@ export default function RolesPermissions() {
     const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [editUserRoles, setEditUserRoles] = useState<number[]>([]);
+    const [editingProfileUser, setEditingProfileUser] = useState<User | null>(null);
+    const [userForm, setUserForm] = useState({
+        name: '',
+        login: '',
+        email: '',
+        phone: '',
+        company: '',
+        whatsapp_number: '',
+    });
+    const [editingPasswordUser, setEditingPasswordUser] = useState<User | null>(null);
+    const [passwordForm, setPasswordForm] = useState({ password: '', password_confirmation: '' });
+    const [deleteUserTarget, setDeleteUserTarget] = useState<User | null>(null);
 
     // Roles tab state
     const [roleDialogOpen, setRoleDialogOpen] = useState(false);
@@ -171,14 +222,14 @@ export default function RolesPermissions() {
             setRoles(response.data.roles);
             setPermissions(response.data.permissions);
             setPermissionGroups(response.data.permissionGroups);
-        } catch (error) {
+        } catch {
             toast({ title: 'Ошибка', description: 'Не удалось загрузить данные RBAC', variant: 'destructive' });
         }
     }, [toast]);
 
     const loadUsers = useCallback(async (page = 1) => {
         try {
-            const params: Record<string, any> = { page, per_page: 25 };
+            const params: Record<string, string | number | boolean> = { page, per_page: 25 };
             if (userSearch) params.search = userSearch;
             if (userRoleFilter === 'none') {
                 params.no_role = true;
@@ -186,7 +237,7 @@ export default function RolesPermissions() {
                 params.role_id = userRoleFilter;
             }
 
-            const response = await axios.get('/rbac/users', { params });
+            const response = await axios.get<UsersResponse>('/rbac/users', { params });
             setUsers(response.data.data);
             setUserPagination({
                 current_page: response.data.current_page,
@@ -196,7 +247,7 @@ export default function RolesPermissions() {
                 from: response.data.from,
                 to: response.data.to,
             });
-        } catch (error) {
+        } catch {
             toast({ title: 'Ошибка', description: 'Не удалось загрузить пользователей', variant: 'destructive' });
         }
     }, [userSearch, userRoleFilter, toast]);
@@ -210,14 +261,37 @@ export default function RolesPermissions() {
         }
     }, []);
 
+    const refreshUsersView = useCallback(async (page = userPagination?.current_page || 1) => {
+        await Promise.all([loadUsers(page), loadStats()]);
+    }, [loadStats, loadUsers, userPagination?.current_page]);
+
     useEffect(() => {
         const init = async () => {
             setLoading(true);
-            await Promise.all([loadRbacData(), loadUsers(), loadStats()]);
+            try {
+                const usersResponse = await axios.get<UsersResponse>('/rbac/users', {
+                    params: { page: 1, per_page: 25 },
+                });
+
+                setUsers(usersResponse.data.data);
+                setUserPagination({
+                    current_page: usersResponse.data.current_page,
+                    last_page: usersResponse.data.last_page,
+                    per_page: usersResponse.data.per_page,
+                    total: usersResponse.data.total,
+                    from: usersResponse.data.from,
+                    to: usersResponse.data.to,
+                });
+
+                await Promise.all([loadRbacData(), loadStats()]);
+            } catch {
+                toast({ title: 'Ошибка', description: 'Не удалось загрузить пользователей', variant: 'destructive' });
+                await Promise.all([loadRbacData(), loadStats()]);
+            }
             setLoading(false);
         };
         init();
-    }, []);
+    }, [loadRbacData, loadStats, toast]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -225,12 +299,29 @@ export default function RolesPermissions() {
             setSelectedUsers([]);
         }, 300);
         return () => clearTimeout(timer);
-    }, [userSearch, userRoleFilter]);
+    }, [loadUsers]);
 
     // ============ User Actions ============
     const handleEditUser = (user: User) => {
         setEditingUser(user);
         setEditUserRoles(user.roles.map(r => r.id));
+    };
+
+    const handleOpenUserProfile = (user: User) => {
+        setEditingProfileUser(user);
+        setUserForm({
+            name: user.name || '',
+            login: user.login || '',
+            email: user.email || '',
+            phone: user.phone || '',
+            company: user.company || '',
+            whatsapp_number: user.whatsapp_number || '',
+        });
+    };
+
+    const handleOpenPasswordDialog = (user: User) => {
+        setEditingPasswordUser(user);
+        setPasswordForm({ password: '', password_confirmation: '' });
     };
 
     const handleSaveUserRoles = async () => {
@@ -240,10 +331,55 @@ export default function RolesPermissions() {
             toast({ title: 'Успешно', description: 'Роли пользователя обновлены' });
             setEditingUser(null);
             setTimeout(cleanupDialogArtifacts, 150);
-            loadUsers(userPagination?.current_page || 1);
-            loadStats();
-        } catch (error) {
-            toast({ title: 'Ошибка', description: 'Не удалось обновить роли', variant: 'destructive' });
+            await refreshUsersView();
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось обновить роли'), variant: 'destructive' });
+        }
+    };
+
+    const handleSaveUserProfile = async () => {
+        if (!editingProfileUser) return;
+
+        try {
+            await axios.put(`/rbac/users/${editingProfileUser.id}`, userForm);
+            toast({ title: 'Успешно', description: 'Профиль пользователя обновлён' });
+            setEditingProfileUser(null);
+            setTimeout(cleanupDialogArtifacts, 150);
+            await refreshUsersView();
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось обновить пользователя'), variant: 'destructive' });
+        }
+    };
+
+    const handleSaveUserPassword = async () => {
+        if (!editingPasswordUser) return;
+
+        try {
+            await axios.put(`/rbac/users/${editingPasswordUser.id}/password`, passwordForm);
+            toast({ title: 'Успешно', description: 'Пароль пользователя обновлён' });
+            setEditingPasswordUser(null);
+            setPasswordForm({ password: '', password_confirmation: '' });
+            setTimeout(cleanupDialogArtifacts, 150);
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось изменить пароль'), variant: 'destructive' });
+        }
+    };
+
+    const handleDeleteUser = async () => {
+        if (!deleteUserTarget) return;
+
+        const targetPage = userPagination && users.length === 1 && userPagination.current_page > 1
+            ? userPagination.current_page - 1
+            : userPagination?.current_page || 1;
+
+        try {
+            await axios.delete(`/rbac/users/${deleteUserTarget.id}`);
+            toast({ title: 'Успешно', description: 'Пользователь удалён' });
+            setDeleteUserTarget(null);
+            setTimeout(cleanupDialogArtifacts, 150);
+            await refreshUsersView(targetPage);
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось удалить пользователя'), variant: 'destructive' });
         }
     };
 
@@ -259,10 +395,9 @@ export default function RolesPermissions() {
             setTimeout(cleanupDialogArtifacts, 150);
             setBulkActionRole('');
             setSelectedUsers([]);
-            loadUsers(userPagination?.current_page || 1);
-            loadStats();
-        } catch (error) {
-            toast({ title: 'Ошибка', description: 'Не удалось назначить роль', variant: 'destructive' });
+            await refreshUsersView();
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось назначить роль'), variant: 'destructive' });
         }
     };
 
@@ -278,10 +413,9 @@ export default function RolesPermissions() {
             setTimeout(cleanupDialogArtifacts, 150);
             setBulkActionRole('');
             setSelectedUsers([]);
-            loadUsers(userPagination?.current_page || 1);
-            loadStats();
-        } catch (error) {
-            toast({ title: 'Ошибка', description: 'Не удалось удалить роль', variant: 'destructive' });
+            await refreshUsersView();
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось удалить роль'), variant: 'destructive' });
         }
     };
 
@@ -311,9 +445,8 @@ export default function RolesPermissions() {
             setTimeout(cleanupDialogArtifacts, 150);
             loadRbacData();
             loadStats();
-        } catch (error: any) {
-            const message = error.response?.data?.message || 'Не удалось сохранить роль';
-            toast({ title: 'Ошибка', description: message, variant: 'destructive' });
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось сохранить роль'), variant: 'destructive' });
         }
     };
 
@@ -326,9 +459,8 @@ export default function RolesPermissions() {
             setTimeout(cleanupDialogArtifacts, 150);
             loadRbacData();
             loadStats();
-        } catch (error: any) {
-            const message = error.response?.data?.message || 'Не удалось удалить роль';
-            toast({ title: 'Ошибка', description: message, variant: 'destructive' });
+        } catch (error: unknown) {
+            toast({ title: 'Ошибка', description: getErrorMessage(error, 'Не удалось удалить роль'), variant: 'destructive' });
         }
     };
 
@@ -348,7 +480,7 @@ export default function RolesPermissions() {
             setEditingRolePermissions(null);
             setTimeout(cleanupDialogArtifacts, 150);
             loadRbacData();
-        } catch (error) {
+        } catch {
             toast({ title: 'Ошибка', description: 'Не удалось сохранить разрешения', variant: 'destructive' });
         }
     };
@@ -465,7 +597,7 @@ export default function RolesPermissions() {
                                         <div className="relative flex-1 max-w-md">
                                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                             <Input
-                                                placeholder="Поиск по имени, email, телефону..."
+                                                placeholder="Поиск по имени, логину, email, телефону..."
                                                 value={userSearch}
                                                 onChange={(e) => setUserSearch(e.target.value)}
                                                 className="pl-9"
@@ -554,7 +686,7 @@ export default function RolesPermissions() {
                                                 </TableCell>
                                                 <TableCell className="font-medium">{user.name}</TableCell>
                                                 <TableCell className="font-mono text-sm">{user.login || '—'}</TableCell>
-                                                <TableCell>{user.email}</TableCell>
+                                                <TableCell>{user.email || '—'}</TableCell>
                                                 <TableCell>{user.phone || '—'}</TableCell>
                                                 <TableCell>
                                                     <div className="flex flex-wrap gap-1">
@@ -572,13 +704,34 @@ export default function RolesPermissions() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        onClick={() => handleEditUser(user)}
-                                                    >
-                                                        <Edit className="h-4 w-4" />
-                                                    </Button>
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon">
+                                                                <MoreVertical className="h-4 w-4" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end">
+                                                            <DropdownMenuItem onClick={() => handleOpenUserProfile(user)}>
+                                                                <Edit className="h-4 w-4 mr-2" />
+                                                                Редактировать
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => handleEditUser(user)}>
+                                                                <Shield className="h-4 w-4 mr-2" />
+                                                                Роли
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => handleOpenPasswordDialog(user)}>
+                                                                <Key className="h-4 w-4 mr-2" />
+                                                                Сменить пароль
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem
+                                                                className="text-destructive"
+                                                                onClick={() => setDeleteUserTarget(user)}
+                                                            >
+                                                                <Trash2 className="h-4 w-4 mr-2" />
+                                                                Удалить
+                                                            </DropdownMenuItem>
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -747,6 +900,91 @@ export default function RolesPermissions() {
             </div>
 
             {/* ============ Edit User Roles Dialog ============ */}
+            <Dialog open={!!editingProfileUser} onOpenChange={(open) => {
+                if (!open) {
+                    setEditingProfileUser(null);
+                    setTimeout(cleanupDialogArtifacts, 150);
+                }
+            }}>
+                <DialogContent className="sm:max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>Редактирование пользователя</DialogTitle>
+                        <DialogDescription>
+                            {editingProfileUser?.login || editingProfileUser?.email || 'Профиль пользователя'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4 md:grid-cols-2">
+                        <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="user-name">Имя</Label>
+                            <Input
+                                id="user-name"
+                                value={userForm.name}
+                                onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
+                                placeholder="ФИО пользователя"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="user-login">Логин</Label>
+                            <Input
+                                id="user-login"
+                                value={userForm.login}
+                                onChange={(e) => setUserForm({ ...userForm, login: e.target.value })}
+                                placeholder="Логин"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="user-email">Email</Label>
+                            <Input
+                                id="user-email"
+                                type="email"
+                                value={userForm.email}
+                                onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                                placeholder="name@example.com"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="user-phone">Телефон</Label>
+                            <Input
+                                id="user-phone"
+                                value={userForm.phone}
+                                onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })}
+                                placeholder="Телефон"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="user-company">Компания</Label>
+                            <Input
+                                id="user-company"
+                                value={userForm.company}
+                                onChange={(e) => setUserForm({ ...userForm, company: e.target.value })}
+                                placeholder="Компания"
+                            />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="user-whatsapp">WhatsApp</Label>
+                            <Input
+                                id="user-whatsapp"
+                                value={userForm.whatsapp_number}
+                                onChange={(e) => setUserForm({ ...userForm, whatsapp_number: e.target.value })}
+                                placeholder="Номер WhatsApp"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => {
+                            setEditingProfileUser(null);
+                            setTimeout(cleanupDialogArtifacts, 150);
+                        }}>
+                            Отмена
+                        </Button>
+                        <Button onClick={handleSaveUserProfile} disabled={!userForm.name.trim() || !userForm.login.trim()}>
+                            <Save className="h-4 w-4 mr-2" />
+                            Сохранить
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={!!editingUser} onOpenChange={(open) => {
                 if (!open) {
                     setEditingUser(null);
@@ -798,6 +1036,61 @@ export default function RolesPermissions() {
                         <Button onClick={handleSaveUserRoles}>
                             <Save className="h-4 w-4 mr-2" />
                             Сохранить
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!editingPasswordUser} onOpenChange={(open) => {
+                if (!open) {
+                    setEditingPasswordUser(null);
+                    setPasswordForm({ password: '', password_confirmation: '' });
+                    setTimeout(cleanupDialogArtifacts, 150);
+                }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Смена пароля</DialogTitle>
+                        <DialogDescription>
+                            {editingPasswordUser?.name} ({editingPasswordUser?.login || editingPasswordUser?.email || 'без логина'})
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="user-password">Новый пароль</Label>
+                            <Input
+                                id="user-password"
+                                type="password"
+                                value={passwordForm.password}
+                                onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })}
+                                placeholder="Введите новый пароль"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="user-password-confirmation">Подтверждение пароля</Label>
+                            <Input
+                                id="user-password-confirmation"
+                                type="password"
+                                value={passwordForm.password_confirmation}
+                                onChange={(e) => setPasswordForm({ ...passwordForm, password_confirmation: e.target.value })}
+                                placeholder="Повторите новый пароль"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => {
+                            setEditingPasswordUser(null);
+                            setPasswordForm({ password: '', password_confirmation: '' });
+                            setTimeout(cleanupDialogArtifacts, 150);
+                        }}>
+                            Отмена
+                        </Button>
+                        <Button
+                            onClick={handleSaveUserPassword}
+                            disabled={!passwordForm.password || !passwordForm.password_confirmation}
+                        >
+                            <Key className="h-4 w-4 mr-2" />
+                            Обновить пароль
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -899,7 +1192,7 @@ export default function RolesPermissions() {
                                         <div className="flex items-center space-x-2 p-2 bg-muted rounded-md">
                                             <Checkbox
                                                 id={`group-${group}`}
-                                                checked={allSelected}
+                                                checked={allSelected ? true : someSelected ? 'indeterminate' : false}
                                                 onCheckedChange={() => togglePermissionGroup(group)}
                                             />
                                             <Label
@@ -969,6 +1262,28 @@ export default function RolesPermissions() {
                     <AlertDialogFooter>
                         <AlertDialogCancel>Отмена</AlertDialogCancel>
                         <AlertDialogAction onClick={handleDeleteRole} className="bg-destructive">
+                            Удалить
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!deleteUserTarget} onOpenChange={(open) => {
+                if (!open) {
+                    setDeleteUserTarget(null);
+                    setTimeout(cleanupDialogArtifacts, 150);
+                }
+            }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Удалить пользователя?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Пользователь {deleteUserTarget?.name || '—'} будет удалён без возможности восстановления. Если он связан с другими сущностями системы, удаление будет отклонено.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteUser} className="bg-destructive hover:bg-destructive/90">
                             Удалить
                         </AlertDialogAction>
                     </AlertDialogFooter>

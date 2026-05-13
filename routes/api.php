@@ -1,6 +1,12 @@
 <?php
 
+use App\Http\Controllers\Admin\StatisticsController;
+use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\EntryPermitController;
+use App\Http\Controllers\Api\GuestVisitController;
+use App\Http\Controllers\Api\PermitImportController;
+use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\StatusCotroller;
 use App\Http\Controllers\Api\TaskCotroller;
 use App\Http\Controllers\Api\TrailerModelCotroller;
@@ -8,21 +14,15 @@ use App\Http\Controllers\Api\TrailerTypeCotroller;
 use App\Http\Controllers\Api\TruckBrandCotroller;
 use App\Http\Controllers\Api\TruckCotroller;
 use App\Http\Controllers\Api\TruckModelCotroller;
+use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\Api\VisitorsCotroller;
 use App\Http\Controllers\Api\WarehouseCotroller;
 use App\Http\Controllers\Api\WarehouseGateCotroller;
-use App\Http\Controllers\Api\YardCotroller;
-use App\Http\Controllers\Api\UsersController;
-use App\Http\Controllers\DssController;
-use App\Http\Controllers\Admin\StatisticsController;
-use App\Http\Controllers\Admin\TrafficStatsController;
-use App\Http\Controllers\Api\EntryPermitController;
-use App\Http\Controllers\Api\GuestVisitController;
-use App\Http\Controllers\Api\PermitImportController;
-use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\WeighingController;
-use App\Http\Controllers\TelegramController;
+use App\Http\Controllers\Api\YardCotroller;
 use App\Http\Controllers\ClientRegistrationController;
+use App\Http\Controllers\DssController;
+use App\Http\Controllers\TelegramController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -33,41 +33,40 @@ Route::get('/user', function (Request $request) {
 // Client Registrations API (требует авторизации)
 Route::post('/client-registrations', [ClientRegistrationController::class, 'apiList'])->middleware('auth:sanctum');
 
-
 // Authification routes
-Route::post('/auth/register', [AuthController::class, 'createUser']); //Регистрация
-Route::post('/auth/login', [AuthController::class, 'loginUser']); //Авторизация
-Route::post('/auth/logout', [AuthController::class,'logout']); //Выход
-Route::post('/auth/newpassword', [AuthController::class,'newPassword']); //Смена пароля
-Route::post('/auth/logout-all-device', [AuthController::class,'deleteAllSessions']); //Выход со всех устройств
-Route::post('/auth/create-recovery', [AuthController::class,'createRecoveryToken']); //Создание токена для восстановления пароля
-Route::post('/auth/recovery-token', [AuthController::class,'recoveryToken']); //Проверка токена для восстановления пароля
-Route::post('/auth/level', [AuthController::class,'level'])->middleware('auth:sanctum'); //Получить уровень доступа пользователя
+Route::post('/auth/register', [AuthController::class, 'createUser']); // Регистрация
+Route::post('/auth/login', [AuthController::class, 'loginUser']); // Авторизация
+Route::post('/auth/logout', [AuthController::class, 'logout']); // Выход
+Route::post('/auth/newpassword', [AuthController::class, 'newPassword']); // Смена пароля
+Route::post('/auth/logout-all-device', [AuthController::class, 'deleteAllSessions']); // Выход со всех устройств
+Route::post('/auth/create-recovery', [AuthController::class, 'createRecoveryToken']); // Создание токена для восстановления пароля
+Route::post('/auth/recovery-token', [AuthController::class, 'recoveryToken']); // Проверка токена для восстановления пароля
+Route::post('/auth/level', [AuthController::class, 'level'])->middleware('auth:sanctum'); // Получить уровень доступа пользователя
 
 // Yard routes
-Route::post('/yard/getyards', [YardCotroller::class,'getYards'])->middleware('auth:sanctum'); //Получить все дворы
-Route::post('/yard/addyard', [YardCotroller::class,'addYard'])->middleware('auth:sanctum'); //Добавить двор
-Route::post('/yard/updateyard', [YardCotroller::class,'updateYard'])->middleware('auth:sanctum'); //Обновить двор
-Route::post('/yard/deleteyard', [YardCotroller::class,'deleteYard'])->middleware('auth:sanctum'); //Удалить двор
+Route::post('/yard/getyards', [YardCotroller::class, 'getYards'])->middleware('auth:sanctum'); // Получить все дворы
+Route::post('/yard/addyard', [YardCotroller::class, 'addYard'])->middleware('auth:sanctum'); // Добавить двор
+Route::post('/yard/updateyard', [YardCotroller::class, 'updateYard'])->middleware('auth:sanctum'); // Обновить двор
+Route::post('/yard/deleteyard', [YardCotroller::class, 'deleteYard'])->middleware('auth:sanctum'); // Удалить двор
 
 // Visitors routes
-Route::post('/security/getvisitors', [VisitorsCotroller::class,'getVisitors'])->middleware('auth:sanctum'); //Получить всех посетителей
-Route::post('/security/addvisitor', [VisitorsCotroller::class,'addVisitor'])->middleware('auth:sanctum'); //Добавить посетителя
-Route::post('/security/updatevisitor', [VisitorsCotroller::class,'updateVisitor'])->middleware('auth:sanctum'); //Обновить посетителя
-Route::post('/security/exitvisitor', [VisitorsCotroller::class,'exitVisitor'])->middleware('auth:sanctum'); //Выход посетителя
-Route::post('/security/searchtruck', [VisitorsCotroller::class,'searchTruck'])->middleware('auth:sanctum'); //Поиск грузовика
-Route::post('/security/chattest', [VisitorsCotroller::class,'ChatTest']);
-Route::post('/security/getactivepermits', [VisitorsCotroller::class,'getActivePermits'])->middleware('auth:sanctum'); //Получить активные пропуска
+Route::post('/security/getvisitors', [VisitorsCotroller::class, 'getVisitors'])->middleware('auth:sanctum'); // Получить всех посетителей
+Route::post('/security/addvisitor', [VisitorsCotroller::class, 'addVisitor'])->middleware('auth:sanctum'); // Добавить посетителя
+Route::post('/security/updatevisitor', [VisitorsCotroller::class, 'updateVisitor'])->middleware('auth:sanctum'); // Обновить посетителя
+Route::post('/security/exitvisitor', [VisitorsCotroller::class, 'exitVisitor'])->middleware('auth:sanctum'); // Выход посетителя
+Route::post('/security/searchtruck', [VisitorsCotroller::class, 'searchTruck'])->middleware('auth:sanctum'); // Поиск грузовика
+Route::post('/security/chattest', [VisitorsCotroller::class, 'ChatTest']);
+Route::post('/security/getactivepermits', [VisitorsCotroller::class, 'getActivePermits'])->middleware('auth:sanctum'); // Получить активные пропуска
 
 // Управление разрешениями на въезд
-Route::post('/security/getpermits', [VisitorsCotroller::class,'getPermits'])->middleware('auth:sanctum'); //Получить список разрешений с фильтрами
-Route::post('/security/addpermit', [VisitorsCotroller::class,'addPermit'])->middleware('auth:sanctum'); //Создать разрешение
-Route::post('/security/updatepermit', [VisitorsCotroller::class,'updatePermit'])->middleware('auth:sanctum'); //Обновить разрешение
-Route::post('/security/syncpermitsdss', [VisitorsCotroller::class,'syncPermitsWithDss'])->middleware('auth:sanctum'); //Синхронизировать разрешения с DSS
-Route::post('/security/deactivatepermit', [VisitorsCotroller::class,'deactivatePermit'])->middleware('auth:sanctum'); //Деактивировать разрешение
-Route::post('/security/deletepermit', [VisitorsCotroller::class,'deletePermit'])->middleware('auth:sanctum'); //Удалить разрешение
-Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class,'getPermitsByTruck'])->middleware('auth:sanctum'); //Получить разрешения для ТС
-Route::post('/security/import-permits', [PermitImportController::class, 'import'])->middleware('auth:sanctum'); //Массовый импорт ТС и разрешений
+Route::post('/security/getpermits', [VisitorsCotroller::class, 'getPermits'])->middleware('auth:sanctum'); // Получить список разрешений с фильтрами
+Route::post('/security/addpermit', [VisitorsCotroller::class, 'addPermit'])->middleware('auth:sanctum'); // Создать разрешение
+Route::post('/security/updatepermit', [VisitorsCotroller::class, 'updatePermit'])->middleware('auth:sanctum'); // Обновить разрешение
+Route::post('/security/syncpermitsdss', [VisitorsCotroller::class, 'syncPermitsWithDss'])->middleware('auth:sanctum'); // Синхронизировать разрешения с DSS
+Route::post('/security/deactivatepermit', [VisitorsCotroller::class, 'deactivatePermit'])->middleware('auth:sanctum'); // Деактивировать разрешение
+Route::post('/security/deletepermit', [VisitorsCotroller::class, 'deletePermit'])->middleware('auth:sanctum'); // Удалить разрешение
+Route::post('/security/getpermitsbytruck', [VisitorsCotroller::class, 'getPermitsByTruck'])->middleware('auth:sanctum'); // Получить разрешения для ТС
+Route::post('/security/import-permits', [PermitImportController::class, 'import'])->middleware('auth:sanctum'); // Массовый импорт ТС и разрешений
 
 Route::post('/security/guest-visits/list', [GuestVisitController::class, 'list'])->middleware('auth:sanctum');
 Route::post('/security/guest-visits/create', [GuestVisitController::class, 'create'])->middleware('auth:sanctum');
@@ -83,87 +82,87 @@ Route::post('/security/guest-visits/issue-permits', [GuestVisitController::class
 Route::post('/security/guest-visits/revoke-permits', [GuestVisitController::class, 'revokePermits'])->middleware('auth:sanctum');
 
 // Visitor Confirmation routes (полуавтоматическое подтверждение от камер DSS)
-Route::post('/security/addpendingvisitor', [VisitorsCotroller::class,'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
-Route::post('/security/getpendingvisitors', [VisitorsCotroller::class,'getPendingVisitors'])->middleware('auth:sanctum'); // Получить посетителей на подтверждение
-Route::post('/security/checkpoint-review-queue', [VisitorsCotroller::class,'getCheckpointReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки на КПП
-Route::post('/security/checkpoint-review-manual-add', [VisitorsCotroller::class,'addManualCheckpointVisitor'])->middleware('auth:sanctum'); // Ручное добавление посетителя на КПП
-Route::post('/security/checkpoint-exit-review-queue', [VisitorsCotroller::class,'getCheckpointExitReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки выезда на КПП
-Route::post('/security/confirmvisitor', [VisitorsCotroller::class,'confirmVisitor'])->middleware('auth:sanctum'); // Подтвердить посетителя
-Route::post('/security/rejectvisitor', [VisitorsCotroller::class,'rejectVisitor'])->middleware('auth:sanctum'); // Отклонить посетителя
-Route::post('/security/confirm-exit-review', [VisitorsCotroller::class,'confirmExitReview'])->middleware('auth:sanctum'); // Подтвердить спорный выезд
-Route::post('/security/reject-exit-review', [VisitorsCotroller::class,'rejectExitReview'])->middleware('auth:sanctum'); // Отклонить спорный выезд
-Route::post('/security/search-active-visitors-for-exit', [VisitorsCotroller::class,'searchActiveVisitorsForExit'])->middleware('auth:sanctum'); // Поиск активных визитов для спорного выезда
-Route::post('/security/getexpectedvehicles', [VisitorsCotroller::class,'getExpectedVehicles'])->middleware('auth:sanctum'); // Ожидаемые ТС на дворе
-Route::post('/security/searchsimilarplates', [VisitorsCotroller::class,'searchSimilarPlates'])->middleware('auth:sanctum'); // Поиск похожих номеров
+Route::post('/security/addpendingvisitor', [VisitorsCotroller::class, 'addPendingVisitor']); // Добавить посетителя в ожидании (от камеры)
+Route::post('/security/getpendingvisitors', [VisitorsCotroller::class, 'getPendingVisitors'])->middleware('auth:sanctum'); // Получить посетителей на подтверждение
+Route::post('/security/checkpoint-review-queue', [VisitorsCotroller::class, 'getCheckpointReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки на КПП
+Route::post('/security/checkpoint-review-manual-add', [VisitorsCotroller::class, 'addManualCheckpointVisitor'])->middleware('auth:sanctum'); // Ручное добавление посетителя на КПП
+Route::post('/security/checkpoint-exit-review-queue', [VisitorsCotroller::class, 'getCheckpointExitReviewQueue'])->middleware('auth:sanctum'); // Очередь проверки выезда на КПП
+Route::post('/security/confirmvisitor', [VisitorsCotroller::class, 'confirmVisitor'])->middleware('auth:sanctum'); // Подтвердить посетителя
+Route::post('/security/rejectvisitor', [VisitorsCotroller::class, 'rejectVisitor'])->middleware('auth:sanctum'); // Отклонить посетителя
+Route::post('/security/confirm-exit-review', [VisitorsCotroller::class, 'confirmExitReview'])->middleware('auth:sanctum'); // Подтвердить спорный выезд
+Route::post('/security/reject-exit-review', [VisitorsCotroller::class, 'rejectExitReview'])->middleware('auth:sanctum'); // Отклонить спорный выезд
+Route::post('/security/search-active-visitors-for-exit', [VisitorsCotroller::class, 'searchActiveVisitorsForExit'])->middleware('auth:sanctum'); // Поиск активных визитов для спорного выезда
+Route::post('/security/getexpectedvehicles', [VisitorsCotroller::class, 'getExpectedVehicles'])->middleware('auth:sanctum'); // Ожидаемые ТС на дворе
+Route::post('/security/searchsimilarplates', [VisitorsCotroller::class, 'searchSimilarPlates'])->middleware('auth:sanctum'); // Поиск похожих номеров
 
 // Status routes
-Route::post('/setings/getstatus', [StatusCotroller::class,'getStatuses'])->middleware('auth:sanctum'); //Получить все статусы
-Route::post('/setings/addstatus', [StatusCotroller::class,'addStatus'])->middleware('auth:sanctum'); //Добавить статус
-Route::post('/setings/updatestatus', [StatusCotroller::class,'updateStatus'])->middleware('auth:sanctum'); //Обновить статус
+Route::post('/setings/getstatus', [StatusCotroller::class, 'getStatuses'])->middleware('auth:sanctum'); // Получить все статусы
+Route::post('/setings/addstatus', [StatusCotroller::class, 'addStatus'])->middleware('auth:sanctum'); // Добавить статус
+Route::post('/setings/updatestatus', [StatusCotroller::class, 'updateStatus'])->middleware('auth:sanctum'); // Обновить статус
 
 // Truck routes
-Route::post('/trucs/gettrucks', [TruckCotroller::class,'getTrucks'])->middleware('auth:sanctum'); //Получить все грузовики
-Route::post('/trucs/addtruck', [TruckCotroller::class,'addTruck'])->middleware('auth:sanctum'); //Добавить грузовик
-Route::post('/trucs/updatetruck', [TruckCotroller::class,'updateTruck'])->middleware('auth:sanctum'); //Обновить грузовик
-Route::post('/trucs/deletetruck', [TruckCotroller::class,'deleteTruck'])->middleware('auth:sanctum'); //Удалить грузовик
-Route::get('/trucs/search',      [TruckCotroller::class, 'searchByPlate']);
+Route::post('/trucs/gettrucks', [TruckCotroller::class, 'getTrucks'])->middleware('auth:sanctum'); // Получить все грузовики
+Route::post('/trucs/addtruck', [TruckCotroller::class, 'addTruck'])->middleware('auth:sanctum'); // Добавить грузовик
+Route::post('/trucs/updatetruck', [TruckCotroller::class, 'updateTruck'])->middleware('auth:sanctum'); // Обновить грузовик
+Route::post('/trucs/deletetruck', [TruckCotroller::class, 'deleteTruck'])->middleware('auth:sanctum'); // Удалить грузовик
+Route::get('/trucs/search', [TruckCotroller::class, 'searchByPlate']);
 
-route::post('/trucs/getcategories', [TruckCotroller::class,'getCategories'])->middleware('auth:sanctum'); //Получить все категории грузовиков
-Route::post('/trucs/addcategory', [TruckCotroller::class,'addCategory'])->middleware('auth:sanctum'); //Добавить категорию грузовика
-Route::post('/trucs/updatecategory', [TruckCotroller::class,'updateCategory'])->middleware('auth:sanctum'); //Обновить категорию грузовика
-Route::post('/trucs/deletecategory', [TruckCotroller::class,'deleteCategory'])->middleware('auth:sanctum'); //Удалить категорию грузовика
+route::post('/trucs/getcategories', [TruckCotroller::class, 'getCategories'])->middleware('auth:sanctum'); // Получить все категории грузовиков
+Route::post('/trucs/addcategory', [TruckCotroller::class, 'addCategory'])->middleware('auth:sanctum'); // Добавить категорию грузовика
+Route::post('/trucs/updatecategory', [TruckCotroller::class, 'updateCategory'])->middleware('auth:sanctum'); // Обновить категорию грузовика
+Route::post('/trucs/deletecategory', [TruckCotroller::class, 'deleteCategory'])->middleware('auth:sanctum'); // Удалить категорию грузовика
 
-Route::post('/trucks/attachtruckuser', [TruckCotroller::class,'attachTruckUser'])->middleware('auth:sanctum'); //Привязать грузовик к пользователю
-Route::post('/trucks/detachtruckuser', [TruckCotroller::class,'detachTruckUser'])->middleware('auth:sanctum'); //Отвязать грузовик от пользователя
-Route::post('/trucks/gettruckusers', [TruckCotroller::class,'getTruckByUser'])->middleware('auth:sanctum'); //Получить грузовики пользователя
+Route::post('/trucks/attachtruckuser', [TruckCotroller::class, 'attachTruckUser'])->middleware('auth:sanctum'); // Привязать грузовик к пользователю
+Route::post('/trucks/detachtruckuser', [TruckCotroller::class, 'detachTruckUser'])->middleware('auth:sanctum'); // Отвязать грузовик от пользователя
+Route::post('/trucks/gettruckusers', [TruckCotroller::class, 'getTruckByUser'])->middleware('auth:sanctum'); // Получить грузовики пользователя
 
 // Truck model routes
-Route::post('/trucks/gettruckmodels', [TruckModelCotroller::class,'getTruckModels'])->middleware('auth:sanctum'); //Получить все модели грузовиков
-Route::post('/trucks/addtruckmodel', [TruckModelCotroller::class,'addTruckModel'])->middleware('auth:sanctum'); //Добавить модель грузовика
-Route::post('/trucks/updatetruckmodel', [TruckModelCotroller::class,'updateTruckModel'])->middleware('auth:sanctum'); //Обновить модель грузовика
-Route::post('/trucks/deletetruckmodel', [TruckModelCotroller::class,'deleteTruckModel'])->middleware('auth:sanctum'); //Удалить модель грузовика
+Route::post('/trucks/gettruckmodels', [TruckModelCotroller::class, 'getTruckModels'])->middleware('auth:sanctum'); // Получить все модели грузовиков
+Route::post('/trucks/addtruckmodel', [TruckModelCotroller::class, 'addTruckModel'])->middleware('auth:sanctum'); // Добавить модель грузовика
+Route::post('/trucks/updatetruckmodel', [TruckModelCotroller::class, 'updateTruckModel'])->middleware('auth:sanctum'); // Обновить модель грузовика
+Route::post('/trucks/deletetruckmodel', [TruckModelCotroller::class, 'deleteTruckModel'])->middleware('auth:sanctum'); // Удалить модель грузовика
 
 // Truck brand routes
-Route::post('/trucks/gettruckbrands', [TruckBrandCotroller::class,'getTruckBrands'])->middleware('auth:sanctum'); //Получить все марки грузовиков
-Route::post('/trucks/addtruckbrand', [TruckBrandCotroller::class,'addTruckBrand'])->middleware('auth:sanctum'); //Добавить марку грузовика
-Route::post('/trucks/updatetruckbrand', [TruckBrandCotroller::class,'updateTruckBrand'])->middleware('auth:sanctum'); //Обновить марку грузовика
-Route::post('/trucks/deletetruckbrand', [TruckBrandCotroller::class,'deleteTruckBrand'])->middleware('auth:sanctum'); //Удалить марку грузовика
+Route::post('/trucks/gettruckbrands', [TruckBrandCotroller::class, 'getTruckBrands'])->middleware('auth:sanctum'); // Получить все марки грузовиков
+Route::post('/trucks/addtruckbrand', [TruckBrandCotroller::class, 'addTruckBrand'])->middleware('auth:sanctum'); // Добавить марку грузовика
+Route::post('/trucks/updatetruckbrand', [TruckBrandCotroller::class, 'updateTruckBrand'])->middleware('auth:sanctum'); // Обновить марку грузовика
+Route::post('/trucks/deletetruckbrand', [TruckBrandCotroller::class, 'deleteTruckBrand'])->middleware('auth:sanctum'); // Удалить марку грузовика
 
 // Trailer type routes
-Route::post('/trailer/gettrailertypes', [TrailerTypeCotroller::class,'getTrailerTypes'])->middleware('auth:sanctum'); //Получить все типы прицепов
-Route::post('/trailer/addtrailertype', [TrailerTypeCotroller::class,'addTrailerType'])->middleware('auth:sanctum'); //Добавить тип прицепа
-Route::post('/trailer/updatetrailertype', [TrailerTypeCotroller::class,'updateTrailerType'])->middleware('auth:sanctum'); //Обновить тип прицепа
-Route::post('/trailer/deletetrailertype', [TrailerTypeCotroller::class,'deleteTrailerType'])->middleware('auth:sanctum'); //Удалить тип прицепа
+Route::post('/trailer/gettrailertypes', [TrailerTypeCotroller::class, 'getTrailerTypes'])->middleware('auth:sanctum'); // Получить все типы прицепов
+Route::post('/trailer/addtrailertype', [TrailerTypeCotroller::class, 'addTrailerType'])->middleware('auth:sanctum'); // Добавить тип прицепа
+Route::post('/trailer/updatetrailertype', [TrailerTypeCotroller::class, 'updateTrailerType'])->middleware('auth:sanctum'); // Обновить тип прицепа
+Route::post('/trailer/deletetrailertype', [TrailerTypeCotroller::class, 'deleteTrailerType'])->middleware('auth:sanctum'); // Удалить тип прицепа
 
 // Trailer model routes
-Route::post('/trailer/gettrailermodels', [TrailerModelCotroller::class,'getTrailerModels'])->middleware('auth:sanctum'); //Получить все модели прицепов
-Route::post('/trailer/addtrailermodel', [TrailerModelCotroller::class,'addTrailerModel'])->middleware('auth:sanctum'); //Добавить модель прицепа
-Route::post('/trailer/updatetrailermodel', [TrailerModelCotroller::class,'updateTrailerModel'])->middleware('auth:sanctum'); //Обновить модель прицепа
-Route::post('/trailer/deletetrailermodel', [TrailerModelCotroller::class,'deleteTrailerModel'])->middleware('auth:sanctum'); //Удалить модель прицепа
+Route::post('/trailer/gettrailermodels', [TrailerModelCotroller::class, 'getTrailerModels'])->middleware('auth:sanctum'); // Получить все модели прицепов
+Route::post('/trailer/addtrailermodel', [TrailerModelCotroller::class, 'addTrailerModel'])->middleware('auth:sanctum'); // Добавить модель прицепа
+Route::post('/trailer/updatetrailermodel', [TrailerModelCotroller::class, 'updateTrailerModel'])->middleware('auth:sanctum'); // Обновить модель прицепа
+Route::post('/trailer/deletetrailermodel', [TrailerModelCotroller::class, 'deleteTrailerModel'])->middleware('auth:sanctum'); // Удалить модель прицепа
 
 // Warehouse routes
-Route::post('/warehouse/getwarehouses', [WarehouseCotroller::class,'getWarehouses'])->middleware('auth:sanctum'); //Получить все склады
-Route::post('/warehouse/addwarehouse', [WarehouseCotroller::class,'addWarehouse'])->middleware('auth:sanctum'); //Добавить склад
-Route::post('/warehouse/updatewarehouse', [WarehouseCotroller::class,'updateWarehouse'])->middleware('auth:sanctum'); //Обновить склад
-Route::post('/warehouse/deletewarehouse', [WarehouseCotroller::class,'deleteWarehouse'])->middleware('auth:sanctum'); //Удалить склад
+Route::post('/warehouse/getwarehouses', [WarehouseCotroller::class, 'getWarehouses'])->middleware('auth:sanctum'); // Получить все склады
+Route::post('/warehouse/addwarehouse', [WarehouseCotroller::class, 'addWarehouse'])->middleware('auth:sanctum'); // Добавить склад
+Route::post('/warehouse/updatewarehouse', [WarehouseCotroller::class, 'updateWarehouse'])->middleware('auth:sanctum'); // Обновить склад
+Route::post('/warehouse/deletewarehouse', [WarehouseCotroller::class, 'deleteWarehouse'])->middleware('auth:sanctum'); // Удалить склад
 
 // Warehouse gates routes
-Route::post('/warehouse/getgates', [WarehouseGateCotroller::class,'getGates'])->middleware('auth:sanctum'); //Получить все ворота
-Route::post('/warehouse/addgate', [WarehouseGateCotroller::class,'addGate'])->middleware('auth:sanctum'); //Добавить ворота
-Route::post('/warehouse/updategate', [WarehouseGateCotroller::class,'updateGate'])->middleware('auth:sanctum'); //Обновить ворота
-Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class,'deleteGate'])->middleware('auth:sanctum'); //Удалить ворота
+Route::post('/warehouse/getgates', [WarehouseGateCotroller::class, 'getGates'])->middleware('auth:sanctum'); // Получить все ворота
+Route::post('/warehouse/addgate', [WarehouseGateCotroller::class, 'addGate'])->middleware('auth:sanctum'); // Добавить ворота
+Route::post('/warehouse/updategate', [WarehouseGateCotroller::class, 'updateGate'])->middleware('auth:sanctum'); // Обновить ворота
+Route::post('/warehouse/deletegate', [WarehouseGateCotroller::class, 'deleteGate'])->middleware('auth:sanctum'); // Удалить ворота
 
 // Task routes
-Route::post('/task/gettasks', [TaskCotroller::class,'getTasks'])->middleware('auth:sanctum'); //Получить все задачи
-Route::post('/task/addtask', [TaskCotroller::class,'addTask'])->middleware('auth:sanctum'); //Добавить задачу
-Route::post('/task/addapitask', [TaskCotroller::class,'addApiTask']); //Добавить задачу через API
-Route::post('/task/qrproccesing', [TaskCotroller::class,'qrProccesing'])->middleware('auth:sanctum'); //Обработка QR кода
-Route::post('/task/processShortCode', [TaskCotroller::class,'processShortCode'])->middleware('auth:sanctum'); //Обработка QR кода
+Route::post('/task/gettasks', [TaskCotroller::class, 'getTasks'])->middleware('auth:sanctum'); // Получить все задачи
+Route::post('/task/addtask', [TaskCotroller::class, 'addTask'])->middleware('auth:sanctum'); // Добавить задачу
+Route::post('/task/addapitask', [TaskCotroller::class, 'addApiTask']); // Добавить задачу через API
+Route::post('/task/qrproccesing', [TaskCotroller::class, 'qrProccesing'])->middleware('auth:sanctum'); // Обработка QR кода
+Route::post('/task/processShortCode', [TaskCotroller::class, 'processShortCode'])->middleware('auth:sanctum'); // Обработка QR кода
 Route::get('/task/gate-codes', [TaskCotroller::class, 'getGateCodes']);
-Route::post('/task/gettaskweihings', [TaskCotroller::class,'getTaskWeihings'])->middleware('auth:sanctum'); //Получить задачи все взвешивания
-Route::post('/task/updatetaskweighing', [TaskCotroller::class,'updateTaskWeighing'])->middleware('auth:sanctum'); //Обновить задачи взвешивание
+Route::post('/task/gettaskweihings', [TaskCotroller::class, 'getTaskWeihings'])->middleware('auth:sanctum'); // Получить задачи все взвешивания
+Route::post('/task/updatetaskweighing', [TaskCotroller::class, 'updateTaskWeighing'])->middleware('auth:sanctum'); // Обновить задачи взвешивание
 Route::post('/task/actual-tasks', [TaskCotroller::class, 'getActualTasks']);
-Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime'])->middleware('auth:sanctum'); //Обновить время задачи
+Route::post('/task/updatetime', [TaskCotroller::class, 'updateTaskTime'])->middleware('auth:sanctum'); // Обновить время задачи
 
 // Task Loading - Прибытие/Убытие ТС на складе
 Route::post('/task/loading/arrival', [TaskCotroller::class, 'recordArrival'])->middleware('auth:sanctum'); // Зафиксировать прибытие
@@ -172,37 +171,34 @@ Route::post('/task/loading/vehicles-at-warehouse', [TaskCotroller::class, 'getVe
 Route::post('/task/loading/history', [TaskCotroller::class, 'getTaskLoadingHistory'])->middleware('auth:sanctum'); // История погрузки
 Route::post('/task/loading/reset', [TaskCotroller::class, 'resetLoadingTimes'])->middleware('auth:sanctum'); // Сброс времени (админ)
 
-
-
-
 // Statistics routes
-Route::get('/admin/statistics', [StatisticsController::class, 'index']); //Получить статистику
+Route::get('/admin/statistics', [StatisticsController::class, 'index']); // Получить статистику
 Route::get('/admin/getloadingstats', [StatisticsController::class, 'getLoadingStats']);
 Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
-//Dss routes
-Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); //Добавление тревоги в DSS
+// Dss routes
+Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); // Добавление тревоги в DSS
 Route::middleware(['auth:sanctum', 'permission:integrations.dss'])->group(function () {
-    Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); //Авторизация в DSS
-    Route::post('/dss/settings', [DssController::class, 'dssSettings']); //Получить настройки DSS
-    Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate']); //Обновить настройки DSS
-    Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate']); //Создать настройки DSS
-    Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete']); //Удалить настройки DSS
-    Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); //Поддержание сессии DSS
-    Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); //Обновление токена DSS
-    Route::post('/dss/mq-config', [DssController::class, 'dssMqConfig']); //Получить и расшифровать MQTT config DSS
-    Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); //Выход из DSS
-    Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); //Получить устройства DSS
-    Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); //Обновить устройства DSS
-    Route::post('/dss/dssdevices/sync-barrier-channels', [DssController::class, 'syncBarrierChannelsFromParkingLots']); //Загрузить channelId шлагбаумов из парковок DSS
-    Route::post('/dss/add-person', [DssController::class, 'dssAddPerson']); //Добавление пользователя в DSS
-    Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview']); //Технический обзор DSS
-    Route::post('/dss/events-journal', [DssController::class, 'eventsJournal']); //Журнал DSS
+    Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); // Авторизация в DSS
+    Route::post('/dss/settings', [DssController::class, 'dssSettings']); // Получить настройки DSS
+    Route::post('/dss/settings/update', [DssController::class, 'dssSettingsUpdate']); // Обновить настройки DSS
+    Route::post('/dss/settings/create', [DssController::class, 'dssSettingsCreate']); // Создать настройки DSS
+    Route::post('/dss/settings/delete', [DssController::class, 'dssSettingsDelete']); // Удалить настройки DSS
+    Route::post('/dss/keepalive', [DssController::class, 'dssKeepAlive']); // Поддержание сессии DSS
+    Route::post('/dss/update-token', [DssController::class, 'dssUpdateToken']); // Обновление токена DSS
+    Route::post('/dss/mq-config', [DssController::class, 'dssMqConfig']); // Получить и расшифровать MQTT config DSS
+    Route::post('/dss/unauthorize', [DssController::class, 'dssUnAuthorize']); // Выход из DSS
+    Route::post('/dss/dssdevices', [DssController::class, 'dssDevices']); // Получить устройства DSS
+    Route::post('/dss/dssdevices/update', [DssController::class, 'dssDevicesUpdate']); // Обновить устройства DSS
+    Route::post('/dss/dssdevices/sync-barrier-channels', [DssController::class, 'syncBarrierChannelsFromParkingLots']); // Загрузить channelId шлагбаумов из парковок DSS
+    Route::post('/dss/add-person', [DssController::class, 'dssAddPerson']); // Добавление пользователя в DSS
+    Route::post('/dss/technical-overview', [DssController::class, 'technicalOverview']); // Технический обзор DSS
+    Route::post('/dss/events-journal', [DssController::class, 'eventsJournal']); // Журнал DSS
 });
 
 Route::middleware(['auth:sanctum', 'permission:integrations.dss|history.view'])->group(function () {
-    Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory']); //Получить историю зон грузовика
-    Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone']); //Получить текущую зону грузовика
+    Route::post('/dss/truck-zone-history', [DssController::class, 'getTruckZoneHistory']); // Получить историю зон грузовика
+    Route::post('/dss/current-truck-zone', [DssController::class, 'getCurrentTruckZone']); // Получить текущую зону грузовика
 });
 
 Route::post('/entrance-permit/addcheckpoint', [EntryPermitController::class, 'addCheckpoint'])->middleware('auth:sanctum'); // Добавление контрольного пункта
@@ -240,8 +236,11 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
 
     // Legacy endpoints (оставлены для обратной совместимости)
     Route::get('/telegram/miniapp/spectech/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTrucks']);
+    Route::get('/telegram/miniapp/spectech/check-availability', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'checkSpectechAvailability']);
     Route::get('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechRequests']);
     Route::post('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createSpectechRequest']);
+    Route::get('/telegram/miniapp/operator/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'operatorSpectechRequests']);
+    Route::patch('/telegram/miniapp/operator/spectech/requests/{id}/status', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'updateOperatorSpectechRequestStatus']);
 });
 
 // Telegram users администрирование
@@ -262,14 +261,14 @@ Route::middleware(['auth:sanctum'])->prefix('admin/telegram-users')->group(funct
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'WhatsAppAlarmAdd']); // Логирование тревог из WhatsApp
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\WhatsAppController::class, 'verify']); // Верификация вебхука WhatsApp
 
-//whatsapp business settings API
+// whatsapp business settings API
 Route::post('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsCreateOrUpdate'])->middleware('auth:sanctum');
 Route::get('/whatsapp/business-settings', [\App\Http\Controllers\WhatsAppController::class, 'whatsappBusinessSettingsGet'])->middleware('auth:sanctum');
 
-//whatsapp chat messages API
+// whatsapp chat messages API
 Route::post('/whatsapp/chat-messages', [\App\Http\Controllers\WhatsAppController::class, 'getChatMessages'])->middleware('auth:sanctum');
 
-//Zone routes
+// Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones'])->middleware('auth:sanctum'); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone'])->middleware('auth:sanctum'); // Создать или обновить зону
 
@@ -288,10 +287,15 @@ Route::post('/weighing/list', [WeighingController::class, 'index'])->middleware(
 Route::prefix('rbac')->middleware('auth:sanctum')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\RbacController::class, 'index']); // Получить все роли и разрешения
     Route::get('/stats', [\App\Http\Controllers\Api\RbacController::class, 'getStats']); // Статистика RBAC
-    Route::get('/users', [\App\Http\Controllers\Api\RbacController::class, 'getUsers']); // Пользователи с пагинацией
-    Route::put('/users/{user}/roles', [\App\Http\Controllers\Api\RbacController::class, 'updateUserRoles']); // Обновить роли пользователя
-    Route::post('/users/bulk-assign', [\App\Http\Controllers\Api\RbacController::class, 'bulkAssignRole']); // Массовое назначение роли
-    Route::post('/users/bulk-revoke', [\App\Http\Controllers\Api\RbacController::class, 'bulkRevokeRole']); // Массовое удаление роли
+    Route::middleware('permission:admin.users')->group(function () {
+        Route::get('/users', [\App\Http\Controllers\Api\RbacController::class, 'getUsers']); // Пользователи с пагинацией
+        Route::put('/users/{user}', [\App\Http\Controllers\Api\RbacController::class, 'updateUser']); // Обновить профиль пользователя
+        Route::put('/users/{user}/password', [\App\Http\Controllers\Api\RbacController::class, 'updateUserPassword']); // Сменить пароль пользователя
+        Route::put('/users/{user}/roles', [\App\Http\Controllers\Api\RbacController::class, 'updateUserRoles']); // Обновить роли пользователя
+        Route::delete('/users/{user}', [\App\Http\Controllers\Api\RbacController::class, 'deleteUser']); // Удалить пользователя
+        Route::post('/users/bulk-assign', [\App\Http\Controllers\Api\RbacController::class, 'bulkAssignRole']); // Массовое назначение роли
+        Route::post('/users/bulk-revoke', [\App\Http\Controllers\Api\RbacController::class, 'bulkRevokeRole']); // Массовое удаление роли
+    });
     Route::post('/roles', [\App\Http\Controllers\Api\RbacController::class, 'createRole']); // Создать роль
     Route::put('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'updateRole']); // Обновить роль
     Route::delete('/roles/{role}', [\App\Http\Controllers\Api\RbacController::class, 'deleteRole']); // Удалить роль

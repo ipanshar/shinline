@@ -1,3 +1,4 @@
+import { type SpectechRequestData } from '@/components/spectech/RequestCard';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import axios from 'axios';
@@ -33,6 +34,11 @@ interface AvailabilityCheckResult {
     }>;
 }
 
+interface ActiveRequestConflict {
+    can_force_complete: boolean;
+    previous_request: SpectechRequestData;
+}
+
 interface Props {
     open: boolean;
     onClose: () => void;
@@ -48,7 +54,7 @@ function nowLocalMin(): string {
     const d = new Date();
     d.setSeconds(0, 0);
     const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function buildAddress(terminal: string, zone: string, gate: string, status: string, purpose: string): string {
@@ -75,8 +81,10 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     const [checkingAvailability, setCheckingAvailability] = useState(false);
     const [availabilityResult, setAvailabilityResult] = useState<AvailabilityCheckResult | null>(null);
     const [showConflictDetails, setShowConflictDetails] = useState(false);
+    const [activeRequestConflict, setActiveRequestConflict] = useState<ActiveRequestConflict | null>(null);
 
     const fileRef = useRef<HTMLInputElement>(null);
+    const availabilityRequestSeq = useRef(0);
 
     // Загрузка техники
     useEffect(() => {
@@ -114,36 +122,47 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             setErrors({});
             setAvailabilityResult(null);
             setShowConflictDetails(false);
+            setActiveRequestConflict(null);
         }
     }, [open]);
 
     // Автоматическая проверка доступности при изменении техники или даты
     useEffect(() => {
-        if (!truckId || !endDateTime) {
+        if (!truckId || !startDateTime || !endDateTime) {
             setAvailabilityResult(null);
+            setCheckingAvailability(false);
             return;
         }
 
         const checkAvailability = async () => {
+            const requestSeq = ++availabilityRequestSeq.current;
             setCheckingAvailability(true);
             try {
                 const res = await axios.get('/spectech/api/requests/check-availability', {
                     params: {
                         truck_id: truckId,
-                        end_date: endDateTime ? endDateTime.split('T')[0] : '',
+                        requested_start: startDateTime,
+                        requested_end: endDateTime,
                     },
                 });
-                setAvailabilityResult(res.data);
+
+                if (requestSeq === availabilityRequestSeq.current) {
+                    setAvailabilityResult(res.data);
+                }
             } catch (err) {
-                setAvailabilityResult(null);
+                if (requestSeq === availabilityRequestSeq.current) {
+                    setAvailabilityResult(null);
+                }
             } finally {
-                setCheckingAvailability(false);
+                if (requestSeq === availabilityRequestSeq.current) {
+                    setCheckingAvailability(false);
+                }
             }
         };
 
         const timer = setTimeout(checkAvailability, 300);
         return () => clearTimeout(timer);
-    }, [truckId, endDateTime]);
+    }, [truckId, startDateTime, endDateTime]);
 
     const filteredLocations = MOCK_LOCATIONS.filter((l) => l.terminal === selectedTerminal);
 
@@ -181,7 +200,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
         return errs;
     };
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (forceCompletePrevious = false) => {
         const errs = validate();
         if (Object.keys(errs).length > 0) {
             setErrors(errs);
@@ -212,10 +231,10 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
             const res = await axios.post('/spectech/api/requests', {
                 truck_id: finalTruckId,
-                start_date:       startDateTime ? startDateTime.split('T')[0] : today,
-                end_date:         endDateTime   ? endDateTime.split('T')[0]   : today,
-                requested_start:  startDateTime ? new Date(startDateTime).toISOString() : null,
-                requested_end:    endDateTime   ? new Date(endDateTime).toISOString()   : null,
+                start_date: startDateTime ? startDateTime.split('T')[0] : today,
+                end_date: endDateTime ? endDateTime.split('T')[0] : today,
+                requested_start: startDateTime || null,
+                requested_end: endDateTime || null,
                 terminal: selectedTerminal,
                 zone: selectedLocation!.building,
                 gate: selectedLocation!.gate,
@@ -223,6 +242,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                 comment: comment || null,
                 photos,
                 check_availability: true,
+                force_complete_previous: forceCompletePrevious,
+                previous_request_id: forceCompletePrevious ? activeRequestConflict?.previous_request.id : null,
             });
 
             const created = res.data?.data ?? null;
@@ -240,6 +261,15 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                     conflict_info: resp.conflict_info,
                 });
                 setShowConflictDetails(true);
+                setErrors({ global: resp.message });
+                return;
+            }
+
+            if (resp?.conflict_type === 'active_request' && resp?.previous_request) {
+                setActiveRequestConflict({
+                    can_force_complete: !!resp.can_force_complete,
+                    previous_request: resp.previous_request,
+                });
                 setErrors({ global: resp.message });
                 return;
             }
@@ -282,6 +312,61 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{errors.global}</div>
                         )}
 
+                        {activeRequestConflict && (
+                            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                <div className="flex items-start gap-2">
+                                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-medium">Найдена незавершённая заявка</div>
+                                        <div className="mt-1 text-xs text-amber-800">
+                                            Заявка #{activeRequestConflict.previous_request.id} •{' '}
+                                            {activeRequestConflict.previous_request.equipment_name}
+                                        </div>
+                                        <div className="mt-1 text-xs text-amber-800">
+                                            Статус: {activeRequestConflict.previous_request.status_label}
+                                        </div>
+                                        {(activeRequestConflict.previous_request.requested_start ||
+                                            activeRequestConflict.previous_request.requested_end) && (
+                                            <div className="mt-1 text-xs text-amber-800">
+                                                Период:{' '}
+                                                {activeRequestConflict.previous_request.requested_start
+                                                    ? new Date(activeRequestConflict.previous_request.requested_start).toLocaleString('ru-RU')
+                                                    : '—'}
+                                                {' — '}
+                                                {activeRequestConflict.previous_request.requested_end
+                                                    ? new Date(activeRequestConflict.previous_request.requested_end).toLocaleString('ru-RU')
+                                                    : '—'}
+                                            </div>
+                                        )}
+                                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                            {activeRequestConflict.can_force_complete ? (
+                                                <Button
+                                                    type="button"
+                                                    className="bg-amber-600 text-white hover:bg-amber-700"
+                                                    onClick={() => void handleSubmit(true)}
+                                                    disabled={submitting}
+                                                >
+                                                    Завершить предыдущую и продолжить
+                                                </Button>
+                                            ) : (
+                                                <div className="text-xs text-amber-800">
+                                                    У вас нет прав для принудительного завершения предыдущей заявки.
+                                                </div>
+                                            )}
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => setActiveRequestConflict(null)}
+                                                disabled={submitting}
+                                            >
+                                                Отмена
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Период: дата+время начала и окончания */}
                         <div className="grid grid-cols-2 gap-3">
                             <div className="flex flex-col gap-1">
@@ -295,6 +380,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                     onChange={(e) => {
                                         setStartDateTime(e.target.value);
                                         setErrors((p) => ({ ...p, startDateTime: '' }));
+                                        setActiveRequestConflict(null);
                                     }}
                                     className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
                                 />
@@ -311,6 +397,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                     onChange={(e) => {
                                         setEndDateTime(e.target.value);
                                         setErrors((p) => ({ ...p, endDateTime: '' }));
+                                        setActiveRequestConflict(null);
                                     }}
                                     className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
                                 />
@@ -328,6 +415,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                 onChange={(e) => {
                                     setTruckId(e.target.value);
                                     setErrors((p) => ({ ...p, truckId: '' }));
+                                    setActiveRequestConflict(null);
                                 }}
                                 className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
                                 disabled={loadingTrucks}
@@ -564,7 +652,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                         <Button
                             type="button"
                             className="w-full bg-red-600 text-white hover:bg-red-700 sm:flex-1"
-                            onClick={handleSubmit}
+                            onClick={() => void handleSubmit()}
                             disabled={submitting}
                         >
                             {submitting ? 'Отправка...' : 'Создать заявку'}
