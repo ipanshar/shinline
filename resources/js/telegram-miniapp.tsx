@@ -372,7 +372,7 @@ function Dashboard({
             <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>Утилизация доступна отдельно, без ожидания одобрения.</p>
-            <button style={btn} onClick={onUtilizationCreate}>Экстренный выезд</button>
+            <button style={btn} onClick={onUtilizationCreate}>Аварийный вызов техслужб</button>
             <button style={btnSecondary} onClick={onUtilizationRequests}>Мои заявки на выезд</button>
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btnSecondary} onClick={onVisits}>Мои визиты</button>
@@ -840,7 +840,7 @@ function UtilizationCreateForm({
 
     return (
         <form onSubmit={submit}>
-            <h3>Экстренный выезд</h3>
+            <h3>Аварийный вызов техслужб</h3>
             <label>Техника</label>
             <select
                 style={inputStyle}
@@ -933,7 +933,7 @@ function UtilizationRequestList({
 }) {
     return (
         <>
-            <h3>Мои заявки на экстренный выезд</h3>
+            <h3>Мои заявки на аварийный вызов техслужб</h3>
             {requests.length === 0 && <p>Заявок пока нет.</p>}
             {requests.map((request) => (
                 <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>

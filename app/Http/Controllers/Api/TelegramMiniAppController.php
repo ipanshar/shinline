@@ -726,7 +726,7 @@ class TelegramMiniAppController extends Controller
         }
 
         $text = implode("\n", [
-            '<b>Новая заявка на экстренное перемещение на склад утилизации</b>',
+            '<b>Новая заявка на аварийный вызов техслужб</b>',
             'ID: #' . e((string) $request->id),
             'Заявитель: ' . e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
             'Техника: ' . e((string) ($request->truck?->name ?: 'ТС #' . $request->truck_id)),
@@ -789,7 +789,7 @@ class TelegramMiniAppController extends Controller
         }
 
         $text = implode("\n", [
-            '<b>Новая заявка на экстренное перемещение в утилизацию</b>',
+            '<b>Новая заявка на аварийный вызов техслужб</b>',
             'ID: #' . e((string) $request->id),
             'Заявитель: ' . e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
             'Техника: ' . e((string) ($request->truck?->name ?: 'ТС #' . $request->truck_id)),

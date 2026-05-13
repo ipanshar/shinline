@@ -220,7 +220,7 @@ export function AppSidebar() {
             icon: ClipboardList,
             items: [
                 {
-                    title: 'Экстренные перемещения',
+                    title: 'Аварийный вызов техслужб',
                     href: '/utilization/requests',
                     icon: ClipboardList,
                     permission: 'utilization.view',

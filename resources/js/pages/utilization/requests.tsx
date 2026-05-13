@@ -29,7 +29,7 @@ interface UtilizationRequestItem {
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Утилизация', href: '/utilization/requests' },
-    { title: 'Экстренные выезды', href: '/utilization/requests' },
+    { title: 'Аварийный вызов техслужб', href: '/utilization/requests' },
 ];
 
 const STATUS_FILTERS = [
@@ -111,13 +111,13 @@ export default function UtilizationRequestsPage() {
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Экстренные перемещения" />
+            <Head title="Аварийный вызов техслужб" />
 
             <div className="flex h-full flex-1 flex-col gap-4 p-4">
                 <section className="rounded-xl border border-[#E8E8E8] bg-white px-5 py-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                            <h1 className="text-[15px] font-semibold text-[#1A1A1A]">Экстренные выезды</h1>
+                            <h1 className="text-[15px] font-semibold text-[#1A1A1A]">Аварийный вызов техслужб</h1>
                             <p className="text-[12px] text-[#6B6B6B]">Отдельный модуль заявок из Telegram Mini App, видит только охрана.</p>
                         </div>
                         <div className="flex items-center gap-2">
