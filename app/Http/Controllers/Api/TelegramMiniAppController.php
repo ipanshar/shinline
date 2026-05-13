@@ -271,6 +271,97 @@ class TelegramMiniAppController extends Controller
         return response()->json(['data' => $requests]);
     }
 
+    public function operatorSpectechRequests(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureCanManageSpectech($chat);
+
+        $requests = SpectechRequest::query()
+            ->with(['truck:id,name,plate_number', 'user:id,name'])
+            ->when($request->filled('status'), fn ($query) => $query->where('status', (string) $request->input('status')))
+            ->orderByDesc('created_at')
+            ->limit(100)
+            ->get()
+            ->map(fn (SpectechRequest $item) => $this->formatSpectechRequest($item))
+            ->values();
+
+        return response()->json(['data' => $requests]);
+    }
+
+    public function updateOperatorSpectechRequestStatus(Request $request, int $id): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureCanManageSpectech($chat);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in([
+                SpectechRequest::STATUS_NEW,
+                SpectechRequest::STATUS_DEPARTURE,
+                SpectechRequest::STATUS_ON_LOCATION,
+                SpectechRequest::STATUS_WORK_STARTED,
+                SpectechRequest::STATUS_COMPLETED,
+                SpectechRequest::STATUS_RETURNED,
+            ])],
+        ]);
+
+        $spectechRequest = SpectechRequest::query()
+            ->with(['truck:id,name,plate_number', 'user:id,name'])
+            ->findOrFail($id);
+
+        if ($spectechRequest->isStatusFrozen()) {
+            $allowedFrozenStatuses = [
+                SpectechRequest::STATUS_NEW,
+                SpectechRequest::STATUS_DEPARTURE,
+                SpectechRequest::STATUS_ON_LOCATION,
+                SpectechRequest::STATUS_WORK_STARTED,
+            ];
+
+            $canFinalizeFrozenRequest = in_array($spectechRequest->status, $allowedFrozenStatuses, true)
+                && $validated['status'] === SpectechRequest::STATUS_RETURNED;
+
+            if (! $canFinalizeFrozenRequest) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Статус заявки заморожен: '.$spectechRequest->getStatusFreezeReason(),
+                    'data' => $this->formatSpectechRequest($spectechRequest),
+                ], 409);
+            }
+        }
+
+        $newStatus = $spectechRequest->isStatusFrozen()
+            ? SpectechRequest::STATUS_RETURNED
+            : $validated['status'];
+
+        $timeline = $spectechRequest->timeline ?? SpectechRequest::buildInitialTimeline();
+        $statusToTimelineIndex = [
+            SpectechRequest::STATUS_NEW => 0,
+            SpectechRequest::STATUS_DEPARTURE => 1,
+            SpectechRequest::STATUS_ON_LOCATION => 2,
+            SpectechRequest::STATUS_WORK_STARTED => 3,
+            SpectechRequest::STATUS_COMPLETED => 4,
+            SpectechRequest::STATUS_RETURNED => 5,
+        ];
+
+        if (isset($statusToTimelineIndex[$newStatus])) {
+            $index = $statusToTimelineIndex[$newStatus];
+            if (isset($timeline[$index]) && ($timeline[$index]['time'] ?? null) === null) {
+                $timeline[$index]['time'] = now()->toIso8601String();
+            }
+        }
+
+        $spectechRequest->update([
+            'status' => $newStatus,
+            'timeline' => $timeline,
+        ]);
+
+        $spectechRequest = $spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name']);
+        $this->syncSpectechScheduleStatus($spectechRequest);
+
+        return response()->json([
+            'data' => $this->formatSpectechRequest($spectechRequest),
+        ]);
+    }
+
     public function createSpectechRequest(Request $request): JsonResponse
     {
         $chat = $this->authChat($request);
@@ -468,6 +559,18 @@ class TelegramMiniAppController extends Controller
         return $user;
     }
 
+    private function ensureCanManageSpectech(TelegramBotChat $chat): User
+    {
+        $this->ensureApproved($chat);
+        $user = $this->resolveApprovedUser($chat);
+
+        if (! $user->hasPermission('spectech.manage')) {
+            abort(403, 'Недостаточно прав для панели оператора спецтехники.');
+        }
+
+        return $user;
+    }
+
     private function resolveOwnedVisit(int $visitId, int $userId): GuestVisit
     {
         return GuestVisit::query()
@@ -525,7 +628,8 @@ class TelegramMiniAppController extends Controller
 
     private function buildSessionPayload(TelegramBotChat $chat): array
     {
-        $chat->loadMissing(['yards:id,name', 'approvedUser:id,name,phone']);
+        $chat->loadMissing(['yards:id,name', 'approvedUser.roles.permissions']);
+        $approvedUser = $chat->approvedUser;
 
         return [
             'chat_id' => $chat->chat_id,
@@ -538,11 +642,14 @@ class TelegramMiniAppController extends Controller
                 'first_name' => $chat->first_name,
                 'last_name' => $chat->last_name,
             ],
-            'user' => $chat->approvedUser ? [
-                'id' => $chat->approvedUser->id,
-                'name' => $chat->approvedUser->name,
-                'phone' => $chat->approvedUser->phone,
+            'user' => $approvedUser ? [
+                'id' => $approvedUser->id,
+                'name' => $approvedUser->name,
+                'phone' => $approvedUser->phone,
             ] : null,
+            'capabilities' => [
+                'can_manage_spectech' => $approvedUser?->hasPermission('spectech.manage') ?? false,
+            ],
             'yards' => $chat->yards->map(fn ($y) => ['id' => $y->id, 'name' => $y->name])->values(),
         ];
     }
@@ -567,6 +674,8 @@ class TelegramMiniAppController extends Controller
             'comment' => $item->comment,
             'status' => $item->status,
             'status_label' => SpectechRequest::STATUS_LABELS[$item->status] ?? $item->status,
+            'status_frozen' => $item->isStatusFrozen(),
+            'status_frozen_reason' => $item->isStatusFrozen() ? $item->getStatusFreezeReason() : null,
             'photos' => collect($item->photos ?? [])->map(function ($photo) {
                 $value = is_string($photo) ? trim($photo) : '';
                 if ($value === '') {
@@ -590,8 +699,30 @@ class TelegramMiniAppController extends Controller
             })->filter()->values()->all(),
             'timeline' => $item->timeline ?? [],
             'client_name' => $item->user?->name,
+            'schedule_id' => $item->schedule_id,
             'created_at' => $item->created_at?->toIso8601String(),
         ];
+    }
+
+    private function syncSpectechScheduleStatus(SpectechRequest $request): void
+    {
+        if (! $request->schedule_id) {
+            return;
+        }
+
+        $scheduleStatus = match ($request->status) {
+            SpectechRequest::STATUS_NEW => SpectechSchedule::STATUS_PENDING,
+            SpectechRequest::STATUS_DEPARTURE,
+            SpectechRequest::STATUS_ON_LOCATION,
+            SpectechRequest::STATUS_WORK_STARTED => SpectechSchedule::STATUS_IN_PROGRESS,
+            SpectechRequest::STATUS_COMPLETED,
+            SpectechRequest::STATUS_RETURNED => SpectechSchedule::STATUS_DONE,
+            default => SpectechSchedule::STATUS_PENDING,
+        };
+
+        SpectechSchedule::query()
+            ->whereKey($request->schedule_id)
+            ->update(['status' => $scheduleStatus]);
     }
 
     private function extractEquipmentTypeKey(string $name): string

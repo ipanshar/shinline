@@ -232,6 +232,8 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     Route::get('/telegram/miniapp/spectech/check-availability', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'checkSpectechAvailability']);
     Route::get('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechRequests']);
     Route::post('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createSpectechRequest']);
+    Route::get('/telegram/miniapp/operator/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'operatorSpectechRequests']);
+    Route::patch('/telegram/miniapp/operator/spectech/requests/{id}/status', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'updateOperatorSpectechRequestStatus']);
 });
 
 // Telegram users администрирование
