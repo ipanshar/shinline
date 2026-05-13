@@ -5,24 +5,23 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GuestVisit;
 use App\Models\SpectechRequest;
-use App\Models\SpectechSchedule;
+use App\Models\UtilizationRequest;
+use App\Models\User;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
 use App\Models\TruckCategory;
-use App\Models\User;
 use App\Models\Visitor;
 use App\Services\ExitPermitService;
 use App\Services\GuestVisitService;
-use App\Services\SpectechAvailabilityService;
+use App\Services\TelegramMessagingService;
 use App\Services\Telegram\TelegramRegistrationService;
 use App\Services\Telegram\TelegramWebAppAuthService;
-use App\Services\TelegramMessagingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class TelegramMiniAppController extends Controller
@@ -33,7 +32,8 @@ class TelegramMiniAppController extends Controller
         private GuestVisitService $guestVisitService,
         private ExitPermitService $exitPermitService,
         private TelegramMessagingService $telegramMessaging,
-    ) {}
+    ) {
+    }
 
     public function session(Request $request): JsonResponse
     {
@@ -150,7 +150,7 @@ class TelegramMiniAppController extends Controller
         $allowedYardIds = $chat->yards()->pluck('yards.id')->all();
         $yardId = $request->integer('yard_id') ?: null;
 
-        if ($yardId && ! in_array($yardId, $allowedYardIds, true)) {
+        if ($yardId && !in_array($yardId, $allowedYardIds, true)) {
             abort(403, 'Двор недоступен для вашего Telegram-пользователя.');
         }
 
@@ -209,12 +209,12 @@ class TelegramMiniAppController extends Controller
             ->where('confirmation_status', Visitor::CONFIRMATION_CONFIRMED)
             ->firstOrFail();
 
-        if (! in_array((int) $visitor->yard_id, $allowedYardIds, true)) {
+        if (!in_array((int) $visitor->yard_id, $allowedYardIds, true)) {
             abort(403, 'Двор визита недоступен для вашего Telegram-пользователя.');
         }
 
         $user = $chat->approvedUser()->first();
-        if (! $user) {
+        if (!$user) {
             abort(403, 'Связанный пользователь не найден.');
         }
 
@@ -228,6 +228,115 @@ class TelegramMiniAppController extends Controller
 
         return response()->json([
             'data' => $exitPermit->fresh(['yard:id,name', 'truck:id,plate_number']),
+        ], 201);
+    }
+
+    public function utilizationTrucks(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+
+        if ($chat->approval_status === TelegramBotChat::APPROVAL_BLOCKED) {
+            abort(403, 'Доступ заблокирован.');
+        }
+
+        $trucks = Truck::query()
+            ->when($request->filled('search'), function ($query) use ($request) {
+                $search = (string) $request->input('search');
+                $query->where(function ($nested) use ($search) {
+                    $nested->where('name', 'like', "%{$search}%")
+                        ->orWhere('plate_number', 'like', "%{$search}%");
+                });
+            })
+            ->orderByDesc('created_at')
+            ->get(['id', 'name', 'plate_number']);
+
+        return response()->json(['data' => $trucks]);
+    }
+
+    public function utilizationRequests(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+
+        if ($chat->approval_status === TelegramBotChat::APPROVAL_BLOCKED) {
+            abort(403, 'Доступ заблокирован.');
+        }
+
+        $user = $this->resolveUtilizationUser($chat);
+
+        $requests = UtilizationRequest::query()
+            ->with(['truck:id,name,plate_number'])
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (UtilizationRequest $item) => $this->formatUtilizationRequest($item))
+            ->values();
+
+        return response()->json(['data' => $requests]);
+    }
+
+    public function createUtilizationRequest(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+
+        if ($chat->approval_status === TelegramBotChat::APPROVAL_BLOCKED) {
+            abort(403, 'Доступ заблокирован.');
+        }
+
+        $user = $this->resolveUtilizationUser($chat);
+
+        $validated = $request->validate([
+            'truck_id'        => ['required', 'integer', 'exists:trucks,id'],
+            'driver_name'     => ['required', 'string', 'max:160'],
+            'requested_start' => ['required', 'date', 'after_or_equal:now'],
+            'requested_end'   => ['required', 'date', 'after:requested_start'],
+            'terminal'        => ['required', 'string', 'max:10'],
+            'zone'            => ['required', 'string', 'max:100'],
+            'gate'            => ['nullable', 'string', 'max:50'],
+            'address'         => ['required', 'string', 'max:500'],
+            'comment'         => ['nullable', 'string', 'max:2000'],
+            'photos'          => ['nullable', 'array', 'max:5'],
+            'photos.*'        => ['nullable', 'string'],
+        ]);
+
+        $photoPaths = [];
+        foreach ($validated['photos'] ?? [] as $photoData) {
+            if (!is_string($photoData) || trim($photoData) === '') {
+                continue;
+            }
+
+            $saved = $this->saveBase64Photo($photoData, 'utilization');
+            if ($saved !== null) {
+                $photoPaths[] = $saved;
+            }
+        }
+
+        $utilizationRequest = UtilizationRequest::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => (int) $validated['truck_id'],
+            'driver_name' => trim((string) $validated['driver_name']),
+            'requested_start' => Carbon::parse($validated['requested_start']),
+            'requested_end' => Carbon::parse($validated['requested_end']),
+            'terminal' => trim((string) $validated['terminal']),
+            'zone' => trim((string) $validated['zone']),
+            'gate' => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
+            'address' => trim((string) $validated['address']),
+            'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
+            'status' => UtilizationRequest::STATUS_NEW,
+            'photos' => $photoPaths,
+            'timeline' => UtilizationRequest::buildInitialTimeline(),
+            'source' => 'telegram_miniapp',
+            'meta' => [
+                'chat_id' => $chat->chat_id,
+            ],
+        ]);
+
+        $utilizationRequest->load(['truck:id,name,plate_number', 'user:id,name']);
+
+        $this->notifyUtilizationOperators($utilizationRequest, $chat);
+
+        return response()->json([
+            'data' => $this->formatUtilizationRequest($utilizationRequest),
         ], 201);
     }
 
@@ -271,97 +380,6 @@ class TelegramMiniAppController extends Controller
         return response()->json(['data' => $requests]);
     }
 
-    public function operatorSpectechRequests(Request $request): JsonResponse
-    {
-        $chat = $this->authChat($request);
-        $this->ensureCanManageSpectech($chat);
-
-        $requests = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name'])
-            ->when($request->filled('status'), fn ($query) => $query->where('status', (string) $request->input('status')))
-            ->orderByDesc('created_at')
-            ->limit(100)
-            ->get()
-            ->map(fn (SpectechRequest $item) => $this->formatSpectechRequest($item))
-            ->values();
-
-        return response()->json(['data' => $requests]);
-    }
-
-    public function updateOperatorSpectechRequestStatus(Request $request, int $id): JsonResponse
-    {
-        $chat = $this->authChat($request);
-        $this->ensureCanManageSpectech($chat);
-
-        $validated = $request->validate([
-            'status' => ['required', Rule::in([
-                SpectechRequest::STATUS_NEW,
-                SpectechRequest::STATUS_DEPARTURE,
-                SpectechRequest::STATUS_ON_LOCATION,
-                SpectechRequest::STATUS_WORK_STARTED,
-                SpectechRequest::STATUS_COMPLETED,
-                SpectechRequest::STATUS_RETURNED,
-            ])],
-        ]);
-
-        $spectechRequest = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name'])
-            ->findOrFail($id);
-
-        if ($spectechRequest->isStatusFrozen()) {
-            $allowedFrozenStatuses = [
-                SpectechRequest::STATUS_NEW,
-                SpectechRequest::STATUS_DEPARTURE,
-                SpectechRequest::STATUS_ON_LOCATION,
-                SpectechRequest::STATUS_WORK_STARTED,
-            ];
-
-            $canFinalizeFrozenRequest = in_array($spectechRequest->status, $allowedFrozenStatuses, true)
-                && $validated['status'] === SpectechRequest::STATUS_RETURNED;
-
-            if (! $canFinalizeFrozenRequest) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Статус заявки заморожен: '.$spectechRequest->getStatusFreezeReason(),
-                    'data' => $this->formatSpectechRequest($spectechRequest),
-                ], 409);
-            }
-        }
-
-        $newStatus = $spectechRequest->isStatusFrozen()
-            ? SpectechRequest::STATUS_RETURNED
-            : $validated['status'];
-
-        $timeline = $spectechRequest->timeline ?? SpectechRequest::buildInitialTimeline();
-        $statusToTimelineIndex = [
-            SpectechRequest::STATUS_NEW => 0,
-            SpectechRequest::STATUS_DEPARTURE => 1,
-            SpectechRequest::STATUS_ON_LOCATION => 2,
-            SpectechRequest::STATUS_WORK_STARTED => 3,
-            SpectechRequest::STATUS_COMPLETED => 4,
-            SpectechRequest::STATUS_RETURNED => 5,
-        ];
-
-        if (isset($statusToTimelineIndex[$newStatus])) {
-            $index = $statusToTimelineIndex[$newStatus];
-            if (isset($timeline[$index]) && ($timeline[$index]['time'] ?? null) === null) {
-                $timeline[$index]['time'] = now()->toIso8601String();
-            }
-        }
-
-        $spectechRequest->update([
-            'status' => $newStatus,
-            'timeline' => $timeline,
-        ]);
-
-        $spectechRequest = $spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name']);
-        $this->syncSpectechScheduleStatus($spectechRequest);
-
-        return response()->json([
-            'data' => $this->formatSpectechRequest($spectechRequest),
-        ]);
-    }
-
     public function createSpectechRequest(Request $request): JsonResponse
     {
         $chat = $this->authChat($request);
@@ -369,55 +387,22 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveApprovedUser($chat);
 
         $validated = $request->validate([
-            'truck_id' => ['required', 'integer', 'exists:trucks,id'],
+            'truck_id'        => ['required', 'integer', 'exists:trucks,id'],
+            'driver_name'     => ['required', 'string', 'max:160'],
             'requested_start' => ['required', 'date', 'after_or_equal:now'],
-            'requested_end' => ['required', 'date', 'after:requested_start'],
-            'terminal' => ['required', 'string', 'max:10'],
-            'zone' => ['required', 'string', 'max:100'],
-            'gate' => ['nullable', 'string', 'max:50'],
-            'address' => ['required', 'string', 'max:500'],
-            'comment' => ['nullable', 'string', 'max:2000'],
-            'photos' => ['nullable', 'array', 'max:3'],
-            'photos.*' => ['nullable', 'string'],
+            'requested_end'   => ['required', 'date', 'after:requested_start'],
+            'terminal'        => ['required', 'string', 'max:10'],
+            'zone'            => ['required', 'string', 'max:100'],
+            'gate'            => ['nullable', 'string', 'max:50'],
+            'address'         => ['required', 'string', 'max:500'],
+            'comment'         => ['nullable', 'string', 'max:2000'],
+            'photos'          => ['nullable', 'array', 'max:5'],
+            'photos.*'        => ['nullable', 'string'],
         ]);
-
-        $requestedStart = Carbon::parse($validated['requested_start']);
-        $requestedEnd = Carbon::parse($validated['requested_end']);
-        $truck = Truck::query()->findOrFail((int) $validated['truck_id']);
-        $availabilityService = new SpectechAvailabilityService;
-
-        if (! $availabilityService->isTruckAvailable(
-            $truck->id,
-            $requestedStart->toIso8601String(),
-            $requestedEnd->toIso8601String(),
-        )) {
-            $freeTruck = $availabilityService->findFreeAlternativeTruck(
-                $truck->id,
-                $requestedStart->toIso8601String(),
-                $requestedEnd->toIso8601String(),
-            );
-
-            $conflictInfo = $availabilityService->getTypeConflictInfo(
-                $truck->id,
-                $requestedStart->toIso8601String(),
-                $requestedEnd->toIso8601String(),
-            );
-
-            return response()->json([
-                'message' => 'Выбранная техника занята на указанный период',
-                'conflict' => true,
-                'free_alternative' => $freeTruck ? [
-                    'id' => $freeTruck->id,
-                    'name' => $freeTruck->name,
-                    'plate_number' => $freeTruck->plate_number,
-                ] : null,
-                'conflict_info' => $conflictInfo,
-            ], 409);
-        }
 
         $photoPaths = [];
         foreach ($validated['photos'] ?? [] as $photoData) {
-            if (! is_string($photoData) || trim($photoData) === '') {
+            if (!is_string($photoData) || trim($photoData) === '') {
                 continue;
             }
 
@@ -427,41 +412,23 @@ class TelegramMiniAppController extends Controller
             }
         }
 
-        $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
-
-        $spectechRequest = DB::transaction(function () use ($user, $validated, $requestedStart, $requestedEnd, $truck, $typeKey, $photoPaths) {
-            $schedule = SpectechSchedule::query()->create([
-                'user_id' => $user->id,
-                'truck_id' => $truck->id,
-                'equipment_type_key' => $typeKey ?: ($truck->name ?? 'Спецтехника'),
-                'equipment_type_label' => $typeKey ?: ($truck->name ?? 'Спецтехника'),
-                'assigned_truck_name' => $truck->name.($truck->plate_number ? " ({$truck->plate_number})" : ''),
-                'scheduled_start' => $requestedStart,
-                'scheduled_end' => $requestedEnd,
-                'purpose' => isset($validated['comment']) ? trim((string) $validated['comment']) : 'Заявка на спецтехнику',
-                'address' => trim((string) $validated['address']),
-                'notes' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
-                'status' => SpectechSchedule::STATUS_PENDING,
-            ]);
-
-            return SpectechRequest::query()->create([
-                'user_id' => $user->id,
-                'truck_id' => $truck->id,
-                'start_date' => $requestedStart->toDateString(),
-                'end_date' => $requestedEnd->toDateString(),
-                'requested_start' => $requestedStart,
-                'requested_end' => $requestedEnd,
-                'terminal' => trim((string) $validated['terminal']),
-                'zone' => trim((string) $validated['zone']),
-                'gate' => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
-                'address' => trim((string) $validated['address']),
-                'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
-                'status' => SpectechRequest::STATUS_NEW,
-                'photos' => $photoPaths,
-                'timeline' => SpectechRequest::buildInitialTimeline(),
-                'schedule_id' => $schedule->id,
-            ]);
-        });
+        $spectechRequest = SpectechRequest::query()->create([
+            'user_id'         => $user->id,
+            'truck_id'        => (int) $validated['truck_id'],
+            'driver_name'     => trim((string) $validated['driver_name']),
+            'start_date'      => Carbon::parse($validated['requested_start'])->toDateString(),
+            'end_date'        => Carbon::parse($validated['requested_end'])->toDateString(),
+            'requested_start' => Carbon::parse($validated['requested_start']),
+            'requested_end'   => Carbon::parse($validated['requested_end']),
+            'terminal'        => trim((string) $validated['terminal']),
+            'zone'            => trim((string) $validated['zone']),
+            'gate'            => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
+            'address'         => trim((string) $validated['address']),
+            'comment'         => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
+            'status'          => SpectechRequest::STATUS_NEW,
+            'photos'          => $photoPaths,
+            'timeline'        => SpectechRequest::buildInitialTimeline(),
+        ]);
 
         $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name']);
 
@@ -472,65 +439,13 @@ class TelegramMiniAppController extends Controller
         ], 201);
     }
 
-    public function checkSpectechAvailability(Request $request): JsonResponse
-    {
-        $chat = $this->authChat($request);
-        $this->ensureApproved($chat);
-
-        $validated = $request->validate([
-            'truck_id' => ['required', 'integer', 'exists:trucks,id'],
-            'requested_start' => ['required', 'date'],
-            'requested_end' => ['required', 'date', 'after:requested_start'],
-        ]);
-
-        $requestedStart = Carbon::parse($validated['requested_start']);
-        $requestedEnd = Carbon::parse($validated['requested_end']);
-        $availabilityService = new SpectechAvailabilityService;
-
-        $isAvailable = $availabilityService->isTruckAvailable(
-            (int) $validated['truck_id'],
-            $requestedStart->toIso8601String(),
-            $requestedEnd->toIso8601String(),
-        );
-
-        if ($isAvailable) {
-            return response()->json([
-                'available' => true,
-                'message' => 'Техника доступна',
-            ]);
-        }
-
-        $freeTruck = $availabilityService->findFreeAlternativeTruck(
-            (int) $validated['truck_id'],
-            $requestedStart->toIso8601String(),
-            $requestedEnd->toIso8601String(),
-        );
-
-        $conflictInfo = $availabilityService->getTypeConflictInfo(
-            (int) $validated['truck_id'],
-            $requestedStart->toIso8601String(),
-            $requestedEnd->toIso8601String(),
-        );
-
-        return response()->json([
-            'available' => false,
-            'message' => 'Выбранная техника занята на указанный период',
-            'free_alternative' => $freeTruck ? [
-                'id' => $freeTruck->id,
-                'name' => $freeTruck->name,
-                'plate_number' => $freeTruck->plate_number,
-            ] : null,
-            'conflict_info' => $conflictInfo,
-        ]);
-    }
-
     private function authChat(Request $request): TelegramBotChat
     {
         $initData = (string) ($request->input('init_data') ?? $request->header('X-Telegram-Init-Data', ''));
 
         $verified = $this->auth->verify($initData);
 
-        if (! $verified) {
+        if (!$verified) {
             abort(401, 'Невалидный initData.');
         }
 
@@ -543,7 +458,7 @@ class TelegramMiniAppController extends Controller
             abort(403, 'Заявка не одобрена.');
         }
 
-        if (! $chat->approved_user_id) {
+        if (!$chat->approved_user_id) {
             abort(403, 'Связанный пользователь не назначен.');
         }
     }
@@ -552,20 +467,48 @@ class TelegramMiniAppController extends Controller
     {
         $user = $chat->approvedUser()->first();
 
-        if (! $user) {
+        if (!$user) {
             abort(403, 'Связанный пользователь не найден.');
         }
 
         return $user;
     }
 
-    private function ensureCanManageSpectech(TelegramBotChat $chat): User
+    private function resolveUtilizationUser(TelegramBotChat $chat): User
     {
-        $this->ensureApproved($chat);
-        $user = $this->resolveApprovedUser($chat);
+        $approvedUser = $chat->approvedUser()->first();
+        if ($approvedUser) {
+            return $approvedUser;
+        }
 
-        if (! $user->hasPermission('spectech.manage')) {
-            abort(403, 'Недостаточно прав для панели оператора спецтехники.');
+        $linkedUser = $chat->user()->first();
+        if ($linkedUser) {
+            return $linkedUser;
+        }
+
+        $login = 'tg_' . $chat->chat_id;
+        $name = $chat->display_full_name
+            ?: trim(($chat->first_name ?? '') . ' ' . ($chat->last_name ?? ''))
+            ?: ('Telegram ' . $chat->chat_id);
+        $email = $login . '@telegram.local';
+
+        $user = User::query()->firstOrCreate(
+            ['login' => $login],
+            [
+                'name' => $name,
+                'email' => $email,
+                'phone' => $chat->display_phone,
+                'password' => bcrypt(Str::random(40)),
+            ]
+        );
+
+        $user->forceFill([
+            'name' => $name,
+            'phone' => $chat->display_phone,
+        ])->save();
+
+        if (!$chat->user_id) {
+            $chat->forceFill(['user_id' => $user->id])->save();
         }
 
         return $user;
@@ -628,8 +571,7 @@ class TelegramMiniAppController extends Controller
 
     private function buildSessionPayload(TelegramBotChat $chat): array
     {
-        $chat->loadMissing(['yards:id,name', 'approvedUser.roles.permissions']);
-        $approvedUser = $chat->approvedUser;
+        $chat->loadMissing(['yards:id,name', 'approvedUser:id,name,phone']);
 
         return [
             'chat_id' => $chat->chat_id,
@@ -642,14 +584,11 @@ class TelegramMiniAppController extends Controller
                 'first_name' => $chat->first_name,
                 'last_name' => $chat->last_name,
             ],
-            'user' => $approvedUser ? [
-                'id' => $approvedUser->id,
-                'name' => $approvedUser->name,
-                'phone' => $approvedUser->phone,
+            'user' => $chat->approvedUser ? [
+                'id' => $chat->approvedUser->id,
+                'name' => $chat->approvedUser->name,
+                'phone' => $chat->approvedUser->phone,
             ] : null,
-            'capabilities' => [
-                'can_manage_spectech' => $approvedUser?->hasPermission('spectech.manage') ?? false,
-            ],
             'yards' => $chat->yards->map(fn ($y) => ['id' => $y->id, 'name' => $y->name])->values(),
         ];
     }
@@ -660,13 +599,14 @@ class TelegramMiniAppController extends Controller
             'id' => $item->id,
             'equipment_id' => $item->truck_id,
             'equipment_name' => $item->truck
-                ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС '.$item->truck->plate_number : 'ТС #'.$item->truck_id))
+                ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС ' . $item->truck->plate_number : 'ТС #' . $item->truck_id))
                 : '—',
             'plate_number' => $item->truck?->plate_number,
-            'start_date' => $item->start_date?->toDateString(),
-            'end_date' => $item->end_date?->toDateString(),
+            'driver_name' => $item->driver_name,
+            'start_date'      => $item->start_date?->toDateString(),
+            'end_date'        => $item->end_date?->toDateString(),
             'requested_start' => $item->requested_start?->toIso8601String(),
-            'requested_end' => $item->requested_end?->toIso8601String(),
+            'requested_end'   => $item->requested_end?->toIso8601String(),
             'terminal' => $item->terminal,
             'zone' => $item->zone,
             'gate' => $item->gate,
@@ -674,67 +614,17 @@ class TelegramMiniAppController extends Controller
             'comment' => $item->comment,
             'status' => $item->status,
             'status_label' => SpectechRequest::STATUS_LABELS[$item->status] ?? $item->status,
-            'status_frozen' => $item->isStatusFrozen(),
-            'status_frozen_reason' => $item->isStatusFrozen() ? $item->getStatusFreezeReason() : null,
-            'photos' => collect($item->photos ?? [])->map(function ($photo) {
-                $value = is_string($photo) ? trim($photo) : '';
-                if ($value === '') {
-                    return null;
-                }
-
-                if (
-                    str_starts_with($value, 'http://') ||
-                    str_starts_with($value, 'https://') ||
-                    str_starts_with($value, 'data:image') ||
-                    str_starts_with($value, '/storage/')
-                ) {
-                    return $value;
-                }
-
-                if (str_starts_with($value, 'storage/')) {
-                    return '/'.$value;
-                }
-
-                return Storage::disk('public')->url(ltrim($value, '/'));
-            })->filter()->values()->all(),
+            'photos' => $item->photos ?? [],
+            'photo_urls' => $item->photos ?? [],
             'timeline' => $item->timeline ?? [],
             'client_name' => $item->user?->name,
-            'schedule_id' => $item->schedule_id,
             'created_at' => $item->created_at?->toIso8601String(),
         ];
     }
 
-    private function syncSpectechScheduleStatus(SpectechRequest $request): void
+    private function saveBase64Photo(string $dataUrl, string $folder = 'spectech'): ?string
     {
-        if (! $request->schedule_id) {
-            return;
-        }
-
-        $scheduleStatus = match ($request->status) {
-            SpectechRequest::STATUS_NEW => SpectechSchedule::STATUS_PENDING,
-            SpectechRequest::STATUS_DEPARTURE,
-            SpectechRequest::STATUS_ON_LOCATION,
-            SpectechRequest::STATUS_WORK_STARTED => SpectechSchedule::STATUS_IN_PROGRESS,
-            SpectechRequest::STATUS_COMPLETED,
-            SpectechRequest::STATUS_RETURNED => SpectechSchedule::STATUS_DONE,
-            default => SpectechSchedule::STATUS_PENDING,
-        };
-
-        SpectechSchedule::query()
-            ->whereKey($request->schedule_id)
-            ->update(['status' => $scheduleStatus]);
-    }
-
-    private function extractEquipmentTypeKey(string $name): string
-    {
-        $cleaned = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($name));
-
-        return trim($cleaned ?: $name);
-    }
-
-    private function saveBase64Photo(string $dataUrl): ?string
-    {
-        if (! str_starts_with($dataUrl, 'data:image')) {
+        if (!str_starts_with($dataUrl, 'data:image')) {
             return null;
         }
 
@@ -753,7 +643,9 @@ class TelegramMiniAppController extends Controller
                 return null;
             }
 
-            $path = 'spectech/'.uniqid('tg_photo_', true).'.'.$ext;
+            $binary = $this->optimizeImageBytes($binary);
+
+            $path = trim($folder, '/') . '/' . uniqid('tg_photo_', true) . '.' . $ext;
             Storage::disk('public')->put($path, $binary);
 
             return Storage::disk('public')->url($path);
@@ -761,6 +653,70 @@ class TelegramMiniAppController extends Controller
             return null;
         }
     }
+
+    private function optimizeImageBytes(string $imageBytes): string
+    {
+        if ($imageBytes === '' || !function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) {
+            return $imageBytes;
+        }
+
+        $sourceImage = @imagecreatefromstring($imageBytes);
+
+        if ($sourceImage === false) {
+            return $imageBytes;
+        }
+
+        $sourceWidth = imagesx($sourceImage);
+        $sourceHeight = imagesy($sourceImage);
+
+        if ($sourceWidth <= 0 || $sourceHeight <= 0) {
+            imagedestroy($sourceImage);
+            return $imageBytes;
+        }
+
+        $maxWidth = 1600;
+        $maxHeight = 1600;
+        $quality = 78;
+
+        $scale = min($maxWidth / $sourceWidth, $maxHeight / $sourceHeight, 1);
+        $targetWidth = max(1, (int) round($sourceWidth * $scale));
+        $targetHeight = max(1, (int) round($sourceHeight * $scale));
+        $targetImage = $sourceImage;
+
+        if ($scale < 1) {
+            $targetImage = imagecreatetruecolor($targetWidth, $targetHeight);
+
+            if ($targetImage === false) {
+                imagedestroy($sourceImage);
+                return $imageBytes;
+            }
+
+            $background = imagecolorallocate($targetImage, 255, 255, 255);
+            imagefill($targetImage, 0, 0, $background);
+            imagecopyresampled($targetImage, $sourceImage, 0, 0, 0, 0, $targetWidth, $targetHeight, $sourceWidth, $sourceHeight);
+        }
+
+        ob_start();
+        imagejpeg($targetImage, null, $quality);
+        $optimizedImage = ob_get_clean();
+
+        if ($targetImage !== $sourceImage) {
+            imagedestroy($targetImage);
+        }
+
+        imagedestroy($sourceImage);
+
+        if (!is_string($optimizedImage) || $optimizedImage === '') {
+            return $imageBytes;
+        }
+
+        if ($scale >= 1 && strlen($optimizedImage) >= strlen($imageBytes)) {
+            return $imageBytes;
+        }
+
+        return $optimizedImage;
+    }
+
 
     private function notifySpectechOperators(SpectechRequest $request, TelegramBotChat $chat): void
     {
@@ -770,14 +726,16 @@ class TelegramMiniAppController extends Controller
         }
 
         $text = implode("\n", [
-            '<b>Новая заявка на спецтехнику (Mini App)</b>',
-            'ID: #'.e((string) $request->id),
-            'Заявитель: '.e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
-            'Техника: '.e((string) ($request->truck?->name ?: 'ТС #'.$request->truck_id)),
-            'Номер: '.e((string) ($request->truck?->plate_number ?: 'без номера')),
-            'Локация: '.e(trim($request->terminal.' / '.$request->zone.($request->gate ? ' / '.$request->gate : ''))),
-            'Адрес: '.e((string) $request->address),
-            'Комментарий: '.e((string) ($request->comment ?: '—')),
+            '<b>Новая заявка на аварийный вызов техслужб</b>',
+            'ID: #' . e((string) $request->id),
+            'Заявитель: ' . e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
+            'Техника: ' . e((string) ($request->truck?->name ?: 'ТС #' . $request->truck_id)),
+            'Номер: ' . e((string) ($request->truck?->plate_number ?: 'без номера')),
+            'Водитель: ' . e((string) ($request->driver_name ?: '—')),
+            'Локация: ' . e(trim($request->terminal . ' / ' . $request->zone . ($request->gate ? ' / ' . $request->gate : ''))),
+            'Адрес: ' . e((string) $request->address),
+            'Фото: ' . e((string) count((array) ($request->photos ?? []))),
+            'Комментарий: ' . e((string) ($request->comment ?: '—')),
         ]);
 
         foreach ($chatIds as $chatId) {
@@ -787,6 +745,69 @@ class TelegramMiniAppController extends Controller
                 Log::warning('Failed to notify spectech operator about miniapp request', [
                     'chat_id' => $chatId,
                     'spectech_request_id' => $request->id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    private function formatUtilizationRequest(UtilizationRequest $item): array
+    {
+        return [
+            'id' => $item->id,
+            'equipment_id' => $item->truck_id,
+            'equipment_name' => $item->truck
+                ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС ' . $item->truck->plate_number : 'ТС #' . $item->truck_id))
+                : '—',
+            'plate_number' => $item->truck?->plate_number,
+            'driver_name' => $item->driver_name,
+            'start_date' => $item->requested_start?->toDateString(),
+            'end_date' => $item->requested_end?->toDateString(),
+            'requested_start' => $item->requested_start?->toIso8601String(),
+            'requested_end' => $item->requested_end?->toIso8601String(),
+            'terminal' => $item->terminal,
+            'zone' => $item->zone,
+            'gate' => $item->gate,
+            'address' => $item->address,
+            'comment' => $item->comment,
+            'status' => $item->status,
+            'status_label' => UtilizationRequest::STATUS_LABELS[$item->status] ?? $item->status,
+            'photos' => $item->photos ?? [],
+            'photo_urls' => $item->photos ?? [],
+            'timeline' => $item->timeline ?? [],
+            'client_name' => $item->user?->name,
+            'source' => $item->source,
+            'created_at' => $item->created_at?->toIso8601String(),
+        ];
+    }
+
+    private function notifyUtilizationOperators(UtilizationRequest $request, TelegramBotChat $chat): void
+    {
+        $chatIds = array_values(array_filter(array_map('strval', (array) config('telegram.admin_chat_ids', []))));
+        if ($chatIds === []) {
+            return;
+        }
+
+        $text = implode("\n", [
+            '<b>Новая заявка на аварийный вызов техслужб</b>',
+            'ID: #' . e((string) $request->id),
+            'Заявитель: ' . e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
+            'Техника: ' . e((string) ($request->truck?->name ?: 'ТС #' . $request->truck_id)),
+            'Номер: ' . e((string) ($request->truck?->plate_number ?: 'без номера')),
+            'Водитель: ' . e((string) ($request->driver_name ?: '—')),
+            'Локация: ' . e(trim($request->terminal . ' / ' . $request->zone . ($request->gate ? ' / ' . $request->gate : ''))),
+            'Адрес: ' . e((string) $request->address),
+            'Фото: ' . e((string) count((array) ($request->photos ?? []))),
+            'Комментарий: ' . e((string) ($request->comment ?: '—')),
+        ]);
+
+        foreach ($chatIds as $chatId) {
+            try {
+                $this->telegramMessaging->sendText($chatId, $text);
+            } catch (\Throwable $exception) {
+                Log::warning('Failed to notify utilization operator about miniapp request', [
+                    'chat_id' => $chatId,
+                    'utilization_request_id' => $request->id,
                     'error' => $exception->getMessage(),
                 ]);
             }
