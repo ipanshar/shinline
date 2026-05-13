@@ -6,6 +6,7 @@ use App\Models\Checkpoint;
 use App\Models\CheckpointExitReview;
 use App\Models\Devaice;
 use App\Models\EntryPermit;
+use App\Models\GuestVisit;
 use App\Models\Status;
 use App\Models\Task;
 use App\Models\Truck;
@@ -477,7 +478,12 @@ class DssVisitorFlowService
             return;
         }
 
-        $this->guestVisitTelegramNotifier->notifyArrival($guestVisitId, $visitor);
+        $guestVisit = GuestVisit::query()->find($guestVisitId);
+        if (!$guestVisit) {
+            return;
+        }
+
+        $this->guestVisitTelegramNotifier->notifyArrival($guestVisit, $visitor);
     }
 
     private function createAutomaticExitPermitForIntegrationPermit(Visitor $visitor, ?EntryPermit $permit): void

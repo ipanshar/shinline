@@ -340,6 +340,9 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->postJson('/api/telegram/miniapp/spectech/requests', [
             'init_data' => $initData,
             'truck_id' => $truck->id,
+            'driver_name' => 'Тестовый водитель',
+            'requested_start' => now()->addHour()->toDateTimeString(),
+            'requested_end' => now()->addDay()->toDateTimeString(),
             'end_date' => now()->addDay()->toDateString(),
             'terminal' => 'T1',
             'zone' => 'Зона A',
