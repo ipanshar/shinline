@@ -162,7 +162,9 @@ class SpectechRequestController extends Controller
     {
         $validated = $request->validate([
             'truck_id' => 'required|exists:trucks,id',
-            'end_date' => 'required|date|after_or_equal:today',
+            'end_date' => 'required_without:requested_end|nullable|date|after_or_equal:today',
+            'requested_start' => 'nullable|date|after_or_equal:now',
+            'requested_end' => 'nullable|date|after:requested_start',
             'terminal' => 'required|string|max:10',
             'zone' => 'required|string|max:100',
             'gate' => 'nullable|string|max:50',
@@ -175,8 +177,12 @@ class SpectechRequestController extends Controller
             'previous_request_id' => 'nullable|integer|exists:spectech_requests,id',
         ]);
 
-        $startDate = now();
-        $endDate = \Carbon\Carbon::parse($validated['end_date'])->endOfDay();
+        $startDate = ! empty($validated['requested_start'])
+            ? \Carbon\Carbon::parse($validated['requested_start'])
+            : now();
+        $endDate = ! empty($validated['requested_end'])
+            ? \Carbon\Carbon::parse($validated['requested_end'])
+            : \Carbon\Carbon::parse($validated['end_date'])->endOfDay();
         $activeRequestConflict = $this->findActiveRequestConflict((int) $validated['truck_id']);
         $excludeScheduleId = $activeRequestConflict && ($validated['force_complete_previous'] ?? false)
             ? $activeRequestConflict->schedule_id
@@ -278,8 +284,8 @@ class SpectechRequestController extends Controller
             return SpectechRequest::create([
                 'user_id' => Auth::id(),
                 'truck_id' => $validated['truck_id'],
-                'start_date' => now()->toDateString(),
-                'end_date' => $validated['end_date'],
+                'start_date' => $startDate->toDateString(),
+                'end_date' => $endDate->toDateString(),
                 'terminal' => $validated['terminal'],
                 'zone' => $validated['zone'],
                 'gate' => $validated['gate'] ?? null,

@@ -84,6 +84,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     const [activeRequestConflict, setActiveRequestConflict] = useState<ActiveRequestConflict | null>(null);
 
     const fileRef = useRef<HTMLInputElement>(null);
+    const availabilityRequestSeq = useRef(0);
 
     // Загрузка техники
     useEffect(() => {
@@ -127,31 +128,41 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
     // Автоматическая проверка доступности при изменении техники или даты
     useEffect(() => {
-        if (!truckId || !endDateTime) {
+        if (!truckId || !startDateTime || !endDateTime) {
             setAvailabilityResult(null);
+            setCheckingAvailability(false);
             return;
         }
 
         const checkAvailability = async () => {
+            const requestSeq = ++availabilityRequestSeq.current;
             setCheckingAvailability(true);
             try {
                 const res = await axios.get('/spectech/api/requests/check-availability', {
                     params: {
                         truck_id: truckId,
-                        end_date: endDateTime ? endDateTime.split('T')[0] : '',
+                        requested_start: startDateTime,
+                        requested_end: endDateTime,
                     },
                 });
-                setAvailabilityResult(res.data);
+
+                if (requestSeq === availabilityRequestSeq.current) {
+                    setAvailabilityResult(res.data);
+                }
             } catch (err) {
-                setAvailabilityResult(null);
+                if (requestSeq === availabilityRequestSeq.current) {
+                    setAvailabilityResult(null);
+                }
             } finally {
-                setCheckingAvailability(false);
+                if (requestSeq === availabilityRequestSeq.current) {
+                    setCheckingAvailability(false);
+                }
             }
         };
 
         const timer = setTimeout(checkAvailability, 300);
         return () => clearTimeout(timer);
-    }, [truckId, endDateTime]);
+    }, [truckId, startDateTime, endDateTime]);
 
     const filteredLocations = MOCK_LOCATIONS.filter((l) => l.terminal === selectedTerminal);
 
@@ -222,8 +233,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                 truck_id: finalTruckId,
                 start_date: startDateTime ? startDateTime.split('T')[0] : today,
                 end_date: endDateTime ? endDateTime.split('T')[0] : today,
-                requested_start: startDateTime ? new Date(startDateTime).toISOString() : null,
-                requested_end: endDateTime ? new Date(endDateTime).toISOString() : null,
+                requested_start: startDateTime || null,
+                requested_end: endDateTime || null,
                 terminal: selectedTerminal,
                 zone: selectedLocation!.building,
                 gate: selectedLocation!.gate,

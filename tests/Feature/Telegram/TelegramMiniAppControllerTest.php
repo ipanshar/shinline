@@ -691,10 +691,17 @@ class TelegramMiniAppControllerTest extends TestCase
 
     private function grantSpectechManagePermission(User $user): void
     {
-        $role = Role::query()->firstOrCreate(['name' => 'Оператор спецтехники']);
+        $role = Role::query()->firstOrCreate(
+            ['name' => 'Оператор спецтехники'],
+            [
+                'level' => 55,
+                'description' => 'Управление заявками на спецтехнику через веб и Telegram Mini App',
+            ]
+        );
         $permission = Permission::query()->where('name', 'spectech.manage')->firstOrFail();
+        $viewPermission = Permission::query()->where('name', 'spectech.view')->firstOrFail();
 
-        $role->permissions()->syncWithoutDetaching([$permission->id]);
+        $role->permissions()->syncWithoutDetaching([$permission->id, $viewPermission->id]);
         $user->roles()->syncWithoutDetaching([$role->id]);
     }
 }
