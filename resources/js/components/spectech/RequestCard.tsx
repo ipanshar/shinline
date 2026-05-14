@@ -26,6 +26,8 @@ export interface SpectechRequestData {
     source_label?: string;
     schedule_id?: number | null;
     from_scheduling?: boolean;
+    status_frozen?: boolean;
+    status_frozen_reason?: string | null;
     created_at: string;
 }
 
@@ -144,5 +146,4 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
 };
 
 export default RequestCard;
-
 

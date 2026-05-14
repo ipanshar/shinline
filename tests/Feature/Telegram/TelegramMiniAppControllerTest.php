@@ -4,6 +4,7 @@ namespace Tests\Feature\Telegram;
 
 use App\Models\GuestVisit;
 use App\Models\GuestVisitVehicle;
+use App\Models\Role;
 use App\Models\SpectechRequest;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
@@ -434,7 +435,7 @@ class TelegramMiniAppControllerTest extends TestCase
 
         $initData = $this->makeInitData(['id' => 7008, 'first_name' => 'Owner']);
 
-        $response = $this->getJson('/api/telegram/miniapp/spectech/requests?init_data=' . urlencode($initData));
+        $response = $this->getJson('/api/telegram/miniapp/spectech/requests?init_data='.urlencode($initData));
         $response->assertOk();
 
         $items = $response->json('data');
@@ -626,7 +627,7 @@ class TelegramMiniAppControllerTest extends TestCase
             'user' => json_encode($user, JSON_UNESCAPED_UNICODE),
         ];
         ksort($params);
-        $check = collect($params)->map(fn ($v, $k) => $k . '=' . $v)->implode("\n");
+        $check = collect($params)->map(fn ($v, $k) => $k.'='.$v)->implode("\n");
         $secret = hash_hmac('sha256', $this->token, 'WebAppData', true);
         $params['hash'] = hash_hmac('sha256', $check, $secret);
 
@@ -635,6 +636,6 @@ class TelegramMiniAppControllerTest extends TestCase
 
     private function tinyPngDataUrl(): string
     {
-        return 'data:image/png;base64,' . base64_encode(hex2bin('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c636000000200015d0b2a0b0000000049454e44ae426082'));
+        return 'data:image/png;base64,'.base64_encode(hex2bin('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c636000000200015d0b2a0b0000000049454e44ae426082'));
     }
 }
