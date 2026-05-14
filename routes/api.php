@@ -253,6 +253,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin/telegram-users')->group(funct
         ->middleware('permission:telegram_users.approve');
     Route::post('/{chat}/block', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'block'])
         ->middleware('permission:telegram_users.block');
+    Route::post('/{chat}/unblock', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'unblock'])
+        ->middleware('permission:telegram_users.block');
     Route::patch('/{chat}/yards', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'updateYards'])
         ->middleware('permission:telegram_users.approve');
 });

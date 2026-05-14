@@ -190,6 +190,17 @@ export default function TelegramUsersPage() {
         }
     };
 
+    const unblock = async (u: TelegramUser) => {
+        if (!confirm(`Снять блокировку с пользователя ${u.display_full_name ?? u.chat_id}?`)) return;
+        try {
+            await axios.post(`/admin/telegram-users/${u.id}/unblock`);
+            toast({ title: 'Разблокирован', description: 'Статус возвращён в ожидание подтверждения.' });
+            await load();
+        } catch (e: any) {
+            toast({ title: 'Ошибка', description: e.response?.data?.message ?? '', variant: 'destructive' });
+        }
+    };
+
     const toggleYardId = (id: number) => {
         setSelectedYardIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
     };
@@ -266,6 +277,9 @@ export default function TelegramUsersPage() {
                                             )}
                                             {u.approval_status !== 'blocked' && (
                                                 <Button size="sm" variant="destructive" onClick={() => block(u)}>Блок</Button>
+                                            )}
+                                            {u.approval_status === 'blocked' && (
+                                                <Button size="sm" variant="outline" onClick={() => unblock(u)}>Разблокировать</Button>
                                             )}
                                         </div>
                                     </TableCell>
