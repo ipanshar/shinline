@@ -15,7 +15,7 @@ class TelegramMiniAppCors
     {
         $headers = [
             'Access-Control-Allow-Origin'  => '*',
-            'Access-Control-Allow-Methods' => 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Methods' => 'GET, POST, PATCH, OPTIONS',
             'Access-Control-Allow-Headers' => 'Content-Type, X-Telegram-Init-Data, X-Requested-With',
             'Access-Control-Max-Age'       => '3600',
             // Намеренно НЕ устанавливаем Allow-Credentials, т.к. несовместимо с Allow-Origin: *
