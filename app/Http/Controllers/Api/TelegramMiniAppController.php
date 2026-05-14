@@ -13,6 +13,7 @@ use App\Models\UtilizationRequest;
 use App\Models\Visitor;
 use App\Services\ExitPermitService;
 use App\Services\GuestVisitService;
+use App\Services\SpectechAvailabilityService;
 use App\Services\Telegram\TelegramRegistrationService;
 use App\Services\Telegram\TelegramWebAppAuthService;
 use App\Services\TelegramMessagingService;
@@ -426,6 +427,27 @@ class TelegramMiniAppController extends Controller
             'photos.*' => ['nullable', 'string'],
         ]);
 
+        // Проверить доступность техники перед созданием заявки
+        $availabilityService = new SpectechAvailabilityService();
+        $startCarbon = Carbon::parse($validated['requested_start']);
+        $endCarbon   = Carbon::parse($validated['requested_end']);
+
+        if (! $availabilityService->isTruckAvailable($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String())) {
+            $freeTruck    = $availabilityService->findFreeAlternativeTruck($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String());
+            $conflictInfo = $availabilityService->getTypeConflictInfo($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String());
+
+            return response()->json([
+                'available'        => false,
+                'message'          => 'Техника занята на указанный период',
+                'free_alternative' => $freeTruck ? [
+                    'id'           => $freeTruck->id,
+                    'name'         => $freeTruck->name,
+                    'plate_number' => $freeTruck->plate_number,
+                ] : null,
+                'conflict_info' => $conflictInfo,
+            ], 409);
+        }
+
         $photoPaths = [];
         foreach ($validated['photos'] ?? [] as $photoData) {
             if (! is_string($photoData) || trim($photoData) === '') {
@@ -498,6 +520,41 @@ class TelegramMiniAppController extends Controller
 
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
+        ]);
+    }
+
+    public function checkSpectechAvailability(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $validated = $request->validate([
+            'truck_id'        => 'required|exists:trucks,id',
+            'requested_start' => 'required|date',
+            'requested_end'   => 'required|date|after:requested_start',
+        ]);
+
+        $start = Carbon::parse($validated['requested_start']);
+        $end   = Carbon::parse($validated['requested_end']);
+
+        $svc = new SpectechAvailabilityService();
+
+        if ($svc->isTruckAvailable((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String())) {
+            return response()->json(['available' => true, 'message' => 'Техника доступна']);
+        }
+
+        $freeTruck    = $svc->findFreeAlternativeTruck((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String());
+        $conflictInfo = $svc->getTypeConflictInfo((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String());
+
+        return response()->json([
+            'available'        => false,
+            'message'          => 'Техника занята на указанный период',
+            'free_alternative' => $freeTruck ? [
+                'id'           => $freeTruck->id,
+                'name'         => $freeTruck->name,
+                'plate_number' => $freeTruck->plate_number,
+            ] : null,
+            'conflict_info' => $conflictInfo,
         ]);
     }
 
@@ -697,6 +754,8 @@ class TelegramMiniAppController extends Controller
             'comment' => $item->comment,
             'status' => $item->status,
             'status_label' => SpectechRequest::STATUS_LABELS[$item->status] ?? $item->status,
+            'status_frozen' => $item->isStatusFrozen(),
+            'status_frozen_reason' => $item->getStatusFreezeReason(),
             'photos' => $photos,
             'photo_urls' => $photos,
             'timeline' => $item->timeline ?? [],

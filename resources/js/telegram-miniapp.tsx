@@ -1087,13 +1087,13 @@ function SpectechCreateForm({
     const [requestedStart, setRequestedStart] = useState(() => {
         const date = new Date();
         date.setMinutes(0, 0, 0);
-        return date.toISOString().slice(0, 16);
+        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:00`;
     });
     const [requestedEnd, setRequestedEnd] = useState(() => {
         const date = new Date();
         date.setHours(date.getHours() + 8);
         date.setMinutes(0, 0, 0);
-        return date.toISOString().slice(0, 16);
+        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:00`;
     });
     const [terminal, setTerminal] = useState('T1');
     const [zone, setZone] = useState('');
@@ -1104,6 +1104,8 @@ function SpectechCreateForm({
     const [busy, setBusy] = useState(false);
     const [loadingTrucks, setLoadingTrucks] = useState(true);
     const [err, setErr] = useState<string | null>(null);
+    const [availabilityWarn, setAvailabilityWarn] = useState<string | null>(null);
+    const [freeAlternative, setFreeAlternative] = useState<{ id: number; name: string; plate_number: string } | null>(null);
 
     useEffect(() => {
         setLoadingTrucks(true);
@@ -1120,6 +1122,36 @@ function SpectechCreateForm({
             })
             .finally(() => setLoadingTrucks(false));
     }, [initData]);
+
+    // Проверить доступность при смене техники или периода
+    useEffect(() => {
+        if (!truckId || !requestedStart || !requestedEnd) {
+            setAvailabilityWarn(null);
+            setFreeAlternative(null);
+            return;
+        }
+        const ctrl = new AbortController();
+        axios
+            .get<{ available: boolean; message: string; free_alternative?: { id: number; name: string; plate_number: string } | null }>(
+                '/api/telegram/miniapp/spectech/check-availability',
+                {
+                    params: { init_data: initData, truck_id: truckId, requested_start: requestedStart, requested_end: requestedEnd },
+                    headers: { 'X-Telegram-Init-Data': initData },
+                    signal: ctrl.signal,
+                },
+            )
+            .then((res) => {
+                if (!res.data.available) {
+                    setAvailabilityWarn(res.data.message ?? 'Техника занята');
+                    setFreeAlternative(res.data.free_alternative ?? null);
+                } else {
+                    setAvailabilityWarn(null);
+                    setFreeAlternative(null);
+                }
+            })
+            .catch(() => { /* ignore */ });
+        return () => ctrl.abort();
+    }, [truckId, requestedStart, requestedEnd, initData]);
 
     const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files ?? []);
@@ -1168,8 +1200,8 @@ function SpectechCreateForm({
                 truck_id: truckId,
                 driver_name: driverName.trim(),
                 driver_phone: driverPhone.trim() || null,
-                requested_start: new Date(requestedStart).toISOString(),
-                requested_end: new Date(requestedEnd).toISOString(),
+                requested_start: requestedStart,
+                requested_end: requestedEnd,
                 terminal,
                 zone: zone.trim(),
                 gate: gate.trim() || null,
@@ -1218,6 +1250,24 @@ function SpectechCreateForm({
 
             <label>Дата и время окончания</label>
             <input style={inputStyle} type="datetime-local" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} required />
+
+            {availabilityWarn && (
+                <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 13 }}>
+                    <strong>⚠️ {availabilityWarn}</strong>
+                    {freeAlternative && (
+                        <div style={{ marginTop: 6 }}>
+                            Свободна альтернатива:{' '}
+                            <button
+                                type="button"
+                                style={{ background: 'none', border: 'none', color: '#1a73e8', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}
+                                onClick={() => { setTruckId(freeAlternative.id); setAvailabilityWarn(null); setFreeAlternative(null); }}
+                            >
+                                {freeAlternative.name} ({freeAlternative.plate_number})
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <label>Терминал</label>
             <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
