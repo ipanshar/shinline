@@ -139,6 +139,51 @@ class SpectechRequestStoreTest extends TestCase
         ]);
     }
 
+    public function test_spectech_operator_role_sees_all_requests(): void
+    {
+        [$owner, $truck] = $this->createUserAndTruck();
+
+        $otherUser = User::query()->create([
+            'name' => 'Second Spectech User',
+            'login' => 'spectech-user-2',
+            'email' => 'spectech2@example.com',
+            'password' => 'secret',
+        ]);
+
+        $spectechOperator = User::query()->create([
+            'name' => 'Spectech Operator',
+            'login' => 'spectech-operator',
+            'email' => 'spectech-operator@example.com',
+            'password' => 'secret',
+        ]);
+
+        $operatorRole = Role::query()->firstOrCreate(
+            ['name' => 'Оператор спецтехники'],
+            [
+                'level' => 55,
+                'description' => 'Управление заявками на спецтехнику через веб и Telegram Mini App',
+            ]
+        );
+
+        $viewPermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.view'],
+            ['description' => 'Просмотр и создание заявок на спецтехнику', 'group' => 'spectech']
+        );
+
+        $operatorRole->permissions()->syncWithoutDetaching([$viewPermission->id]);
+        $spectechOperator->roles()->syncWithoutDetaching([$operatorRole->id]);
+
+        $firstRequest = $this->createSpectechRequestForUser($owner, $truck, 'T1', 'Zone A');
+        $secondRequest = $this->createSpectechRequestForUser($otherUser, $truck, 'T2', 'Zone B');
+
+        $this->actingAs($spectechOperator)
+            ->getJson('/spectech/api/requests')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonFragment(['id' => $firstRequest->id])
+            ->assertJsonFragment(['id' => $secondRequest->id]);
+    }
+
     private function createUserAndTruck(): array
     {
         $user = User::query()->create([
@@ -156,6 +201,23 @@ class SpectechRequestStoreTest extends TestCase
         ]);
 
         return [$user, $truck];
+    }
+
+    private function createSpectechRequestForUser(User $user, Truck $truck, string $terminal, string $zone)
+    {
+        return \App\Models\SpectechRequest::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'start_date' => '2026-05-15 00:00:00',
+            'end_date' => '2026-05-15 00:00:00',
+            'requested_start' => '2026-05-15 09:00:00',
+            'requested_end' => '2026-05-15 18:00:00',
+            'terminal' => $terminal,
+            'zone' => $zone,
+            'address' => "Terminal {$terminal}, {$zone}",
+            'status' => 'new',
+            'timeline' => \App\Models\SpectechRequest::buildInitialTimeline(),
+        ]);
     }
 
     private function grantSpectechManagePermission(User $user): void
