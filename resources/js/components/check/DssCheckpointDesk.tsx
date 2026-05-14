@@ -1632,6 +1632,10 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     const imageSrc = item?.capture_picture_url || event?.capture_picture;
     const plateImageSrc = item?.capture_plate_picture_url || event?.plate_picture;
     const checkpointId = event?.checkpoint_id ?? item?.checkpoint_id ?? selectedCheckpointId ?? null;
+    const allPendingEntryItems = checkpointId ? (pendingEntryQueuesByCheckpoint[checkpointId] ?? []) : [];
+    const otherPendingEntryItems = item
+      ? allPendingEntryItems.filter((q) => q.visitor_id !== item.visitor_id)
+      : allPendingEntryItems;
     const isLoadingReview = checkpointId ? !!loadingEntryByCheckpoint[checkpointId] : false;
     const canManualAdd = checkpointId != null;
     const canConfirmEntry = !!item && item.confirmation_status === 'pending';
@@ -1716,6 +1720,36 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
           </div>
         </div>
 
+        {otherPendingEntryItems.length > 0 && (
+          <div className="shrink-0 border-t border-amber-200 bg-amber-50/60 px-2.5 py-2 dark:border-amber-900/40 dark:bg-amber-950/20">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+              <Clock3 className="h-3 w-3" />
+              Ещё {otherPendingEntryItems.length} в очереди
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              {otherPendingEntryItems.map((queueItem) => (
+                <button
+                  key={queueItem.visitor_id}
+                  type="button"
+                  onClick={() => openConfirmDialog(queueItem)}
+                  className="shrink-0 rounded-lg border bg-white px-2.5 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-amber-50 dark:bg-background dark:hover:bg-amber-950/30"
+                >
+                  <div className="font-mono font-semibold tracking-wide">{queueItem.plate_number}</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{formatDateTime(queueItem.capture_time ?? queueItem.entry_date)}</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {queueItem.has_permit
+                      ? <span className="rounded bg-emerald-100 px-1 py-px text-[9px] font-medium text-emerald-700">Разрешение</span>
+                      : <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-medium text-amber-700">Без разрешения</span>}
+                    {queueItem.recognition_confidence != null && (
+                      <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-600">{queueItem.recognition_confidence}%</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="shrink-0 border-t bg-background/60 p-2.5">
           <div className="grid gap-2 sm:grid-cols-2">
             <Button type="button" className="h-9 w-full justify-center rounded-xl" onClick={() => canConfirmEntry && item ? openConfirmDialog(item) : openManualDialog(checkpointId, event?.plate_no || item?.plate_number)} disabled={(!canConfirmEntry && !canOpenEntryFallback) || processingVisitorId === item?.visitor_id}>
@@ -1750,6 +1784,10 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     const imageSrc = item?.capture_picture_url || event?.capture_picture;
     const plateImageSrc = item?.capture_plate_picture_url || event?.plate_picture;
     const checkpointId = event?.checkpoint_id ?? item?.checkpoint_id ?? selectedCheckpointId ?? null;
+    const allPendingExitItems = checkpointId ? (pendingExitQueuesByCheckpoint[checkpointId] ?? []) : [];
+    const otherPendingExitItems = item
+      ? allPendingExitItems.filter((q) => q.review_id !== item.review_id)
+      : allPendingExitItems;
     const isLoadingReview = checkpointId ? !!loadingExitByCheckpoint[checkpointId] : false;
     const checkpointLabel = event?.checkpoint_name || item?.checkpoint_name || selectedCheckpoint?.name || 'Без привязки';
     const yardLabel = item?.yard_name || selectedCheckpoint?.yard_name || event?.parking_lot_name || event?.source_name;
@@ -1822,6 +1860,36 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
             </div>
           </div>
         </div>
+
+        {otherPendingExitItems.length > 0 && (
+          <div className="shrink-0 border-t border-orange-200 bg-orange-50/60 px-2.5 py-2 dark:border-orange-900/40 dark:bg-orange-950/20">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400">
+              <Clock3 className="h-3 w-3" />
+              Ещё {otherPendingExitItems.length} в очереди
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              {otherPendingExitItems.map((queueItem) => (
+                <button
+                  key={queueItem.review_id}
+                  type="button"
+                  onClick={() => openExitConfirmDialog(queueItem)}
+                  className="shrink-0 rounded-lg border bg-white px-2.5 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-orange-50 dark:bg-background dark:hover:bg-orange-950/30"
+                >
+                  <div className="font-mono font-semibold tracking-wide">{queueItem.plate_number}</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{formatDateTime(queueItem.capture_time)}</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {queueItem.candidate_visitors.length > 0
+                      ? <span className="rounded bg-emerald-100 px-1 py-px text-[9px] font-medium text-emerald-700">Визит найден</span>
+                      : <span className="rounded bg-orange-100 px-1 py-px text-[9px] font-medium text-orange-700">Визит не найден</span>}
+                    {queueItem.recognition_confidence != null && (
+                      <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-600">{queueItem.recognition_confidence}%</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="shrink-0 border-t bg-background/60 p-2.5">
           <div className="grid gap-2 sm:grid-cols-2">
