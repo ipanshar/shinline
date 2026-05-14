@@ -1461,6 +1461,7 @@ function SpectechRequestList({
                     {request.comment && <div>Комментарий: {request.comment}</div>}
                     {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
+                </div>
             ))}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
