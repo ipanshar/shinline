@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Http\Middleware\CheckPermission;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\SpectechSchedule;
 use App\Models\Truck;
 use App\Models\TruckCategory;
@@ -87,6 +89,56 @@ class SpectechRequestStoreTest extends TestCase
         ]);
     }
 
+    public function test_spectech_operator_can_create_request_from_another_users_schedule(): void
+    {
+        [$owner, $truck] = $this->createUserAndTruck();
+
+        $spectechOperator = User::query()->create([
+            'name' => 'Spectech Operator',
+            'login' => 'spectech-operator',
+            'email' => 'spectech-operator@example.com',
+            'password' => 'secret',
+        ]);
+
+        $this->grantSpectechManagePermission($spectechOperator);
+
+        $schedule = SpectechSchedule::query()->create([
+            'user_id' => $owner->id,
+            'truck_id' => $truck->id,
+            'equipment_type_key' => 'Самосвал Shacman',
+            'equipment_type_label' => 'Самосвал Shacman',
+            'assigned_truck_name' => 'Самосвал Shacman (932BC05)',
+            'scheduled_start' => '2026-05-15 09:00:00',
+            'scheduled_end' => '2026-05-15 18:00:00',
+            'purpose' => 'Монтаж ремонт',
+            'address' => 'Территория',
+            'status' => SpectechSchedule::STATUS_PENDING,
+        ]);
+
+        $this->actingAs($spectechOperator)
+            ->postJson('/spectech/api/requests/from-schedule', [
+                'schedule_id' => $schedule->id,
+                'terminal' => 'T1',
+                'zone' => 'Zone A',
+                'gate' => 'G-1',
+                'address' => 'Terminal T1, Zone A',
+                'comment' => 'Нужна техника',
+                'photos' => [],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.schedule_id', $schedule->id)
+            ->assertJsonPath('data.from_scheduling', true);
+
+        $this->assertDatabaseHas('spectech_requests', [
+            'user_id' => $owner->id,
+            'truck_id' => $truck->id,
+            'schedule_id' => $schedule->id,
+            'from_scheduling' => true,
+            'terminal' => 'T1',
+            'zone' => 'Zone A',
+        ]);
+    }
+
     private function createUserAndTruck(): array
     {
         $user = User::query()->create([
@@ -104,5 +156,29 @@ class SpectechRequestStoreTest extends TestCase
         ]);
 
         return [$user, $truck];
+    }
+
+    private function grantSpectechManagePermission(User $user): void
+    {
+        $role = Role::query()->firstOrCreate(
+            ['name' => 'Оператор спецтехники'],
+            [
+                'level' => 55,
+                'description' => 'Управление заявками на спецтехнику через веб и Telegram Mini App',
+            ]
+        );
+
+        $managePermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.manage'],
+            ['description' => 'Управление заявками на спецтехнику', 'group' => 'spectech']
+        );
+
+        $viewPermission = Permission::query()->firstOrCreate(
+            ['name' => 'spectech.view'],
+            ['description' => 'Просмотр и создание заявок на спецтехнику', 'group' => 'spectech']
+        );
+
+        $role->permissions()->syncWithoutDetaching([$managePermission->id, $viewPermission->id]);
+        $user->roles()->syncWithoutDetaching([$role->id]);
     }
 }

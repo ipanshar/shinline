@@ -160,8 +160,8 @@ class SpectechScheduleController extends Controller
         $query = SpectechSchedule::with(['truck', 'user', 'spectechRequest'])
             ->orderBy('scheduled_start', 'desc');
 
-        // Обычный пользователь видит только свои
-        if (!$user->isAdmin() && !$user->hasRole('Оператор')) {
+        // Пользователь без прав управления видит только свои записи
+        if (! $this->canManageSpectechSchedules()) {
             $query->where('user_id', $user->id);
         }
 
@@ -304,8 +304,7 @@ class SpectechScheduleController extends Controller
      */
     public function updateStatus(Request $request, int $id): JsonResponse
     {
-        $user = Auth::user();
-        if (!$user->isAdmin() && !$user->hasRole('Оператор')) {
+        if (! $this->canManageSpectechSchedules()) {
             return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
         }
 
@@ -333,8 +332,8 @@ class SpectechScheduleController extends Controller
         $user     = Auth::user();
         $schedule = SpectechSchedule::findOrFail($id);
 
-        // Только создатель или оператор/админ
-        if ($schedule->user_id !== $user->id && !$user->isAdmin() && !$user->hasRole('Оператор')) {
+        // Только создатель или пользователь с правами управления
+        if ($schedule->user_id !== $user->id && ! $this->canManageSpectechSchedules()) {
             return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
         }
 
@@ -344,6 +343,13 @@ class SpectechScheduleController extends Controller
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────
+
+    private function canManageSpectechSchedules(): bool
+    {
+        $user = Auth::user();
+
+        return $user?->hasPermission('spectech.manage') ?? false;
+    }
 
     private function formatSchedule(SpectechSchedule $s): array
     {
@@ -382,4 +388,3 @@ class SpectechScheduleController extends Controller
         return trim($cleaned ?: $name);
     }
 }
-
