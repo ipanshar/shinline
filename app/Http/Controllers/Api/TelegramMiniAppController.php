@@ -286,18 +286,27 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveUtilizationUser($chat);
 
         $validated = $request->validate([
-            'truck_id'        => ['required', 'integer', 'exists:trucks,id'],
+            'plate_number'    => ['required', 'string', 'max:32'],
             'driver_name'     => ['required', 'string', 'max:160'],
-            'requested_start' => ['required', 'date', 'after_or_equal:now'],
-            'requested_end'   => ['required', 'date', 'after:requested_start'],
-            'terminal'        => ['required', 'string', 'max:10'],
-            'zone'            => ['required', 'string', 'max:100'],
-            'gate'            => ['nullable', 'string', 'max:50'],
-            'address'         => ['required', 'string', 'max:500'],
             'comment'         => ['nullable', 'string', 'max:2000'],
-            'photos'          => ['nullable', 'array', 'max:5'],
-            'photos.*'        => ['nullable', 'string'],
+            'photos'          => ['required', 'array', 'min:1', 'max:5'],
+            'photos.*'        => ['required', 'string'],
         ]);
+
+        $plateNumber = Truck::normalizePlateNumber((string) $validated['plate_number']);
+        if ($plateNumber === null) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'plate_number' => 'Укажите номер машины.',
+            ]);
+        }
+
+        $truck = Truck::query()->firstOrCreate([
+            'plate_number' => $plateNumber,
+        ], [
+            'name' => null,
+        ]);
+
+        $requestDate = Carbon::today();
 
         $photoPaths = [];
         foreach ($validated['photos'] ?? [] as $photoData) {
@@ -313,14 +322,14 @@ class TelegramMiniAppController extends Controller
 
         $utilizationRequest = UtilizationRequest::query()->create([
             'user_id' => $user->id,
-            'truck_id' => (int) $validated['truck_id'],
+            'truck_id' => $truck->id,
             'driver_name' => trim((string) $validated['driver_name']),
-            'requested_start' => Carbon::parse($validated['requested_start']),
-            'requested_end' => Carbon::parse($validated['requested_end']),
-            'terminal' => trim((string) $validated['terminal']),
-            'zone' => trim((string) $validated['zone']),
-            'gate' => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
-            'address' => trim((string) $validated['address']),
+            'requested_start' => $requestDate,
+            'requested_end' => $requestDate->copy(),
+            'terminal' => 'telegram_miniapp',
+            'zone' => 'telegram_miniapp',
+            'gate' => null,
+            'address' => 'telegram_miniapp',
             'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
             'status' => UtilizationRequest::STATUS_NEW,
             'photos' => $photoPaths,
@@ -328,6 +337,7 @@ class TelegramMiniAppController extends Controller
             'source' => 'telegram_miniapp',
             'meta' => [
                 'chat_id' => $chat->chat_id,
+                'plate_number' => $plateNumber,
             ],
         ]);
 
@@ -753,22 +763,24 @@ class TelegramMiniAppController extends Controller
 
     private function formatUtilizationRequest(UtilizationRequest $item): array
     {
+        $plateNumber = $item->truck?->plate_number ?: (is_array($item->meta) ? ($item->meta['plate_number'] ?? null) : null);
+
         return [
             'id' => $item->id,
             'equipment_id' => $item->truck_id,
             'equipment_name' => $item->truck
                 ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС ' . $item->truck->plate_number : 'ТС #' . $item->truck_id))
-                : '—',
-            'plate_number' => $item->truck?->plate_number,
+                : ($plateNumber ?: '—'),
+            'plate_number' => $plateNumber,
             'driver_name' => $item->driver_name,
             'start_date' => $item->requested_start?->toDateString(),
-            'end_date' => $item->requested_end?->toDateString(),
+            'end_date' => null,
             'requested_start' => $item->requested_start?->toIso8601String(),
-            'requested_end' => $item->requested_end?->toIso8601String(),
-            'terminal' => $item->terminal,
-            'zone' => $item->zone,
-            'gate' => $item->gate,
-            'address' => $item->address,
+            'requested_end' => null,
+            'terminal' => null,
+            'zone' => null,
+            'gate' => null,
+            'address' => null,
             'comment' => $item->comment,
             'status' => $item->status,
             'status_label' => UtilizationRequest::STATUS_LABELS[$item->status] ?? $item->status,
@@ -788,15 +800,15 @@ class TelegramMiniAppController extends Controller
             return;
         }
 
+        $plateNumber = $request->truck?->plate_number ?: (is_array($request->meta) ? ($request->meta['plate_number'] ?? null) : null);
+
         $text = implode("\n", [
             '<b>Новая заявка на аварийный вызов техслужб</b>',
             'ID: #' . e((string) $request->id),
             'Заявитель: ' . e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
-            'Техника: ' . e((string) ($request->truck?->name ?: 'ТС #' . $request->truck_id)),
-            'Номер: ' . e((string) ($request->truck?->plate_number ?: 'без номера')),
+            'Машина: ' . e((string) ($plateNumber ?: 'без номера')),
             'Водитель: ' . e((string) ($request->driver_name ?: '—')),
-            'Локация: ' . e(trim($request->terminal . ' / ' . $request->zone . ($request->gate ? ' / ' . $request->gate : ''))),
-            'Адрес: ' . e((string) $request->address),
+            'Дата: ' . e((string) ($request->requested_start?->format('d.m.Y') ?: '—')),
             'Фото: ' . e((string) count((array) ($request->photos ?? []))),
             'Комментарий: ' . e((string) ($request->comment ?: '—')),
         ]);

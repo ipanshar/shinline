@@ -83,22 +83,24 @@ class UtilizationRequestController extends Controller
             $item->photos ?? []
         )));
 
+        $plateNumber = $item->truck?->plate_number ?: (is_array($item->meta) ? ($item->meta['plate_number'] ?? null) : null);
+
         return [
             'id' => $item->id,
             'truck_id' => $item->truck_id,
             'equipment_name' => $item->truck
                 ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС ' . $item->truck->plate_number : 'ТС #' . $item->truck_id))
-                : '—',
-            'plate_number' => $item->truck?->plate_number,
+                : ($plateNumber ?: '—'),
+            'plate_number' => $plateNumber,
             'driver_name' => $item->driver_name,
             'start_date' => $item->requested_start?->toDateString(),
-            'end_date' => $item->requested_end?->toDateString(),
+            'end_date' => null,
             'requested_start' => $item->requested_start?->toIso8601String(),
-            'requested_end' => $item->requested_end?->toIso8601String(),
-            'terminal' => $item->terminal,
-            'zone' => $item->zone,
-            'gate' => $item->gate,
-            'address' => $item->address,
+            'requested_end' => null,
+            'terminal' => null,
+            'zone' => null,
+            'gate' => null,
+            'address' => null,
             'comment' => $item->comment,
             'status' => $item->status,
             'status_label' => UtilizationRequest::STATUS_LABELS[$item->status] ?? $item->status,

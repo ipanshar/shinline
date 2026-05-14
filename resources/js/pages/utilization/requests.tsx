@@ -12,11 +12,11 @@ interface UtilizationRequestItem {
     plate_number?: string | null;
     driver_name: string;
     requested_start: string;
-    requested_end: string;
-    terminal: string;
-    zone: string;
+    requested_end?: string | null;
+    terminal?: string | null;
+    zone?: string | null;
     gate?: string | null;
-    address: string;
+    address?: string | null;
     comment?: string | null;
     status: string;
     status_label: string;
@@ -61,6 +61,17 @@ const formatDateTime = (value?: string | null): string => {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+    });
+};
+
+const formatDate = (value?: string | null): string => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
     });
 };
 
@@ -161,11 +172,9 @@ export default function UtilizationRequestsPage() {
                                 <div key={item.id} className="rounded-xl border border-[#E8E8E8] bg-white p-4">
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                         <div>
-                                            <div className="text-sm font-semibold text-[#1A1A1A]">#{item.id} {item.equipment_name}</div>
+                                            <div className="text-sm font-semibold text-[#1A1A1A]">#{item.id} {item.plate_number || item.equipment_name}</div>
                                             <div className="text-xs text-[#666]">Водитель: {item.driver_name}</div>
-                                            <div className="text-xs text-[#666]">Период: {formatDateTime(item.requested_start)} — {formatDateTime(item.requested_end)}</div>
-                                            <div className="text-xs text-[#666]">Локация: {item.terminal} / {item.zone}{item.gate ? ` / ${item.gate}` : ''}</div>
-                                            <div className="text-xs text-[#666]">Адрес: {item.address}</div>
+                                            <div className="text-xs text-[#666]">Дата вызова: {formatDate(item.requested_start)}</div>
                                         </div>
                                         <div className="flex flex-col items-start gap-2 sm:items-end">
                                             <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
@@ -186,7 +195,7 @@ export default function UtilizationRequestsPage() {
                                             {item.comment && <p className="mb-2 text-xs text-[#555]">Комментарий: {item.comment}</p>}
                                             <p className="mb-2 text-xs text-[#888]">Источник: {item.source}</p>
                                             <p className="mb-2 text-xs text-[#888]">Создана: {formatDateTime(item.created_at)}</p>
-                                            <PhotoGallery photos={item.photos ?? []} compact />
+                                            {item.photos.length > 0 && <PhotoGallery photos={item.photos ?? []} compact />}
                                         </div>
                                     )}
 

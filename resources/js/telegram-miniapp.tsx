@@ -3,7 +3,7 @@
  * Не использует Inertia — монтируется напрямую без зависимостей.
  */
 import { createRoot } from 'react-dom/client';
-import { useState, useEffect, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import axios from 'axios';
 // Без CSRF/credentials — Mini App авторизуется через initData
 axios.defaults.withCredentials = false;
@@ -140,13 +140,13 @@ interface UtilizationRequestItem {
     plate_number?: string | null;
     driver_name?: string | null;
     start_date: string;
-    end_date: string;
+    end_date?: string | null;
     requested_start?: string | null;
     requested_end?: string | null;
-    terminal: string;
-    zone: string;
+    terminal?: string | null;
+    zone?: string | null;
     gate?: string | null;
-    address: string;
+    address?: string | null;
     comment?: string | null;
     status: string;
     status_label: string;
@@ -240,6 +240,12 @@ const toDateTimeLocalValue = (value?: string | null) => {
     const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
 
     return localDate.toISOString().slice(0, 16);
+};
+
+const toDateLocalValue = (value: Date = new Date()) => {
+    const localDate = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
+
+    return localDate.toISOString().slice(0, 10);
 };
 
 const normalizeVisitVehicles = (vehicles?: VisitVehicle[]) => {
@@ -796,92 +802,103 @@ function UtilizationCreateForm({
     onDone: () => void | Promise<void>;
     onCancel: () => void;
 }) {
-    const [trucks, setTrucks] = useState<UtilizationTruckOption[]>([]);
-    const [truckSearch, setTruckSearch] = useState('');
-    const [truckId, setTruckId] = useState<number | ''>('');
-    const [selectedTruckLabel, setSelectedTruckLabel] = useState('');
-    const [requestedStart, setRequestedStart] = useState(() => {
-        const d = new Date(); d.setMinutes(0, 0, 0);
-        return d.toISOString().slice(0, 16);
-    });
-    const [requestedEnd, setRequestedEnd] = useState(() => {
-        const d = new Date(); d.setHours(d.getHours() + 8); d.setMinutes(0, 0, 0);
-        return d.toISOString().slice(0, 16);
-    });
-    const [terminal, setTerminal] = useState('T1');
-    const [zone, setZone] = useState('');
-    const [gate, setGate] = useState('');
-    const [address, setAddress] = useState('');
+    const [plateNumber, setPlateNumber] = useState('');
     const [driverName, setDriverName] = useState('');
     const [comment, setComment] = useState('');
     const [photos, setPhotos] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
-    const [loadingTrucks, setLoadingTrucks] = useState(true);
+    const [cameraOpen, setCameraOpen] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const requestDate = toDateLocalValue();
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+
+    const stopCamera = useCallback(() => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+        }
+
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+
+        setCameraOpen(false);
+    }, []);
 
     useEffect(() => {
-        setLoadingTrucks(true);
-        const search = truckSearch.trim();
-        const timer = window.setTimeout(() => {
-            axios
-                .get<{ data: UtilizationTruckOption[] }>('/api/telegram/miniapp/utilization/trucks', {
-                    params: {
-                        init_data: initData,
-                        ...(search ? { search } : {}),
-                    },
-                    headers: { 'X-Telegram-Init-Data': initData },
-                })
-                .then((response) => {
-                    setTrucks(response.data.data ?? []);
-                })
-                .catch(() => {
-                    setErr('Не удалось загрузить список техники');
-                })
-                .finally(() => setLoadingTrucks(false));
-        }, search === '' ? 0 : 250);
+        return () => {
+            stopCamera();
+        };
+    }, [stopCamera]);
 
-        return () => window.clearTimeout(timer);
-    }, [initData, truckSearch]);
-
-    const handleTruckSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const nextValue = event.target.value;
-        setTruckSearch(nextValue);
-
-        if (selectedTruckLabel !== '' && nextValue !== selectedTruckLabel) {
-            setTruckId('');
-            setSelectedTruckLabel('');
+    useEffect(() => {
+        if (!cameraOpen || !videoRef.current || !streamRef.current) {
+            return;
         }
-    };
 
-    const selectTruck = (truck: UtilizationTruckOption) => {
-        const label = formatTruckOptionLabel(truck);
-        setTruckId(truck.id);
-        setSelectedTruckLabel(label);
-        setTruckSearch(label);
-        setErr(null);
-    };
+        videoRef.current.srcObject = streamRef.current;
+        void videoRef.current.play().catch(() => undefined);
+    }, [cameraOpen]);
 
-    const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files ?? []);
+    const startCamera = async () => {
+        if (photos.length >= MAX_REQUEST_PHOTOS) {
+            return;
+        }
 
-        if (files.length === 0) {
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setErr('Не удалось открыть камеру на этом устройстве.');
             return;
         }
 
         try {
-            const availableSlots = Math.max(0, MAX_REQUEST_PHOTOS - photos.length);
-            const selectedFiles = files.slice(0, availableSlots);
-            const compressed = await Promise.all(selectedFiles.map(async (file) => {
-                const dataUrl = await readFileAsDataUrl(file);
-                return compressImageDataUrl(dataUrl);
-            }));
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
+                audio: false,
+            });
 
-            setPhotos((current) => [...current, ...compressed].slice(0, MAX_REQUEST_PHOTOS));
+            streamRef.current = stream;
+            setCameraOpen(true);
             setErr(null);
-        } catch (error) {
-            setErr(error instanceof Error ? error.message : 'Не удалось добавить фото');
-        } finally {
-            event.target.value = '';
+        } catch {
+            setErr('Не удалось получить доступ к камере.');
+        }
+    };
+
+    const capturePhoto = async () => {
+        if (!videoRef.current || !canvasRef.current) {
+            return;
+        }
+
+        if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+            setErr('Камера ещё не готова. Попробуйте ещё раз.');
+            return;
+        }
+
+        try {
+            const canvas = canvasRef.current;
+            canvas.width = videoRef.current.videoWidth;
+            canvas.height = videoRef.current.videoHeight;
+
+            const context = canvas.getContext('2d');
+            if (!context) {
+                setErr('Не удалось обработать снимок.');
+                return;
+            }
+
+            context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            const compressed = await compressImageDataUrl(canvas.toDataURL('image/jpeg', 0.92));
+
+            setPhotos((current) => [...current, compressed].slice(0, MAX_REQUEST_PHOTOS));
+            stopCamera();
+            setErr(null);
+        } catch {
+            setErr('Не удалось сделать фото.');
         }
     };
 
@@ -891,12 +908,16 @@ function UtilizationCreateForm({
 
     const submit = async (e: FormEvent) => {
         e.preventDefault();
-        if (!truckId) {
-            setErr('Выберите технику');
+        if (plateNumber.trim() === '') {
+            setErr('Укажите номер машины');
             return;
         }
         if (driverName.trim() === '') {
             setErr('Укажите имя водителя');
+            return;
+        }
+        if (photos.length === 0) {
+            setErr('Добавьте хотя бы одно фото');
             return;
         }
 
@@ -905,14 +926,8 @@ function UtilizationCreateForm({
         try {
             await axios.post('/api/telegram/miniapp/utilization/requests', {
                 init_data: initData,
-                truck_id: truckId,
+                plate_number: plateNumber.trim(),
                 driver_name: driverName.trim(),
-                requested_start: new Date(requestedStart).toISOString(),
-                requested_end: new Date(requestedEnd).toISOString(),
-                terminal,
-                zone: zone.trim(),
-                gate: gate.trim() || null,
-                address: address.trim(),
                 comment: comment.trim() || null,
                 photos,
             }, {
@@ -930,93 +945,46 @@ function UtilizationCreateForm({
     return (
         <form onSubmit={submit}>
             <h3>Аварийный вызов техслужб</h3>
-            <label>Машина / госномер</label>
+            <label>Номер машины</label>
             <input
                 style={inputStyle}
-                value={truckSearch}
-                onChange={handleTruckSearchChange}
-                placeholder="Начните вводить номер или название"
+                value={plateNumber}
+                onChange={(event) => setPlateNumber(event.target.value.toUpperCase())}
+                placeholder="Например, A123BC01"
                 autoComplete="off"
                 required
             />
-            <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
-                Выберите машину из списка ниже. Поиск работает по номеру и названию.
-            </div>
-            <div style={{ border: '1px solid #ddd', borderRadius: 8, maxHeight: 208, overflowY: 'auto', marginBottom: 12 }}>
-                {loadingTrucks && <div style={{ padding: 12, color: '#666' }}>Ищем технику…</div>}
-                {!loadingTrucks && trucks.length === 0 && <div style={{ padding: 12, color: '#666' }}>Подходящая техника не найдена.</div>}
-                {!loadingTrucks && trucks.slice(0, 12).map((truck) => {
-                    const label = formatTruckOptionLabel(truck);
-                    const isSelected = truck.id === truckId;
-
-                    return (
-                        <button
-                            key={truck.id}
-                            type="button"
-                            onClick={() => selectTruck(truck)}
-                            style={{
-                                width: '100%',
-                                padding: '10px 12px',
-                                border: 'none',
-                                borderBottom: '1px solid #eee',
-                                textAlign: 'left',
-                                background: isSelected ? '#e8f3ff' : '#fff',
-                                color: '#222',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            {label}
-                        </button>
-                    );
-                })}
-            </div>
-            {selectedTruckLabel && (
-                <div style={{ marginTop: -4, marginBottom: 12, fontSize: 12, color: '#2481cc' }}>
-                    Выбрано: {selectedTruckLabel}
-                </div>
-            )}
 
             <label>Имя водителя</label>
             <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
 
-            <label>Дата и время начала</label>
-            <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
-
-            <label>Дата и время окончания</label>
-            <input style={inputStyle} type="datetime-local" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} required />
-
-            <label>Терминал</label>
-            <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
-                <option value="T1">T1</option>
-                <option value="T2">T2</option>
-                <option value="T3">T3</option>
-                <option value="T4">T4</option>
-            </select>
-
-            <label>Зона / объект</label>
-            <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
-
-            <label>Гейт</label>
-            <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
-
-            <label>Адрес</label>
-            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} required />
+            <label>Дата вызова</label>
+            <input style={inputStyle} type="date" value={requestDate} disabled readOnly />
 
             <label>Комментарий</label>
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
 
-            <label>Фото с камеры</label>
-            <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoSelection}
-                disabled={photos.length >= MAX_REQUEST_PHOTOS}
-                style={{ ...inputStyle, padding: 8 }}
-            />
+            <label>Фото</label>
+            <button type="button" style={btn} onClick={() => void startCamera()} disabled={cameraOpen || photos.length >= MAX_REQUEST_PHOTOS}>
+                {cameraOpen ? 'Камера открыта' : photos.length === 0 ? 'Открыть камеру' : 'Сделать ещё фото'}
+            </button>
             <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
-                Добавляйте фото по одному. Можно загрузить до {MAX_REQUEST_PHOTOS} фото, они будут сжаты перед отправкой.
+                Фото обязательны. Съёмка идёт напрямую с камеры, до {MAX_REQUEST_PHOTOS} фото на заявку.
             </div>
+            {cameraOpen && (
+                <div style={{ border: '1px solid #ddd', borderRadius: 12, padding: 12, marginBottom: 12, background: '#111' }}>
+                    <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 8, display: 'block', background: '#000' }} />
+                    <canvas ref={canvasRef} style={{ display: 'none' }} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff' }} onClick={() => void capturePhoto()}>
+                            Сделать фото
+                        </button>
+                        <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#e0e0e0', color: '#222' }} onClick={stopCamera}>
+                            Отмена
+                        </button>
+                    </div>
+                </div>
+            )}
             {photos.length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
                     {photos.map((photo, index) => (
@@ -1056,20 +1024,14 @@ function UtilizationRequestList({
             {requests.length === 0 && <p>Заявок пока нет.</p>}
             {requests.map((request) => (
                 <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
-                    <strong>#{request.id} {request.equipment_name}</strong>
+                    <strong>#{request.id} {request.plate_number || request.equipment_name}</strong>
                     <div>Статус: {request.status_label || utilizationStatusLabels[request.status] || request.status}</div>
                     {request.driver_name && <div>Водитель: {request.driver_name}</div>}
-                    <div>Период: {
+                    <div>Дата вызова: {
                         request.requested_start
-                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            ? new Date(request.requested_start).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
                             : request.start_date
-                    } — {
-                        request.requested_end
-                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.end_date
                     }</div>
-                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
-                    <div>Адрес: {request.address}</div>
                     {request.comment && <div>Комментарий: {request.comment}</div>}
                     {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
