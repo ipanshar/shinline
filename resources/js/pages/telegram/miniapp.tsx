@@ -286,7 +286,7 @@ function Dashboard({
             </button>
             {session.can_manage_spectech && (
                 <button style={btnSecondary} onClick={onOperatorSpectech}>
-                    Заявки спецтехники
+                    Панель оператора спецтехники
                 </button>
             )}
         </>
@@ -584,8 +584,8 @@ function SpectechOperatorList({
 
     return (
         <>
-            <h3>Заявки спецтехники</h3>
-            <p style={{ color: '#666' }}>Операторский режим: здесь видны все заявки, в том числе созданные через Telegram.</p>
+            <h3>Панель оператора спецтехники</h3>
+            <p style={{ color: '#666' }}>Здесь видны все заявки на спецтехнику, и ими можно управлять как в панели оператора.</p>
             <label>Фильтр по статусу</label>
             <select style={input} value={statusFilter} onChange={(event) => onStatusFilterChange(event.target.value)}>
                 {spectechStatusOptions.map((option) => (
