@@ -618,6 +618,56 @@ class TelegramMiniAppControllerTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_non_operator_cannot_access_spectech_operator_endpoints(): void
+    {
+        $user = User::create([
+            'name' => 'Regular Telegram User',
+            'login' => 'tg_7017',
+            'email' => 'tg7017@example.com',
+            'password' => 'x',
+            'phone' => '+77000007017',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7017',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Regular Telegram User',
+            'display_phone' => '+77000007017',
+        ]);
+
+        $category = TruckCategory::query()->create(['name' => 'Спец техника']);
+        $truck = Truck::query()->create([
+            'name' => 'Экскаватор',
+            'plate_number' => '999NO01',
+            'truck_category_id' => $category->id,
+        ]);
+
+        $request = SpectechRequest::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'driver_name' => 'Обычный водитель',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDay()->toDateString(),
+            'terminal' => 'T1',
+            'zone' => 'A',
+            'gate' => '1',
+            'address' => 'Обычный адрес',
+            'status' => SpectechRequest::STATUS_NEW,
+            'timeline' => SpectechRequest::buildInitialTimeline(),
+        ]);
+
+        $initData = $this->makeInitData(['id' => 7017, 'first_name' => 'Regular']);
+
+        $this->getJson('/api/telegram/miniapp/operator/spectech/requests?init_data='.urlencode($initData))
+            ->assertStatus(403);
+
+        $this->patchJson("/api/telegram/miniapp/operator/spectech/requests/{$request->id}/status", [
+            'init_data' => $initData,
+            'status' => SpectechRequest::STATUS_DEPARTURE,
+        ])->assertStatus(403);
+    }
+
     private function makeInitData(array $user, ?int $authDate = null): string
     {
         $authDate = $authDate ?? time();
