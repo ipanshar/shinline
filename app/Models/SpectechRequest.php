@@ -12,6 +12,7 @@ class SpectechRequest extends Model
         'user_id',
         'truck_id',
         'driver_name',
+        'driver_phone',
         'start_date',
         'end_date',
         'terminal',

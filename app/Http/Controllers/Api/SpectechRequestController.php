@@ -161,6 +161,8 @@ class SpectechRequestController extends Controller
     {
         $validated = $request->validate([
             'truck_id'   => 'required|exists:trucks,id',
+            'driver_name' => 'nullable|string|max:160',
+            'driver_phone' => 'nullable|string|max:20',
             'end_date'   => 'required|date|after_or_equal:today',
             'terminal'   => 'required|string|max:10',
             'zone'       => 'required|string|max:100',
@@ -246,6 +248,8 @@ class SpectechRequestController extends Controller
             return SpectechRequest::create([
                 'user_id'         => Auth::id(),
                 'truck_id'        => $validated['truck_id'],
+                'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
+                'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
                 'start_date'      => now()->toDateString(),
                 'end_date'        => $validated['end_date'],
                 'terminal'        => $validated['terminal'],
@@ -368,6 +372,7 @@ class SpectechRequestController extends Controller
                 : '—',
             'plate_number'   => $r->truck?->plate_number,
             'driver_name'    => $r->driver_name,
+            'driver_phone'   => $r->driver_phone,
             'start_date'     => $r->start_date?->toDateString(),
             'end_date'       => $r->end_date?->toDateString(),
             'requested_start'=> $r->requested_start?->toIso8601String(),
@@ -377,11 +382,13 @@ class SpectechRequestController extends Controller
             'gate'           => $r->gate,
             'address'        => $r->address,
             'comment'        => $r->comment,
-            'status'         => $r->status,
-            'status_label'   => SpectechRequest::STATUS_LABELS[$r->status] ?? $r->status,
-            'photos'         => $photos,
-            'timeline'       => $r->timeline ?? [],
-            'client_name'    => $r->user?->name,
+            'status'              => $r->status,
+            'status_label'        => SpectechRequest::STATUS_LABELS[$r->status] ?? $r->status,
+            'status_frozen'       => $r->isStatusFrozen(),
+            'status_frozen_reason'=> $r->getStatusFreezeReason(),
+            'photos'              => $photos,
+            'timeline'            => $r->timeline ?? [],
+            'client_name'         => $r->user?->name,
             'is_telegram_miniapp' => (bool) ($r->user?->telegramApprovedChat),
             'source_label'   => $r->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id'    => $r->schedule_id,
@@ -399,6 +406,8 @@ class SpectechRequestController extends Controller
     {
         $validated = $request->validate([
             'schedule_id'   => 'required|exists:spectech_schedules,id',
+            'driver_name'   => 'nullable|string|max:160',
+            'driver_phone'  => 'nullable|string|max:20',
             'terminal'      => 'required|string|max:10',
             'zone'          => 'required|string|max:100',
             'gate'          => 'nullable|string|max:50',
@@ -437,6 +446,8 @@ class SpectechRequestController extends Controller
         $spectechRequest = SpectechRequest::create([
             'user_id'         => $schedule->user_id,
             'truck_id'        => $schedule->truck_id,
+            'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
+            'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
             'start_date'      => $schedule->scheduled_start->toDateString(),
             'end_date'        => $schedule->scheduled_end->toDateString(),
             'terminal'        => $validated['terminal'],

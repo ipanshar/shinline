@@ -8,6 +8,7 @@ export interface SpectechRequestData {
     equipment_name: string;
     plate_number?: string;
     driver_name?: string;
+    driver_phone?: string;
     start_date: string;
     end_date: string;
     requested_start?: string;
@@ -95,7 +96,7 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
                 )}
                 {request.driver_name && (
                     <div className="col-span-2 text-xs text-muted-foreground">
-                        Водитель: {request.driver_name}
+                        Водитель: {request.driver_name}{request.driver_phone ? ` · ${request.driver_phone}` : ''}
                     </div>
                 )}
                 {request.source_label && (

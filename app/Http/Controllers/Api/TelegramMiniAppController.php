@@ -13,6 +13,7 @@ use App\Models\UtilizationRequest;
 use App\Models\Visitor;
 use App\Services\ExitPermitService;
 use App\Services\GuestVisitService;
+use App\Services\SpectechAvailabilityService;
 use App\Services\Telegram\TelegramRegistrationService;
 use App\Services\Telegram\TelegramWebAppAuthService;
 use App\Services\TelegramMessagingService;
@@ -426,6 +427,7 @@ class TelegramMiniAppController extends Controller
         $validated = $request->validate([
             'truck_id' => ['required', 'integer', 'exists:trucks,id'],
             'driver_name' => ['required', 'string', 'max:160'],
+            'driver_phone' => ['nullable', 'string', 'max:20'],
             'requested_start' => ['required', 'date', 'after_or_equal:now'],
             'requested_end' => ['required', 'date', 'after:requested_start'],
             'terminal' => ['required', 'string', 'max:10'],
@@ -436,6 +438,27 @@ class TelegramMiniAppController extends Controller
             'photos' => ['nullable', 'array', 'max:5'],
             'photos.*' => ['nullable', 'string'],
         ]);
+
+        // Проверить доступность техники перед созданием заявки
+        $availabilityService = new SpectechAvailabilityService();
+        $startCarbon = Carbon::parse($validated['requested_start']);
+        $endCarbon   = Carbon::parse($validated['requested_end']);
+
+        if (! $availabilityService->isTruckAvailable($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String())) {
+            $freeTruck    = $availabilityService->findFreeAlternativeTruck($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String());
+            $conflictInfo = $availabilityService->getTypeConflictInfo($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String());
+
+            return response()->json([
+                'available'        => false,
+                'message'          => 'Техника занята на указанный период',
+                'free_alternative' => $freeTruck ? [
+                    'id'           => $freeTruck->id,
+                    'name'         => $freeTruck->name,
+                    'plate_number' => $freeTruck->plate_number,
+                ] : null,
+                'conflict_info' => $conflictInfo,
+            ], 409);
+        }
 
         $photoPaths = [];
         foreach ($validated['photos'] ?? [] as $photoData) {
@@ -453,6 +476,7 @@ class TelegramMiniAppController extends Controller
             'user_id' => $user->id,
             'truck_id' => (int) $validated['truck_id'],
             'driver_name' => trim((string) $validated['driver_name']),
+            'driver_phone' => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
             'start_date' => Carbon::parse($validated['requested_start'])->toDateString(),
             'end_date' => Carbon::parse($validated['requested_end'])->toDateString(),
             'requested_start' => Carbon::parse($validated['requested_start']),
@@ -508,6 +532,41 @@ class TelegramMiniAppController extends Controller
 
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
+        ]);
+    }
+
+    public function checkSpectechAvailability(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $validated = $request->validate([
+            'truck_id'        => 'required|exists:trucks,id',
+            'requested_start' => 'required|date',
+            'requested_end'   => 'required|date|after:requested_start',
+        ]);
+
+        $start = Carbon::parse($validated['requested_start']);
+        $end   = Carbon::parse($validated['requested_end']);
+
+        $svc = new SpectechAvailabilityService();
+
+        if ($svc->isTruckAvailable((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String())) {
+            return response()->json(['available' => true, 'message' => 'Техника доступна']);
+        }
+
+        $freeTruck    = $svc->findFreeAlternativeTruck((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String());
+        $conflictInfo = $svc->getTypeConflictInfo((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String());
+
+        return response()->json([
+            'available'        => false,
+            'message'          => 'Техника занята на указанный период',
+            'free_alternative' => $freeTruck ? [
+                'id'           => $freeTruck->id,
+                'name'         => $freeTruck->name,
+                'plate_number' => $freeTruck->plate_number,
+            ] : null,
+            'conflict_info' => $conflictInfo,
         ]);
     }
 
@@ -695,6 +754,7 @@ class TelegramMiniAppController extends Controller
                 : '—',
             'plate_number' => $item->truck?->plate_number,
             'driver_name' => $item->driver_name,
+            'driver_phone' => $item->driver_phone,
             'start_date' => $item->start_date?->toDateString(),
             'end_date' => $item->end_date?->toDateString(),
             'requested_start' => $item->requested_start?->toIso8601String(),
@@ -706,6 +766,8 @@ class TelegramMiniAppController extends Controller
             'comment' => $item->comment,
             'status' => $item->status,
             'status_label' => SpectechRequest::STATUS_LABELS[$item->status] ?? $item->status,
+            'status_frozen' => $item->isStatusFrozen(),
+            'status_frozen_reason' => $item->getStatusFreezeReason(),
             'photos' => $photos,
             'photo_urls' => $photos,
             'timeline' => $item->timeline ?? [],
@@ -869,12 +931,13 @@ class TelegramMiniAppController extends Controller
         }
 
         $text = implode("\n", [
-            '<b>Новая заявка на аварийный вызов техслужб</b>',
+            '<b>Новая заявка на спецтехнику</b>',
             'ID: #'.e((string) $request->id),
             'Заявитель: '.e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
             'Техника: '.e((string) ($request->truck?->name ?: 'ТС #'.$request->truck_id)),
             'Номер: '.e((string) ($request->truck?->plate_number ?: 'без номера')),
             'Водитель: '.e((string) ($request->driver_name ?: '—')),
+            'Тел. водителя: '.e((string) ($request->driver_phone ?: '—')),
             'Локация: '.e(trim($request->terminal.' / '.$request->zone.($request->gate ? ' / '.$request->gate : ''))),
             'Адрес: '.e((string) $request->address),
             'Фото: '.e((string) count((array) ($request->photos ?? []))),
@@ -936,7 +999,7 @@ class TelegramMiniAppController extends Controller
         $plateNumber = $request->truck?->plate_number ?: (is_array($request->meta) ? ($request->meta['plate_number'] ?? null) : null);
 
         $text = implode("\n", [
-            '<b>Новая заявка на аварийный вызов техслужб</b>',
+            '<b>Новая заявка на аварийный выезд</b>',
             'ID: #' . e((string) $request->id),
             'Заявитель: ' . e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
             'Машина: ' . e((string) ($plateNumber ?: 'без номера')),
