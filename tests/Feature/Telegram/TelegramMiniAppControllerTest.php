@@ -581,6 +581,7 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->assertSame('Иван Петров', $request->driver_name);
         $this->assertNotNull($request->truck_id);
         $this->assertSame($request->requested_start?->toDateString(), $request->requested_end?->toDateString());
+        $this->assertSame('miniapp', $request->terminal);
 
         $this->assertDatabaseHas('trucks', [
             'id' => $request->truck_id,
@@ -615,6 +616,49 @@ class TelegramMiniAppControllerTest extends TestCase
             'comment' => 'Без фото нельзя',
             'photos' => [],
         ])->assertStatus(422);
+    }
+
+    public function test_create_utilization_request_creates_user_for_unlinked_chat(): void
+    {
+        $initData = $this->makeInitData([
+            'id' => 7014,
+            'first_name' => 'Util',
+            'last_name' => 'Fallback',
+        ]);
+
+        $chat = TelegramBotChat::create([
+            'chat_id' => '7014',
+            'approval_status' => TelegramBotChat::APPROVAL_NONE,
+            'display_full_name' => 'Util Fallback',
+            'display_phone' => '+77000007014',
+        ]);
+
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'C333CC777',
+            'driver_name' => 'Сергей Тестов',
+            'photos' => [$photo],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.plate_number', 'C333CC777')
+            ->assertJsonPath('data.driver_name', 'Сергей Тестов');
+
+        $chat->refresh();
+        $this->assertNotNull($chat->user_id);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $chat->user_id,
+            'login' => 'tg_7014',
+            'name' => 'Util Fallback',
+            'phone' => '+77000007014',
+        ]);
+
+        $this->assertDatabaseHas('utilization_requests', [
+            'user_id' => $chat->user_id,
+            'driver_name' => 'Сергей Тестов',
+        ]);
     }
 
     private function makeInitData(array $user, ?int $authDate = null): string
