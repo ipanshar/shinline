@@ -391,6 +391,13 @@ class DssVisitorFlowServiceTest extends TestCase
         $checkpoint = $this->createCheckpoint($yard);
         $device = $this->createDevice($zone, $checkpoint, 'Exit');
         $truck = $this->createTruck(['plate_number' => 'C202DE']);
+        $owner = User::create([
+            'name' => 'Guest Owner',
+            'login' => 'guest.owner.one.time',
+            'email' => 'guest-owner-one-time@example.com',
+            'password' => 'password',
+            'phone' => '+77005550011',
+        ]);
         $permit = $this->createPermit($truck, $yard, [
             'status_id' => $statuses['active']->id,
             'one_permission' => true,
@@ -412,6 +419,7 @@ class DssVisitorFlowServiceTest extends TestCase
             'workflow_status' => GuestVisit::STATUS_ACTIVE,
             'has_vehicle' => true,
             'source' => GuestVisit::SOURCE_OPERATOR,
+            'created_by_user_id' => $owner->id,
         ]);
 
         $guestVehicle = GuestVisitVehicle::create([

@@ -215,6 +215,18 @@ export function AppSidebar() {
                 },
             ],
         },
+        {
+            title: 'Утилизация',
+            icon: ClipboardList,
+            items: [
+                {
+                    title: 'Аварийный вызов техслужб',
+                    href: '/utilization/requests',
+                    icon: ClipboardList,
+                    permission: 'utilization.view',
+                },
+            ],
+        },
     ];
 
 // Навигация нижнего меню
