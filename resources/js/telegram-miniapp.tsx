@@ -1082,230 +1082,240 @@ function UtilizationRequestList({
 }
 
 // ── Главный компонент ─────────────────────────────────────────────────────────
-// --- Заглушки для спецтехники (Spectech) ---
-function SpectechCreateForm({ initData, onDone, onCancel }: { initData: string; onDone: () => void | Promise<void>; onCancel: () => void; }) {
-    // TODO: реализовать форму заявки на спецтехнику с поиском техники и фото
+function SpectechCreateForm({
+    initData,
+    onDone,
+    onCancel,
+}: {
+    initData: string;
+    onDone: () => void | Promise<void>;
+    onCancel: () => void;
+}) {
+    const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
+    const [truckId, setTruckId] = useState<number | ''>('');
+    const [driverName, setDriverName] = useState('');
+    const [requestedStart, setRequestedStart] = useState(() => {
+        const date = new Date();
+        date.setMinutes(0, 0, 0);
+        return date.toISOString().slice(0, 16);
+    });
+    const [requestedEnd, setRequestedEnd] = useState(() => {
+        const date = new Date();
+        date.setHours(date.getHours() + 8);
+        date.setMinutes(0, 0, 0);
+        return date.toISOString().slice(0, 16);
+    });
+    const [terminal, setTerminal] = useState('T1');
+    const [zone, setZone] = useState('');
+    const [gate, setGate] = useState('');
+    const [address, setAddress] = useState('');
+    const [comment, setComment] = useState('');
+    const [photos, setPhotos] = useState<string[]>([]);
+    const [busy, setBusy] = useState(false);
+    const [loadingTrucks, setLoadingTrucks] = useState(true);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        setLoadingTrucks(true);
+        axios
+            .get<{ data: SpectechTruckOption[] }>('/api/telegram/miniapp/spectech/trucks', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            })
+            .then((response) => {
+                setTrucks(response.data.data ?? []);
+            })
+            .catch(() => {
+                setErr('Не удалось загрузить список спецтехники');
+            })
+            .finally(() => setLoadingTrucks(false));
+    }, [initData]);
+
+    const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files ?? []);
+
+        if (files.length === 0) {
+            return;
+        }
+
+        try {
+            const availableSlots = Math.max(0, MAX_REQUEST_PHOTOS - photos.length);
+            const selectedFiles = files.slice(0, availableSlots);
+            const compressed = await Promise.all(selectedFiles.map(async (file) => {
+                const dataUrl = await readFileAsDataUrl(file);
+                return compressImageDataUrl(dataUrl);
+            }));
+
+            setPhotos((current) => [...current, ...compressed].slice(0, MAX_REQUEST_PHOTOS));
+            setErr(null);
+        } catch (error) {
+            setErr(error instanceof Error ? error.message : 'Не удалось добавить фото');
+        } finally {
+            event.target.value = '';
+        }
+    };
+
+    const removePhoto = (index: number) => {
+        setPhotos((current) => current.filter((_, photoIndex) => photoIndex !== index));
+    };
+
+    const submit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!truckId) {
+            setErr('Выберите технику');
+            return;
+        }
+        if (driverName.trim() === '') {
+            setErr('Укажите имя водителя');
+            return;
+        }
+
+        setBusy(true);
+        setErr(null);
+        try {
+            await axios.post('/api/telegram/miniapp/spectech/requests', {
+                init_data: initData,
+                truck_id: truckId,
+                driver_name: driverName.trim(),
+                requested_start: new Date(requestedStart).toISOString(),
+                requested_end: new Date(requestedEnd).toISOString(),
+                terminal,
+                zone: zone.trim(),
+                gate: gate.trim() || null,
+                address: address.trim(),
+                comment: comment.trim() || null,
+                photos,
+            }, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            await onDone();
+        } catch (error: any) {
+            setErr(getErrorMessage(error, 'Не удалось создать заявку'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
     return (
-        <form>
-            <h3>Заявка на спецтехнику</h3>
-            <p>Форма в разработке</p>
-            <button type="button" style={btnSecondary} onClick={onCancel}>Назад</button>
+        <form onSubmit={submit}>
+            <h3>Новая заявка на спецтехнику</h3>
+            <label>Техника</label>
+            <select
+                style={inputStyle}
+                value={truckId}
+                onChange={(e) => setTruckId(e.target.value ? Number(e.target.value) : '')}
+                disabled={loadingTrucks}
+                required
+            >
+                <option value="">{loadingTrucks ? 'Загрузка...' : 'Выберите технику'}</option>
+                {trucks.map((truck) => (
+                    <option key={truck.id} value={truck.id}>
+                        {formatTruckOptionLabel(truck)}
+                    </option>
+                ))}
+            </select>
+
+            <label>Имя водителя</label>
+            <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
+
+            <label>Дата и время начала</label>
+            <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
+
+            <label>Дата и время окончания</label>
+            <input style={inputStyle} type="datetime-local" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} required />
+
+            <label>Терминал</label>
+            <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
+                <option value="T1">T1</option>
+                <option value="T2">T2</option>
+                <option value="T3">T3</option>
+                <option value="T4">T4</option>
+            </select>
+
+            <label>Зона / объект</label>
+            <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
+
+            <label>Гейт</label>
+            <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
+
+            <label>Адрес</label>
+            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} required />
+
+            <label>Комментарий</label>
+            <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
+
+            <label>Фото</label>
+            <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handlePhotoSelection}
+                disabled={photos.length >= MAX_REQUEST_PHOTOS}
+                style={{ ...inputStyle, padding: 8 }}
+            />
+            <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                Можно загрузить до {MAX_REQUEST_PHOTOS} фото. Они будут сжаты перед отправкой.
+            </div>
+            {photos.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+                    {photos.map((photo, index) => (
+                        <div key={`${index}-${photo.slice(0, 24)}`} style={{ position: 'relative', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
+                            <img src={photo} alt={`Фото ${index + 1}`} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+                            <button
+                                type="button"
+                                onClick={() => removePhoto(index)}
+                                style={{ position: 'absolute', top: 8, right: 8, border: 'none', borderRadius: 999, background: 'rgba(192,57,43,.92)', color: '#fff', width: 28, height: 28, cursor: 'pointer' }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {err && <p style={{ color: 'crimson' }}>{err}</p>}
+            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
+            <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
         </form>
     );
 }
 
-function SpectechRequestList({ requests, onCreate, onBack }: { requests: any[]; onCreate: () => void; onBack: () => void; }) {
+function SpectechRequestList({
+    requests,
+    onCreate,
+    onBack,
+}: {
+    requests: SpectechRequestItem[];
+    onCreate: () => void;
+    onBack: () => void;
+}) {
     return (
         <>
             <h3>Мои заявки на спецтехнику</h3>
-    function SpectechCreateForm({
-        initData,
-        onDone,
-        onCancel,
-    }: {
-        initData: string;
-        onDone: () => void | Promise<void>;
-        onCancel: () => void;
-    }) {
-        const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
-        const [truckId, setTruckId] = useState<number | ''>('');
-        const [driverName, setDriverName] = useState('');
-        const [requestedStart, setRequestedStart] = useState(() => {
-            const date = new Date();
-            date.setMinutes(0, 0, 0);
-            return date.toISOString().slice(0, 16);
-        });
-        const [requestedEnd, setRequestedEnd] = useState(() => {
-            const date = new Date();
-            date.setHours(date.getHours() + 8);
-            date.setMinutes(0, 0, 0);
-            return date.toISOString().slice(0, 16);
-        });
-        const [terminal, setTerminal] = useState('T1');
-        const [zone, setZone] = useState('');
-        const [gate, setGate] = useState('');
-        const [address, setAddress] = useState('');
-        const [comment, setComment] = useState('');
-        const [photos, setPhotos] = useState<string[]>([]);
-        const [busy, setBusy] = useState(false);
-        const [loadingTrucks, setLoadingTrucks] = useState(true);
-        const [err, setErr] = useState<string | null>(null);
-
-        useEffect(() => {
-            setLoadingTrucks(true);
-            axios
-                .get<{ data: SpectechTruckOption[] }>('/api/telegram/miniapp/spectech/trucks', {
-                    params: { init_data: initData },
-                    headers: { 'X-Telegram-Init-Data': initData },
-                })
-                .then((response) => {
-                    setTrucks(response.data.data ?? []);
-                })
-                .catch(() => {
-                    setErr('Не удалось загрузить список спецтехники');
-                })
-                .finally(() => setLoadingTrucks(false));
-        }, [initData]);
-
-        const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
-            const files = Array.from(event.target.files ?? []);
-
-            if (files.length === 0) {
-                return;
-            }
-
-            try {
-                const availableSlots = Math.max(0, MAX_REQUEST_PHOTOS - photos.length);
-                const selectedFiles = files.slice(0, availableSlots);
-                const compressed = await Promise.all(selectedFiles.map(async (file) => {
-                    const dataUrl = await readFileAsDataUrl(file);
-                    return compressImageDataUrl(dataUrl);
-                }));
-
-                setPhotos((current) => [...current, ...compressed].slice(0, MAX_REQUEST_PHOTOS));
-                setErr(null);
-            } catch (error) {
-                setErr(error instanceof Error ? error.message : 'Не удалось добавить фото');
-            } finally {
-                event.target.value = '';
-            }
-        };
-
-        const removePhoto = (index: number) => {
-            setPhotos((current) => current.filter((_, photoIndex) => photoIndex !== index));
-        };
-
-        const submit = async (e: FormEvent) => {
-            e.preventDefault();
-            if (!truckId) {
-                setErr('Выберите технику');
-                return;
-            }
-            if (driverName.trim() === '') {
-                setErr('Укажите имя водителя');
-                return;
-            }
-
-            setBusy(true);
-            setErr(null);
-            try {
-                await axios.post('/api/telegram/miniapp/spectech/requests', {
-                    init_data: initData,
-                    truck_id: truckId,
-                    driver_name: driverName.trim(),
-                    requested_start: new Date(requestedStart).toISOString(),
-                    requested_end: new Date(requestedEnd).toISOString(),
-                    terminal,
-                    zone: zone.trim(),
-                    gate: gate.trim() || null,
-                    address: address.trim(),
-                    comment: comment.trim() || null,
-                    photos,
-                }, {
-                    headers: { 'X-Telegram-Init-Data': initData },
-                });
-
-                await onDone();
-            } catch (error: any) {
-                setErr(getErrorMessage(error, 'Не удалось создать заявку'));
-            } finally {
-                setBusy(false);
-            }
-        };
-
+            {requests.length === 0 && <p>Заявок пока нет.</p>}
+            {requests.map((request) => (
+                <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
                     <strong>#{request.id} {request.equipment_name}</strong>
-            <form onSubmit={submit}>
-                <h3>Новая заявка на спецтехнику</h3>
-                <label>Техника</label>
-                <select
-                    style={inputStyle}
-                    value={truckId}
-                    onChange={(e) => setTruckId(e.target.value ? Number(e.target.value) : '')}
-                    disabled={loadingTrucks}
-                    required
-                >
-                    <option value="">{loadingTrucks ? 'Загрузка...' : 'Выберите технику'}</option>
-                    {trucks.map((truck) => (
-                        <option key={truck.id} value={truck.id}>
-                            {formatTruckOptionLabel(truck)}
-                        </option>
-                    ))}
-                </select>
-
-                <label>Имя водителя</label>
-                <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
-
-                <label>Дата и время начала</label>
-                <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
-
-                <label>Дата и время окончания</label>
-                <input style={inputStyle} type="datetime-local" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} required />
-
-                <label>Терминал</label>
-                <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
-                    <option value="T1">T1</option>
-                    <option value="T2">T2</option>
-                    <option value="T3">T3</option>
-                    <option value="T4">T4</option>
-                </select>
-
-                <label>Зона / объект</label>
-                <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
-
-                <label>Гейт</label>
-                <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
-
-                <label>Адрес</label>
-                <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} required />
-
-                <label>Комментарий</label>
-                <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
-
-                <label>Фото</label>
-                <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handlePhotoSelection}
-                    disabled={photos.length >= MAX_REQUEST_PHOTOS}
-                    style={{ ...inputStyle, padding: 8 }}
-                />
-                <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
-                    Можно загрузить до {MAX_REQUEST_PHOTOS} фото. Они будут сжаты перед отправкой.
-                </div>
-                {photos.length > 0 && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
-                        {photos.map((photo, index) => (
-                            <div key={`${index}-${photo.slice(0, 24)}`} style={{ position: 'relative', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-                                <img src={photo} alt={`Фото ${index + 1}`} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
-                                <button
-                                    type="button"
-                                    onClick={() => removePhoto(index)}
-                                    style={{ position: 'absolute', top: 8, right: 8, border: 'none', borderRadius: 999, background: 'rgba(192,57,43,.92)', color: '#fff', width: 28, height: 28, cursor: 'pointer' }}
-                                >
-                                    ×
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {err && <p style={{ color: 'crimson' }}>{err}</p>}
-                <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
-                <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
+                    <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
+                    {request.driver_name && <div>Водитель: {request.driver_name}</div>}
+                    <div>Период: {
+                        request.requested_start
+                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : request.start_date
+                    } — {
+                        request.requested_end
+                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : request.end_date
+                    }</div>
+                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+                    <div>Адрес: {request.address}</div>
+                    {request.comment && <div>Комментарий: {request.comment}</div>}
                     {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
                 </div>
             ))}
-    function SpectechRequestList({
-        requests,
-        onCreate,
-        onBack,
-    }: {
-        requests: SpectechRequestItem[];
-        onCreate: () => void;
-        onBack: () => void;
-    }) {
+            <button style={btn} onClick={onCreate}>Создать новую заявку</button>
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
     );
@@ -1313,21 +1323,10 @@ function SpectechRequestList({ requests, onCreate, onBack }: { requests: any[]; 
 
 function TelegramMiniApp() {
     const [initData, setInitData] = useState<string>('');
-                        <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
-                        {request.driver_name && <div>Водитель: {request.driver_name}</div>}
-                        <div>Период: {
-                            request.requested_start
-                                ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                                : request.start_date
-                        } — {
-                            request.requested_end
-                                ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                                : request.end_date
-                        }</div>
-                        <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+    const [session, setSession] = useState<SessionPayload | null>(null);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-requests' | 'utilization-create' | 'utilization-requests'>('home');
-                        {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
@@ -1337,8 +1336,6 @@ function TelegramMiniApp() {
     useEffect(() => {
         const run = async () => {
             try {
-                // Ждём SDK — он синхронно грузится до этого скрипта,
-                // но на медленных Android может быть задержка
                 let attempts = 0;
                 while (!window.Telegram?.WebApp && attempts < 50) {
                     await new Promise((r) => setTimeout(r, 100));
