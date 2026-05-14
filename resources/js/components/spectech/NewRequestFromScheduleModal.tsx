@@ -27,6 +27,8 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
     // Форма
     const [selectedTerminal, setSelectedTerminal] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+    const [driverName, setDriverName] = useState('');
+    const [driverPhone, setDriverPhone] = useState('');
     const [comment, setComment] = useState('');
     const [photos, setPhotos] = useState<string[]>([]);
     const [submitting, setSubmitting] = useState(false);
@@ -78,6 +80,8 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
 
             await axios.post('/spectech/api/requests/from-schedule', {
                 schedule_id: scheduleId,
+                driver_name: driverName.trim() || null,
+                driver_phone: driverPhone.trim() || null,
                 terminal: selectedTerminal,
                 zone: selectedLocation!.building,
                 gate: selectedLocation!.gate,
@@ -119,6 +123,8 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
         if (!open) {
             setSelectedTerminal('');
             setSelectedLocation(null);
+            setDriverName('');
+            setDriverPhone('');
             setComment('');
             setPhotos([]);
             setErrors({});
@@ -202,6 +208,30 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
                                 </div>
                             </div>
                         )}
+
+                        {/* Водитель */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium">Имя водителя</label>
+                                <input
+                                    type="text"
+                                    value={driverName}
+                                    onChange={(e) => setDriverName(e.target.value)}
+                                    placeholder="ФИО водителя"
+                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium">Телефон водителя</label>
+                                <input
+                                    type="tel"
+                                    value={driverPhone}
+                                    onChange={(e) => setDriverPhone(e.target.value)}
+                                    placeholder="+7..."
+                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                />
+                            </div>
+                        </div>
 
                         {/* Выбор терминала */}
                         <div className="flex flex-col gap-1">

@@ -113,6 +113,7 @@ interface SpectechRequestItem {
     equipment_name: string;
     plate_number?: string | null;
     driver_name?: string | null;
+    driver_phone?: string | null;
     start_date: string;
     end_date: string;
     requested_start?: string | null;
@@ -1082,6 +1083,7 @@ function SpectechCreateForm({
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [truckId, setTruckId] = useState<number | ''>('');
     const [driverName, setDriverName] = useState('');
+    const [driverPhone, setDriverPhone] = useState('');
     const [requestedStart, setRequestedStart] = useState(() => {
         const date = new Date();
         date.setMinutes(0, 0, 0);
@@ -1165,6 +1167,7 @@ function SpectechCreateForm({
                 init_data: initData,
                 truck_id: truckId,
                 driver_name: driverName.trim(),
+                driver_phone: driverPhone.trim() || null,
                 requested_start: new Date(requestedStart).toISOString(),
                 requested_end: new Date(requestedEnd).toISOString(),
                 terminal,
@@ -1206,6 +1209,9 @@ function SpectechCreateForm({
 
             <label>Имя водителя</label>
             <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
+
+            <label>Телефон водителя</label>
+            <input style={inputStyle} type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+7..." />
 
             <label>Дата и время начала</label>
             <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
@@ -1286,7 +1292,7 @@ function SpectechRequestList({
                 <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
                     <strong>#{request.id} {request.equipment_name}</strong>
                     <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
-                    {request.driver_name && <div>Водитель: {request.driver_name}</div>}
+                    {request.driver_name && <div>Водитель: {request.driver_name}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>}
                     <div>Период: {
                         request.requested_start
                             ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1368,7 +1374,7 @@ function SpectechOperatorList({
                 >
                     <strong>#{request.id} {request.equipment_name}</strong>
                     {request.plate_number && <div>Номер: {request.plate_number}</div>}
-                    {request.driver_name && <div>Водитель: {request.driver_name}</div>}
+                    {request.driver_name && <div>Водитель: {request.driver_name}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>}
                     <div>Статус: <strong>{request.status_label || spectechStatusLabels[request.status] || request.status}</strong></div>
                     <div>Период: {
                         request.requested_start
