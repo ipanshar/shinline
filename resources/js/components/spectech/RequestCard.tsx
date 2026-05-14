@@ -94,11 +94,10 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
                         <span>{request.client_name}</span>
                     </div>
                 )}
-                {request.driver_name && (
-                    <div className="col-span-2 text-xs text-muted-foreground">
-                        Водитель: {request.driver_name}{request.driver_phone ? ` · ${request.driver_phone}` : ''}
-                    </div>
-                )}
+                <div className="flex items-center gap-1 col-span-2">
+                    <User className="h-3 w-3" />
+                    <span>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</span>
+                </div>
                 {request.source_label && (
                     <div className="col-span-2">
                         <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">

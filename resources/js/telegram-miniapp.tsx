@@ -1187,10 +1187,6 @@ function SpectechCreateForm({
             setErr('Выберите технику');
             return;
         }
-        if (driverName.trim() === '') {
-            setErr('Укажите имя водителя');
-            return;
-        }
 
         setBusy(true);
         setErr(null);
@@ -1240,7 +1236,7 @@ function SpectechCreateForm({
             </select>
 
             <label>Имя водителя</label>
-            <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
+            <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Необязательно" />
 
             <label>Телефон водителя</label>
             <input style={inputStyle} type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+7..." />
@@ -1342,7 +1338,7 @@ function SpectechRequestList({
                 <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
                     <strong>#{request.id} {request.equipment_name}</strong>
                     <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
-                    {request.driver_name && <div>Водитель: {request.driver_name}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>}
+                    <div>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
                     <div>Период: {
                         request.requested_start
                             ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1357,7 +1353,6 @@ function SpectechRequestList({
                     {request.comment && <div>Комментарий: {request.comment}</div>}
                     {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
-                </div>
             ))}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
@@ -1424,7 +1419,7 @@ function SpectechOperatorList({
                 >
                     <strong>#{request.id} {request.equipment_name}</strong>
                     {request.plate_number && <div>Номер: {request.plate_number}</div>}
-                    {request.driver_name && <div>Водитель: {request.driver_name}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>}
+                    <div>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
                     <div>Статус: <strong>{request.status_label || spectechStatusLabels[request.status] || request.status}</strong></div>
                     <div>Период: {
                         request.requested_start
