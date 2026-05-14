@@ -1,6 +1,14 @@
 <?php
 
 return [
+    /*
+     * Режим самостоятельного управления шлагбаумом.
+     * true  — синхронизация ТС с DSS отключена; наша система сама открывает шлагбаум
+     *         на основании правил (разрешения, strict_mode).
+     * false — прежнее поведение: ТС синхронизируются с DSS и DSS открывает шлагбаум.
+     */
+    'self_barrier_mode' => filter_var(env('DSS_SELF_BARRIER_MODE', false), FILTER_VALIDATE_BOOL),
+
     'polling' => [
         'mode' => env('DSS_POLLING_MODE', 'polling-bridge'),
         'capture_interval_seconds' => (int) env('DSS_CAPTURE_POLLING_INTERVAL_SECONDS', 600),

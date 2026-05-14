@@ -30,12 +30,104 @@ class DssPermitVehicleService extends DssBaseService
 
     public function syncPermitVehicle(EntryPermit $permit): array
     {
+        if (config('dss.self_barrier_mode')) {
+            Log::info('DSS vehicle sync пропущен (режим self_barrier_mode)', [
+                'permit_id' => $permit->id,
+                'truck_id'  => $permit->truck_id,
+            ]);
+
+            return ['success' => false, 'skipped' => true, 'reason' => 'self_barrier_mode'];
+        }
+
         return $this->processPermitVehicleAction($permit, self::ACTION_SYNC);
     }
 
     public function revokePermitVehicle(EntryPermit $permit): array
     {
+        if (config('dss.self_barrier_mode')) {
+            Log::info('DSS vehicle delete пропущен (режим self_barrier_mode)', [
+                'permit_id' => $permit->id,
+                'truck_id'  => $permit->truck_id,
+            ]);
+
+            return ['success' => false, 'skipped' => true, 'reason' => 'self_barrier_mode'];
+        }
+
         return $this->processPermitVehicleAction($permit, self::ACTION_DELETE);
+    }
+
+    /**
+     * Массовое удаление одной записи dss_parking_permits из DSS по remote_vehicle_id.
+     * Используется командой dss:purge-vehicle-sync без привязки к EntryPermit.
+     */
+    public function purgeVehicleByParkingPermit(DssParkingPermit $parkingPermit): array
+    {
+        $remoteVehicleId = (string) ($parkingPermit->remote_vehicle_id ?? '');
+
+        if ($remoteVehicleId === '') {
+            return ['success' => false, 'skipped' => true, 'reason' => 'no_remote_vehicle_id'];
+        }
+
+        if ($error = $this->ensureVehicleBatchReady()) {
+            return ['error' => $error['error'] ?? 'DSS settings error'];
+        }
+
+        try {
+            $responseData = $this->sendVehicleDeleteRequest($remoteVehicleId);
+            $alreadyMissing = $this->isDeleteAlreadyMissingResponse($responseData);
+
+            if ((int) ($responseData['code'] ?? 0) !== 1000 && !$alreadyMissing) {
+                $parkingPermit->status = 'delete_failed';
+                $parkingPermit->error_message = 'DSS вернул ошибку при очистке';
+                $parkingPermit->response_payload = $responseData;
+                $parkingPermit->save();
+
+                return [
+                    'error'              => 'DSS вернул ошибку при удалении ТС',
+                    'remote_vehicle_id'  => $remoteVehicleId,
+                    'data'               => $responseData,
+                ];
+            }
+
+            $parkingPermit->status = 'deleted';
+            $parkingPermit->error_message = null;
+            $parkingPermit->response_payload = $responseData;
+            $parkingPermit->revoked_at = now();
+            $parkingPermit->save();
+
+            return [
+                'success'           => true,
+                'remote_vehicle_id' => $remoteVehicleId,
+                'already_missing'   => $alreadyMissing,
+            ];
+        } catch (RequestException $exception) {
+            $responseData = $this->buildRequestExceptionResponseData($exception);
+
+            if ($this->isDeleteAlreadyMissingResponse($responseData)) {
+                $parkingPermit->status = 'deleted';
+                $parkingPermit->revoked_at = now();
+                $parkingPermit->save();
+
+                return [
+                    'success'           => true,
+                    'remote_vehicle_id' => $remoteVehicleId,
+                    'already_missing'   => true,
+                ];
+            }
+
+            $parkingPermit->status = 'delete_failed';
+            $parkingPermit->error_message = $exception->getMessage();
+            $parkingPermit->response_payload = $responseData;
+            $parkingPermit->save();
+
+            return ['error' => $exception->getMessage(), 'remote_vehicle_id' => $remoteVehicleId];
+        } catch (\Throwable $exception) {
+            $parkingPermit->status = 'delete_failed';
+            $parkingPermit->error_message = $exception->getMessage();
+            $parkingPermit->save();
+
+            return ['error' => $exception->getMessage(), 'remote_vehicle_id' => $remoteVehicleId];
+        }
     }
 
     public function syncPermitVehicleSafely(EntryPermit $permit): array
@@ -99,6 +191,12 @@ class DssPermitVehicleService extends DssBaseService
 
     public function smartSyncPermitsBatchSafely(iterable $permits): array
     {
+        if (config('dss.self_barrier_mode')) {
+            Log::info('DSS vehicle batch sync пропущен (режим self_barrier_mode)');
+
+            return [];
+        }
+
         $results = [];
         $preparedOperations = [];
 

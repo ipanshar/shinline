@@ -16,6 +16,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\DssMonitorAlerts::class,
         \App\Console\Commands\CleanupOldTasksAndPermits::class,
         \App\Console\Commands\ForceCloseVisitors::class,
+        \App\Console\Commands\DssPurgeVehicleSyncCommand::class,
     ];
 
     /**
