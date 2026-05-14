@@ -15,11 +15,8 @@ class UtilizationRequest extends Model
     public const STATUS_REJECTED = 'rejected';
 
     public const STATUS_LABELS = [
-        self::STATUS_NEW => 'Новая',
         self::STATUS_REVIEWING => 'На рассмотрении',
         self::STATUS_APPROVED => 'Одобрена',
-        self::STATUS_IN_PROGRESS => 'В работе',
-        self::STATUS_COMPLETED => 'Выполнена',
         self::STATUS_REJECTED => 'Отклонена',
     ];
 
@@ -62,11 +59,27 @@ class UtilizationRequest extends Model
     public static function buildInitialTimeline(): array
     {
         return [
-            ['title' => 'Заявка принята', 'time' => now()->toIso8601String()],
-            ['title' => 'На рассмотрении', 'time' => null],
+            ['title' => 'На рассмотрении', 'time' => now()->toIso8601String()],
             ['title' => 'Одобрена', 'time' => null],
-            ['title' => 'В работе', 'time' => null],
-            ['title' => 'Выполнена', 'time' => null],
+            ['title' => 'Отклонена', 'time' => null],
         ];
+    }
+
+    public static function normalizeWorkflowStatus(?string $status): string
+    {
+        return match ($status) {
+            self::STATUS_APPROVED,
+            self::STATUS_IN_PROGRESS,
+            self::STATUS_COMPLETED => self::STATUS_APPROVED,
+            self::STATUS_REJECTED => self::STATUS_REJECTED,
+            default => self::STATUS_REVIEWING,
+        };
+    }
+
+    public static function labelFor(?string $status): string
+    {
+        $normalizedStatus = self::normalizeWorkflowStatus($status);
+
+        return self::STATUS_LABELS[$normalizedStatus] ?? $normalizedStatus;
     }
 }

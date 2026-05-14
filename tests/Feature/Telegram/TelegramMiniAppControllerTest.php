@@ -562,6 +562,11 @@ class TelegramMiniAppControllerTest extends TestCase
             'display_phone' => '+77000007012',
         ]);
 
+        $truck = Truck::create([
+            'name' => 'Из базы',
+            'plate_number' => 'A111AA777',
+        ]);
+
         $photo = $this->tinyPngDataUrl();
 
         $this->postJson('/api/telegram/miniapp/utilization/requests', [
@@ -573,6 +578,7 @@ class TelegramMiniAppControllerTest extends TestCase
         ])
             ->assertCreated()
             ->assertJsonPath('data.plate_number', 'A111AA777')
+            ->assertJsonPath('data.status', UtilizationRequest::STATUS_REVIEWING)
             ->assertJsonPath('data.driver_name', 'Иван Петров')
             ->assertJsonCount(1, 'data.photo_urls');
 
@@ -581,14 +587,12 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->assertNotNull($request);
         $this->assertSame($user->id, $request->user_id);
         $this->assertSame('Иван Петров', $request->driver_name);
-        $this->assertNotNull($request->truck_id);
+        $this->assertSame($truck->id, $request->truck_id);
         $this->assertSame($request->requested_start?->toDateString(), $request->requested_end?->toDateString());
         $this->assertSame('miniapp', $request->terminal);
+        $this->assertSame(UtilizationRequest::STATUS_REVIEWING, $request->status);
 
-        $this->assertDatabaseHas('trucks', [
-            'id' => $request->truck_id,
-            'plate_number' => 'A111AA777',
-        ]);
+        $this->assertSame(1, Truck::query()->where('plate_number', 'A111AA777')->count());
     }
 
     public function test_create_utilization_request_requires_photo(): void
@@ -634,6 +638,54 @@ class TelegramMiniAppControllerTest extends TestCase
 
         $this->assertStringContainsString('PATCH', (string) $response->headers->get('Access-Control-Allow-Methods', ''));
         $this->assertStringContainsString('X-Telegram-Init-Data', (string) $response->headers->get('Access-Control-Allow-Headers', ''));
+    }
+
+    public function test_create_utilization_request_creates_user_for_unlinked_chat(): void
+    {
+        $initData = $this->makeInitData([
+            'id' => 7014,
+            'first_name' => 'Util',
+            'last_name' => 'Fallback',
+        ]);
+
+        $chat = TelegramBotChat::create([
+            'chat_id' => '7014',
+            'approval_status' => TelegramBotChat::APPROVAL_NONE,
+            'display_full_name' => 'Util Fallback',
+            'display_phone' => '+77000007014',
+        ]);
+
+        Truck::create([
+            'name' => 'Машина из базы',
+            'plate_number' => 'C333CC777',
+        ]);
+
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'C333CC777',
+            'driver_name' => 'Сергей Тестов',
+            'photos' => [$photo],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.plate_number', 'C333CC777')
+            ->assertJsonPath('data.driver_name', 'Сергей Тестов');
+
+        $chat->refresh();
+        $this->assertNotNull($chat->user_id);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $chat->user_id,
+            'login' => 'tg_7014',
+            'name' => 'Util Fallback',
+            'phone' => '+77000007014',
+        ]);
+
+        $this->assertDatabaseHas('utilization_requests', [
+            'user_id' => $chat->user_id,
+            'driver_name' => 'Сергей Тестов',
+        ]);
     }
 
     public function test_operator_with_manage_permission_can_access_spectech_operator_endpoints(): void
@@ -768,6 +820,59 @@ class TelegramMiniAppControllerTest extends TestCase
             'init_data' => $initData,
             'status' => SpectechRequest::STATUS_DEPARTURE,
         ])->assertStatus(403);
+    }
+
+    public function test_create_utilization_request_requires_repeated_confirmation_for_unknown_plate(): void
+    {
+        $initData = $this->makeInitData(['id' => 7015, 'first_name' => 'Util']);
+
+        $user = User::create([
+            'name' => 'Util User 3',
+            'login' => 'tg_7015',
+            'email' => 'tg7015@example.com',
+            'password' => 'x',
+            'phone' => '+77000007015',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7015',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Util User 3',
+            'display_phone' => '+77000007015',
+        ]);
+
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'D444DD777',
+            'driver_name' => 'Тест Подтверждение',
+            'photos' => [$photo],
+        ])->assertStatus(422)->assertJsonValidationErrors('plate_number');
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'D444DD777',
+            'driver_name' => 'Тест Подтверждение',
+            'photos' => [$photo],
+            'create_truck_confirmation' => 1,
+        ])->assertStatus(422)->assertJsonValidationErrors('plate_number');
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'D444DD777',
+            'driver_name' => 'Тест Подтверждение',
+            'photos' => [$photo],
+            'create_truck_confirmation' => 2,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.plate_number', 'D444DD777')
+            ->assertJsonPath('data.status', UtilizationRequest::STATUS_REVIEWING);
+
+        $this->assertDatabaseHas('trucks', [
+            'plate_number' => 'D444DD777',
+        ]);
     }
 
     private function makeInitData(array $user, ?int $authDate = null): string

@@ -292,6 +292,7 @@ class TelegramMiniAppController extends Controller
             'comment'         => ['nullable', 'string', 'max:2000'],
             'photos'          => ['required', 'array', 'min:1', 'max:5'],
             'photos.*'        => ['required', 'string'],
+            'create_truck_confirmation' => ['nullable', 'integer', 'min:0', 'max:2'],
         ]);
 
         $plateNumber = Truck::normalizePlateNumber((string) $validated['plate_number']);
@@ -301,11 +302,22 @@ class TelegramMiniAppController extends Controller
             ]);
         }
 
-        $truck = Truck::query()->firstOrCreate([
-            'plate_number' => $plateNumber,
-        ], [
-            'name' => null,
-        ]);
+        $truck = Truck::query()->where('plate_number', $plateNumber)->first();
+        $createTruckConfirmation = (int) ($validated['create_truck_confirmation'] ?? 0);
+
+        if ($truck === null && $createTruckConfirmation < 2) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'plate_number' => 'Такой машины нет в базе. Проверьте номер и подтвердите его ещё раз.',
+            ]);
+        }
+
+        if ($truck === null) {
+            $truck = Truck::query()->firstOrCreate([
+                'plate_number' => $plateNumber,
+            ], [
+                'name' => null,
+            ]);
+        }
 
         $requestDate = Carbon::today();
 
@@ -332,7 +344,7 @@ class TelegramMiniAppController extends Controller
             'gate' => null,
             'address' => 'telegram_miniapp',
             'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
-            'status' => UtilizationRequest::STATUS_NEW,
+            'status' => UtilizationRequest::STATUS_REVIEWING,
             'photos' => $photoPaths,
             'timeline' => UtilizationRequest::buildInitialTimeline(),
             'source' => 'telegram_miniapp',
@@ -986,8 +998,8 @@ class TelegramMiniAppController extends Controller
             'gate' => null,
             'address' => null,
             'comment' => $item->comment,
-            'status' => $item->status,
-            'status_label' => UtilizationRequest::STATUS_LABELS[$item->status] ?? $item->status,
+            'status' => UtilizationRequest::normalizeWorkflowStatus($item->status),
+            'status_label' => UtilizationRequest::labelFor($item->status),
             'photos' => $item->photos ?? [],
             'photo_urls' => $item->photos ?? [],
             'timeline' => $item->timeline ?? [],

@@ -34,21 +34,32 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 const STATUS_FILTERS = [
     { value: '', label: 'Все' },
-    { value: 'new', label: 'Новые' },
     { value: 'reviewing', label: 'На рассмотрении' },
     { value: 'approved', label: 'Одобрены' },
-    { value: 'in_progress', label: 'В работе' },
-    { value: 'completed', label: 'Выполнены' },
     { value: 'rejected', label: 'Отклонены' },
 ];
 
-const NEXT_STATUS: Record<string, { value: string; label: string } | null> = {
-    new: { value: 'reviewing', label: 'Взять в рассмотрение' },
-    reviewing: { value: 'approved', label: 'Одобрить' },
-    approved: { value: 'in_progress', label: 'В работу' },
-    in_progress: { value: 'completed', label: 'Завершить' },
-    completed: null,
-    rejected: null,
+const STATUS_ACTIONS: Record<string, { value: string; label: string; className: string }[]> = {
+    reviewing: [
+        {
+            value: 'approved',
+            label: 'Одобрить',
+            className: 'bg-blue-600 text-white hover:bg-blue-700',
+        },
+        {
+            value: 'rejected',
+            label: 'Отклонить',
+            className: 'bg-red-600 text-white hover:bg-red-700',
+        },
+    ],
+    approved: [],
+    rejected: [],
+};
+
+const STATUS_BADGE_CLASSNAME: Record<string, string> = {
+    reviewing: 'border-amber-200 bg-amber-50 text-amber-700',
+    approved: 'border-blue-200 bg-blue-50 text-blue-700',
+    rejected: 'border-red-200 bg-red-50 text-red-700',
 };
 
 const formatDateTime = (value?: string | null): string => {
@@ -79,7 +90,6 @@ export default function UtilizationRequestsPage() {
     const [items, setItems] = useState<UtilizationRequestItem[]>([]);
     const [statusFilter, setStatusFilter] = useState('');
     const [loading, setLoading] = useState(true);
-    const [expandedId, setExpandedId] = useState<number | null>(null);
     const [busyId, setBusyId] = useState<number | null>(null);
 
     const fetchItems = useCallback(async () => {
@@ -100,16 +110,11 @@ export default function UtilizationRequestsPage() {
 
     const sortedItems = useMemo(() => [...items].sort((a, b) => b.id - a.id), [items]);
 
-    const changeStatus = useCallback(async (item: UtilizationRequestItem) => {
-        const next = NEXT_STATUS[item.status];
-        if (!next) {
-            return;
-        }
-
+    const changeStatus = useCallback(async (item: UtilizationRequestItem, targetStatus: string) => {
         setBusyId(item.id);
         try {
             const response = await axios.patch(`/utilization/api/requests/${item.id}/status`, {
-                status: next.value,
+                status: targetStatus,
             });
             const updated = response.data?.data;
             if (updated) {
@@ -165,8 +170,7 @@ export default function UtilizationRequestsPage() {
                 {!loading && sortedItems.length > 0 && (
                     <div className="flex flex-col gap-3">
                         {sortedItems.map((item) => {
-                            const next = NEXT_STATUS[item.status];
-                            const expanded = expandedId === item.id;
+                            const actions = STATUS_ACTIONS[item.status] ?? [];
 
                             return (
                                 <div key={item.id} className="rounded-xl border border-[#E8E8E8] bg-white p-4">
@@ -177,38 +181,32 @@ export default function UtilizationRequestsPage() {
                                             <div className="text-xs text-[#666]">Дата вызова: {formatDate(item.requested_start)}</div>
                                         </div>
                                         <div className="flex flex-col items-start gap-2 sm:items-end">
-                                            <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_BADGE_CLASSNAME[item.status] ?? 'border-slate-200 bg-slate-50 text-slate-700'}`}>
                                                 {item.status_label}
                                             </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedId(expanded ? null : item.id)}
-                                                className="text-xs text-[#666] underline"
-                                            >
-                                                {expanded ? 'Скрыть детали' : 'Показать детали'}
-                                            </button>
                                         </div>
                                     </div>
 
-                                    {expanded && (
-                                        <div className="mt-3 border-t border-[#F0F0F0] pt-3">
-                                            {item.comment && <p className="mb-2 text-xs text-[#555]">Комментарий: {item.comment}</p>}
-                                            <p className="mb-2 text-xs text-[#888]">Источник: {item.source}</p>
-                                            <p className="mb-2 text-xs text-[#888]">Создана: {formatDateTime(item.created_at)}</p>
-                                            {item.photos.length > 0 && <PhotoGallery photos={item.photos ?? []} compact />}
-                                        </div>
-                                    )}
+                                    <div className="mt-3 border-t border-[#F0F0F0] pt-3">
+                                        {item.comment && <p className="mb-2 text-xs text-[#555]">Комментарий: {item.comment}</p>}
+                                        <p className="mb-2 text-xs text-[#888]">Источник: {item.source}</p>
+                                        <p className="mb-2 text-xs text-[#888]">Создана: {formatDateTime(item.created_at)}</p>
+                                        {item.photos.length > 0 && <PhotoGallery photos={item.photos ?? []} compact />}
+                                    </div>
 
-                                    {next && (
-                                        <div className="mt-3">
-                                            <Button
-                                                size="sm"
-                                                className="bg-red-600 text-white hover:bg-red-700"
-                                                disabled={busyId === item.id}
-                                                onClick={() => void changeStatus(item)}
-                                            >
-                                                {busyId === item.id ? 'Обновление…' : next.label}
-                                            </Button>
+                                    {actions.length > 0 && (
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {actions.map((action) => (
+                                                <Button
+                                                    key={action.value}
+                                                    size="sm"
+                                                    className={action.className}
+                                                    disabled={busyId === item.id}
+                                                    onClick={() => void changeStatus(item, action.value)}
+                                                >
+                                                    {busyId === item.id ? 'Обновление…' : action.label}
+                                                </Button>
+                                            ))}
                                         </div>
                                     )}
                                 </div>
