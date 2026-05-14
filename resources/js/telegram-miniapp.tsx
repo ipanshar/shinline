@@ -156,6 +156,7 @@ interface UtilizationRequestItem {
 }
 
 const MAX_REQUEST_PHOTOS = 5;
+const UNKNOWN_TRUCK_CONFIRMATION_LIMIT = 2;
 
 
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
@@ -215,11 +216,11 @@ const spectechStatusLabels: Record<string, string> = {
 };
 
 const utilizationStatusLabels: Record<string, string> = {
-    new: 'Новая',
+    new: 'На рассмотрении',
     reviewing: 'На рассмотрении',
     approved: 'Одобрена',
-    in_progress: 'В работе',
-    completed: 'Выполнена',
+    in_progress: 'Одобрена',
+    completed: 'Одобрена',
     rejected: 'Отклонена',
 };
 
@@ -247,6 +248,8 @@ const toDateLocalValue = (value: Date = new Date()) => {
 
     return localDate.toISOString().slice(0, 10);
 };
+
+const normalizePlateNumber = (value: string) => value.replace(/[\s-]+/g, '').toUpperCase();
 
 const normalizeVisitVehicles = (vehicles?: VisitVehicle[]) => {
     if (!vehicles || vehicles.length === 0) {
@@ -808,6 +811,10 @@ function UtilizationCreateForm({
     const [photos, setPhotos] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
     const [cameraOpen, setCameraOpen] = useState(false);
+    const [checkingPlate, setCheckingPlate] = useState(false);
+    const [plateExists, setPlateExists] = useState<boolean | null>(null);
+    const [plateHint, setPlateHint] = useState<string | null>(null);
+    const [missingTruckConfirmations, setMissingTruckConfirmations] = useState(0);
     const [err, setErr] = useState<string | null>(null);
     const requestDate = toDateLocalValue();
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -841,6 +848,55 @@ function UtilizationCreateForm({
         videoRef.current.srcObject = streamRef.current;
         void videoRef.current.play().catch(() => undefined);
     }, [cameraOpen]);
+
+    const checkTruckInBase = useCallback(async (rawPlateNumber: string) => {
+        const normalizedPlateNumber = normalizePlateNumber(rawPlateNumber);
+
+        if (normalizedPlateNumber === '') {
+            setPlateExists(null);
+            setPlateHint(null);
+
+            return { normalizedPlateNumber, truck: null as UtilizationTruckOption | null };
+        }
+
+        setCheckingPlate(true);
+        try {
+            const response = await axios.get<{ data: UtilizationTruckOption[] }>('/api/telegram/miniapp/utilization/trucks', {
+                params: {
+                    init_data: initData,
+                    search: normalizedPlateNumber,
+                },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            const exactTruck = (response.data.data ?? []).find((truck) => normalizePlateNumber(truck.plate_number ?? '') === normalizedPlateNumber) ?? null;
+
+            setPlateExists(Boolean(exactTruck));
+            setPlateHint(exactTruck
+                ? `Машина найдена в базе${exactTruck.name ? `: ${exactTruck.name}` : ''}.`
+                : 'Такой машины нет в базе. Проверьте номер внимательно.');
+
+            return {
+                normalizedPlateNumber,
+                truck: exactTruck,
+            };
+        } finally {
+            setCheckingPlate(false);
+        }
+    }, [initData]);
+
+    const handlePlateBlur = async () => {
+        if (plateNumber.trim() === '') {
+            return;
+        }
+
+        try {
+            await checkTruckInBase(plateNumber);
+        } catch {
+            setPlateExists(null);
+            setPlateHint('Не удалось проверить номер машины в базе.');
+        }
+    };
 
     const startCamera = async () => {
         if (photos.length >= MAX_REQUEST_PHOTOS) {
@@ -908,7 +964,9 @@ function UtilizationCreateForm({
 
     const submit = async (e: FormEvent) => {
         e.preventDefault();
-        if (plateNumber.trim() === '') {
+        const normalizedPlateNumber = normalizePlateNumber(plateNumber);
+
+        if (normalizedPlateNumber === '') {
             setErr('Укажите номер машины');
             return;
         }
@@ -921,15 +979,48 @@ function UtilizationCreateForm({
             return;
         }
 
+        let truckLookup: { normalizedPlateNumber: string; truck: UtilizationTruckOption | null };
+        try {
+            truckLookup = await checkTruckInBase(normalizedPlateNumber);
+        } catch {
+            setErr('Не удалось проверить номер машины в базе');
+            return;
+        }
+
+        let createTruckConfirmation: number | undefined;
+        if (!truckLookup.truck) {
+            const confirmed = typeof window.confirm === 'function'
+                ? window.confirm('Такой машины у нас нет в базе. Вы точно ввели номер машины правильно?')
+                : true;
+
+            if (!confirmed) {
+                setErr('Проверьте номер машины и попробуйте снова.');
+                return;
+            }
+
+            const nextConfirmationCount = missingTruckConfirmations + 1;
+            setMissingTruckConfirmations(nextConfirmationCount);
+
+            if (nextConfirmationCount < UNKNOWN_TRUCK_CONFIRMATION_LIMIT) {
+                setErr(`Такой машины нет в базе. Если номер верный, подтвердите ещё ${UNKNOWN_TRUCK_CONFIRMATION_LIMIT - nextConfirmationCount} раз(а).`);
+                return;
+            }
+
+            createTruckConfirmation = nextConfirmationCount;
+        } else {
+            setMissingTruckConfirmations(0);
+        }
+
         setBusy(true);
         setErr(null);
         try {
             await axios.post('/api/telegram/miniapp/utilization/requests', {
                 init_data: initData,
-                plate_number: plateNumber.trim(),
+                plate_number: truckLookup.normalizedPlateNumber,
                 driver_name: driverName.trim(),
                 comment: comment.trim() || null,
                 photos,
+                ...(createTruckConfirmation !== undefined ? { create_truck_confirmation: createTruckConfirmation } : {}),
             }, {
                 headers: { 'X-Telegram-Init-Data': initData },
             });
@@ -949,11 +1040,22 @@ function UtilizationCreateForm({
             <input
                 style={inputStyle}
                 value={plateNumber}
-                onChange={(event) => setPlateNumber(event.target.value.toUpperCase())}
+                onChange={(event) => {
+                    setPlateNumber(normalizePlateNumber(event.target.value));
+                    setPlateExists(null);
+                    setPlateHint(null);
+                    setMissingTruckConfirmations(0);
+                }}
+                onBlur={() => void handlePlateBlur()}
                 placeholder="Например, A123BC01"
                 autoComplete="off"
                 required
             />
+            {(checkingPlate || plateHint) && (
+                <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: checkingPlate ? '#666' : (plateExists ? '#2e8b57' : '#a16207') }}>
+                    {checkingPlate ? 'Проверяем номер машины в базе…' : plateHint}
+                </div>
+            )}
 
             <label>Имя водителя</label>
             <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} required />
@@ -1033,7 +1135,13 @@ function UtilizationRequestList({
                             : request.start_date
                     }</div>
                     {request.comment && <div>Комментарий: {request.comment}</div>}
-                    {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
+                    {request.photo_urls && request.photo_urls.length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                            {request.photo_urls.map((photo, index) => (
+                                <img key={`${request.id}-${index}`} src={photo} alt={`Фото заявки ${request.id}`} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, border: '1px solid #ddd' }} />
+                            ))}
+                        </div>
+                    )}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
                 </div>
             ))}

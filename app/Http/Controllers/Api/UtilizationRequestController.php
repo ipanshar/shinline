@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\UtilizationRequest;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,7 +25,7 @@ class UtilizationRequestController extends Controller
         }
 
         if ($request->filled('status')) {
-            $query->where('status', (string) $request->input('status'));
+            $this->applyStatusFilter($query, (string) $request->input('status'));
         }
 
         if ($request->filled('source')) {
@@ -44,18 +45,16 @@ class UtilizationRequestController extends Controller
         $item = UtilizationRequest::query()->findOrFail($id);
 
         $validated = $request->validate([
-            'status' => ['required', 'in:new,reviewing,approved,in_progress,completed,rejected'],
+            'status' => ['required', 'in:reviewing,approved,rejected'],
         ]);
 
         $newStatus = (string) $validated['status'];
 
         $timeline = $item->timeline ?? UtilizationRequest::buildInitialTimeline();
         $statusToTimelineIndex = [
-            'new' => 0,
-            'reviewing' => 1,
-            'approved' => 2,
-            'in_progress' => 3,
-            'completed' => 4,
+            'reviewing' => 0,
+            'approved' => 1,
+            'rejected' => 2,
         ];
 
         if (isset($statusToTimelineIndex[$newStatus])) {
@@ -102,14 +101,30 @@ class UtilizationRequestController extends Controller
             'gate' => null,
             'address' => null,
             'comment' => $item->comment,
-            'status' => $item->status,
-            'status_label' => UtilizationRequest::STATUS_LABELS[$item->status] ?? $item->status,
+            'status' => UtilizationRequest::normalizeWorkflowStatus($item->status),
+            'status_label' => UtilizationRequest::labelFor($item->status),
             'photos' => $photos,
             'timeline' => $item->timeline ?? [],
             'source' => $item->source,
             'client_name' => $item->user?->name,
             'created_at' => $item->created_at?->toIso8601String(),
         ];
+    }
+
+    private function applyStatusFilter(Builder $query, string $status): void
+    {
+        match ($status) {
+            UtilizationRequest::STATUS_APPROVED => $query->whereIn('status', [
+                UtilizationRequest::STATUS_APPROVED,
+                UtilizationRequest::STATUS_IN_PROGRESS,
+                UtilizationRequest::STATUS_COMPLETED,
+            ]),
+            UtilizationRequest::STATUS_REJECTED => $query->where('status', UtilizationRequest::STATUS_REJECTED),
+            default => $query->whereIn('status', [
+                UtilizationRequest::STATUS_NEW,
+                UtilizationRequest::STATUS_REVIEWING,
+            ]),
+        };
     }
 
     private function normalizePhotoUrl(string $photo): string
