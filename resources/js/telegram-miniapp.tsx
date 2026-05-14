@@ -5,6 +5,14 @@
 import { createRoot } from 'react-dom/client';
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import axios from 'axios';
+import {
+    buildSpectechAddress,
+    formatLocationStatus,
+    isKnownTerminal,
+    KNOWN_TERMINALS,
+    MOCK_LOCATIONS,
+    TERMINAL_INFO,
+} from '@/components/spectech/MOCK_LOCATIONS';
 // Без CSRF/credentials — Mini App авторизуется через initData
 axios.defaults.withCredentials = false;
 
@@ -110,6 +118,7 @@ interface SpectechTruckOption {
 
 interface SpectechRequestItem {
     id: number;
+    equipment_id: number;
     equipment_name: string;
     plate_number?: string | null;
     driver_name?: string | null;
@@ -127,6 +136,7 @@ interface SpectechRequestItem {
     status_label: string;
     photos?: string[];
     photo_urls?: string[];
+    schedule_id?: number | null;
     created_at?: string | null;
 }
 
@@ -1179,31 +1189,47 @@ function UtilizationRequestList({
 }
 
 // ── Главный компонент ─────────────────────────────────────────────────────────
+function buildDefaultRequestStart(): string {
+    const date = new Date();
+    date.setMinutes(0, 0, 0);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:00`;
+}
+
+function buildDefaultRequestEnd(): string {
+    const date = new Date();
+    date.setHours(date.getHours() + 8);
+    date.setMinutes(0, 0, 0);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}:00`;
+}
+
+function toDateTimeLocal(value?: string | null): string {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 function SpectechCreateForm({
     initData,
     onDone,
     onCancel,
+    request,
 }: {
     initData: string;
     onDone: () => void | Promise<void>;
     onCancel: () => void;
+    request?: SpectechRequestItem | null;
 }) {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
-    const [truckId, setTruckId] = useState<number | ''>('');
+    const [truckId, setTruckId] = useState<number | ''>(request?.equipment_id ?? '');
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
-    const [requestedStart, setRequestedStart] = useState(() => {
-        const date = new Date();
-        date.setMinutes(0, 0, 0);
-        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:00`;
-    });
-    const [requestedEnd, setRequestedEnd] = useState(() => {
-        const date = new Date();
-        date.setHours(date.getHours() + 8);
-        date.setMinutes(0, 0, 0);
-        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:00`;
-    });
+    const [requestedStart, setRequestedStart] = useState(buildDefaultRequestStart);
+    const [requestedEnd, setRequestedEnd] = useState(buildDefaultRequestEnd);
     const [terminal, setTerminal] = useState('T1');
+    const [selectedLocationId, setSelectedLocationId] = useState<number | ''>('');
     const [zone, setZone] = useState('');
     const [gate, setGate] = useState('');
     const [address, setAddress] = useState('');
@@ -1214,6 +1240,79 @@ function SpectechCreateForm({
     const [err, setErr] = useState<string | null>(null);
     const [availabilityWarn, setAvailabilityWarn] = useState<string | null>(null);
     const [freeAlternative, setFreeAlternative] = useState<{ id: number; name: string; plate_number: string } | null>(null);
+
+    const normalizedTerminal = terminal.trim().toUpperCase();
+    const hasPresetLocations = isKnownTerminal(normalizedTerminal);
+    const filteredLocations = hasPresetLocations
+        ? MOCK_LOCATIONS.filter((location) => location.terminal === normalizedTerminal)
+        : [];
+    const selectedLocation = filteredLocations.find((location) => location.id === selectedLocationId) ?? null;
+
+    useEffect(() => {
+        if (!request) {
+            setTruckId('');
+            setDriverName('');
+            setDriverPhone('');
+            setRequestedStart(buildDefaultRequestStart());
+            setRequestedEnd(buildDefaultRequestEnd());
+            setTerminal('T1');
+            setSelectedLocationId('');
+            setZone('');
+            setGate('');
+            setAddress('');
+            setComment('');
+            setPhotos([]);
+            setErr(null);
+            return;
+        }
+
+        const presetLocation = isKnownTerminal(request.terminal)
+            ? MOCK_LOCATIONS.find((location) => (
+                location.terminal === request.terminal
+                && location.building === request.zone
+                && (request.gate ? location.gate === request.gate : true)
+            )) ?? null
+            : null;
+
+        setTruckId(request.equipment_id ?? '');
+        setDriverName(request.driver_name ?? '');
+        setDriverPhone(request.driver_phone ?? '');
+        setRequestedStart(toDateTimeLocal(request.requested_start) || buildDefaultRequestStart());
+        setRequestedEnd(toDateTimeLocal(request.requested_end) || buildDefaultRequestEnd());
+        setTerminal(request.terminal ?? 'T1');
+        setSelectedLocationId(presetLocation?.id ?? '');
+        setZone(presetLocation?.building ?? (request.zone ?? ''));
+        setGate(presetLocation?.gate ?? (request.gate ?? ''));
+        setAddress(request.address ?? '');
+        setComment(request.comment ?? '');
+        setPhotos(request.photo_urls ?? request.photos ?? []);
+        setErr(null);
+    }, [request]);
+
+    useEffect(() => {
+        if (!selectedLocation) {
+            return;
+        }
+
+        setZone(selectedLocation.building);
+        setGate(selectedLocation.gate === '-' ? '' : selectedLocation.gate);
+        setAddress(buildSpectechAddress(
+            normalizedTerminal,
+            selectedLocation.building,
+            selectedLocation.gate === '-' ? null : selectedLocation.gate,
+            formatLocationStatus(selectedLocation.status),
+            selectedLocation.purpose,
+        ));
+    }, [selectedLocation, normalizedTerminal]);
+
+    useEffect(() => {
+        if (hasPresetLocations) {
+            return;
+        }
+
+        setSelectedLocationId('');
+        setAddress(buildSpectechAddress(normalizedTerminal || terminal.trim(), zone.trim(), gate.trim() || null));
+    }, [hasPresetLocations, terminal, normalizedTerminal, zone, gate]);
 
     useEffect(() => {
         setLoadingTrucks(true);
@@ -1231,19 +1330,25 @@ function SpectechCreateForm({
             .finally(() => setLoadingTrucks(false));
     }, [initData]);
 
-    // Проверить доступность при смене техники или периода
     useEffect(() => {
         if (!truckId || !requestedStart || !requestedEnd) {
             setAvailabilityWarn(null);
             setFreeAlternative(null);
             return;
         }
+
         const ctrl = new AbortController();
         axios
             .get<{ available: boolean; message: string; free_alternative?: { id: number; name: string; plate_number: string } | null }>(
                 '/api/telegram/miniapp/spectech/check-availability',
                 {
-                    params: { init_data: initData, truck_id: truckId, requested_start: requestedStart, requested_end: requestedEnd },
+                    params: {
+                        init_data: initData,
+                        truck_id: truckId,
+                        requested_start: requestedStart,
+                        requested_end: requestedEnd,
+                        ...(request?.schedule_id ? { exclude_schedule_id: request.schedule_id } : {}),
+                    },
                     headers: { 'X-Telegram-Init-Data': initData },
                     signal: ctrl.signal,
                 },
@@ -1259,7 +1364,7 @@ function SpectechCreateForm({
             })
             .catch(() => { /* ignore */ });
         return () => ctrl.abort();
-    }, [truckId, requestedStart, requestedEnd, initData]);
+    }, [truckId, requestedStart, requestedEnd, initData, request?.schedule_id]);
 
     const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files ?? []);
@@ -1296,29 +1401,52 @@ function SpectechCreateForm({
             return;
         }
 
+        if (!normalizedTerminal) {
+            setErr('Укажите терминал');
+            return;
+        }
+
+        if (hasPresetLocations && !selectedLocation) {
+            setErr('Выберите здание для терминала');
+            return;
+        }
+
+        if (!zone.trim()) {
+            setErr('Укажите здание или объект');
+            return;
+        }
+
         setBusy(true);
         setErr(null);
         try {
-            await axios.post('/api/telegram/miniapp/spectech/requests', {
+            const payload = {
                 init_data: initData,
                 truck_id: truckId,
-                driver_name: driverName.trim(),
+                driver_name: driverName.trim() || null,
                 driver_phone: driverPhone.trim() || null,
                 requested_start: requestedStart,
                 requested_end: requestedEnd,
-                terminal,
+                terminal: normalizedTerminal,
                 zone: zone.trim(),
                 gate: gate.trim() || null,
-                address: address.trim(),
+                address: address.trim() || buildSpectechAddress(normalizedTerminal, zone.trim(), gate.trim() || null),
                 comment: comment.trim() || null,
                 photos,
-            }, {
-                headers: { 'X-Telegram-Init-Data': initData },
-            });
+            };
+
+            if (request) {
+                await axios.put(`/api/telegram/miniapp/spectech/requests/${request.id}`, payload, {
+                    headers: { 'X-Telegram-Init-Data': initData },
+                });
+            } else {
+                await axios.post('/api/telegram/miniapp/spectech/requests', payload, {
+                    headers: { 'X-Telegram-Init-Data': initData },
+                });
+            }
 
             await onDone();
         } catch (error: any) {
-            setErr(getErrorMessage(error, 'Не удалось создать заявку'));
+            setErr(getErrorMessage(error, request ? 'Не удалось обновить заявку' : 'Не удалось создать заявку'));
         } finally {
             setBusy(false);
         }
@@ -1326,7 +1454,7 @@ function SpectechCreateForm({
 
     return (
         <form onSubmit={submit}>
-            <h3>Новая заявка на спецтехнику</h3>
+            <h3>{request ? `Редактирование заявки #${request.id}` : 'Новая заявка на спецтехнику'}</h3>
             <label>Техника</label>
             <select
                 style={inputStyle}
@@ -1374,21 +1502,77 @@ function SpectechCreateForm({
             )}
 
             <label>Терминал</label>
-            <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
-                <option value="T1">T1</option>
-                <option value="T2">T2</option>
-                <option value="T3">T3</option>
-                <option value="T4">T4</option>
-            </select>
+            <input
+                list="spectech-terminal-options"
+                style={inputStyle}
+                value={terminal}
+                onChange={(e) => {
+                    setTerminal(e.target.value);
+                    setSelectedLocationId('');
+                    setZone('');
+                    setGate('');
+                    setAddress('');
+                }}
+                placeholder="T1 / T2 / T3 / T4 или свой"
+                required
+            />
+            <datalist id="spectech-terminal-options">
+                {KNOWN_TERMINALS.map((item) => (
+                    <option key={item} value={item} />
+                ))}
+            </datalist>
 
-            <label>Зона / объект</label>
-            <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
+            {TERMINAL_INFO[normalizedTerminal] && (
+                <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
+                    {TERMINAL_INFO[normalizedTerminal].description}
+                </div>
+            )}
 
-            <label>Гейт</label>
-            <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
+            {hasPresetLocations ? (
+                <>
+                    <label>Здание / зона</label>
+                    <select
+                        style={inputStyle}
+                        value={selectedLocationId}
+                        onChange={(e) => {
+                            const value = e.target.value ? Number(e.target.value) : '';
+                            setSelectedLocationId(value);
+                            if (!value) {
+                                setZone('');
+                                setGate('');
+                                setAddress('');
+                            }
+                        }}
+                        required
+                    >
+                        <option value="">Выберите здание</option>
+                        {filteredLocations.map((location) => (
+                            <option key={location.id} value={location.id}>
+                                {location.building} · {location.gate} · {location.purpose}
+                            </option>
+                        ))}
+                    </select>
+                    {selectedLocation && (
+                        <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
+                            {formatLocationStatus(selectedLocation.status)} · {selectedLocation.purpose}
+                        </div>
+                    )}
+
+                    <label>Гейт</label>
+                    <input style={{ ...inputStyle, background: '#f7f7f7' }} value={gate} readOnly />
+                </>
+            ) : (
+                <>
+                    <label>Зона / объект</label>
+                    <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
+
+                    <label>Гейт</label>
+                    <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
+                </>
+            )}
 
             <label>Адрес</label>
-            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} required />
+            <input style={{ ...inputStyle, background: '#f7f7f7' }} value={address} onChange={(e) => setAddress(e.target.value)} required />
 
             <label>Комментарий</label>
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
@@ -1423,7 +1607,7 @@ function SpectechCreateForm({
             )}
 
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
-            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
+            <button type="submit" disabled={busy} style={btn}>{busy ? (request ? 'Сохранение…' : 'Создание…') : (request ? 'Сохранить изменения' : 'Создать заявку')}</button>
             <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
         </form>
     );
@@ -1432,10 +1616,12 @@ function SpectechCreateForm({
 function SpectechRequestList({
     requests,
     onCreate,
+    onEdit,
     onBack,
 }: {
     requests: SpectechRequestItem[];
     onCreate: () => void;
+    onEdit: (request: SpectechRequestItem) => void;
     onBack: () => void;
 }) {
     return (
@@ -1461,6 +1647,9 @@ function SpectechRequestList({
                     {request.comment && <div>Комментарий: {request.comment}</div>}
                     {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
+                    <button type="button" style={{ ...btnSecondary, marginTop: 8, marginBottom: 0 }} onClick={() => onEdit(request)}>
+                        Изменить заявку
+                    </button>
                 </div>
             ))}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
@@ -1564,12 +1753,13 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
     const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
+    const [selectedSpectechRequest, setSelectedSpectechRequest] = useState<SpectechRequestItem | null>(null);
     const [operatorSpectechRequests, setOperatorSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [operatorSpectechLoading, setOperatorSpectechLoading] = useState(false);
     const [operatorSpectechError, setOperatorSpectechError] = useState<string | null>(null);
@@ -1704,6 +1894,7 @@ function TelegramMiniApp() {
 
     const handleSpectechCreated = useCallback(async () => {
         await loadSpectechRequests();
+        setSelectedSpectechRequest(null);
         setView('spectech-requests');
     }, [loadSpectechRequests]);
 
@@ -1843,13 +2034,35 @@ function TelegramMiniApp() {
                 <SpectechCreateForm
                     initData={initData}
                     onDone={handleSpectechCreated}
-                    onCancel={() => setView('home')}
+                    request={null}
+                    onCancel={() => {
+                        setSelectedSpectechRequest(null);
+                        setView('home');
+                    }}
+                />
+            )}
+            {status === 'approved' && view === 'spectech-edit' && selectedSpectechRequest && (
+                <SpectechCreateForm
+                    initData={initData}
+                    onDone={handleSpectechCreated}
+                    request={selectedSpectechRequest}
+                    onCancel={() => {
+                        setSelectedSpectechRequest(null);
+                        setView('spectech-requests');
+                    }}
                 />
             )}
             {status === 'approved' && view === 'spectech-requests' && (
                 <SpectechRequestList
                     requests={spectechRequests}
-                    onCreate={() => setView('spectech-create')}
+                    onCreate={() => {
+                        setSelectedSpectechRequest(null);
+                        setView('spectech-create');
+                    }}
+                    onEdit={(request) => {
+                        setSelectedSpectechRequest(request);
+                        setView('spectech-edit');
+                    }}
                     onBack={() => setView('home')}
                 />
             )}

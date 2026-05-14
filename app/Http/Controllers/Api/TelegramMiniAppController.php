@@ -21,6 +21,7 @@ use App\Services\TelegramMessagingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -431,7 +432,7 @@ class TelegramMiniAppController extends Controller
             'driver_phone' => ['nullable', 'string', 'max:20'],
             'requested_start' => ['required', 'date', 'after_or_equal:now'],
             'requested_end' => ['required', 'date', 'after:requested_start'],
-            'terminal' => ['required', 'string', 'max:10'],
+            'terminal' => ['required', 'string', 'max:50'],
             'zone' => ['required', 'string', 'max:100'],
             'gate' => ['nullable', 'string', 'max:50'],
             'address' => ['required', 'string', 'max:500'],
@@ -461,17 +462,7 @@ class TelegramMiniAppController extends Controller
             ], 409);
         }
 
-        $photoPaths = [];
-        foreach ($validated['photos'] ?? [] as $photoData) {
-            if (! is_string($photoData) || trim($photoData) === '') {
-                continue;
-            }
-
-            $saved = $this->saveBase64Photo($photoData);
-            if ($saved !== null) {
-                $photoPaths[] = $saved;
-            }
-        }
+        $photoPaths = $this->prepareSpectechPhotoPaths($validated['photos'] ?? []);
 
         $truck   = Truck::findOrFail((int) $validated['truck_id']);
         $typeKey = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($truck->name ?? '')) ?: ($truck->name ?? 'Спецтехника');
@@ -520,6 +511,101 @@ class TelegramMiniAppController extends Controller
         ], 201);
     }
 
+    public function updateSpectechRequest(Request $request, int $id): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+        $user = $this->resolveApprovedUser($chat);
+
+        $spectechRequest = SpectechRequest::query()
+            ->with(['truck:id,name,plate_number', 'user:id,name', 'schedule'])
+            ->findOrFail($id);
+
+        if ($spectechRequest->user_id !== $user->id && ! $user->canManageSpectech()) {
+            abort(403, 'Доступ запрещён.');
+        }
+
+        $validated = $request->validate([
+            'truck_id' => ['required', 'integer', 'exists:trucks,id'],
+            'driver_name' => ['nullable', 'string', 'max:160'],
+            'driver_phone' => ['nullable', 'string', 'max:20'],
+            'requested_start' => ['required', 'date'],
+            'requested_end' => ['required', 'date', 'after:requested_start'],
+            'terminal' => ['required', 'string', 'max:50'],
+            'zone' => ['required', 'string', 'max:100'],
+            'gate' => ['nullable', 'string', 'max:50'],
+            'address' => ['required', 'string', 'max:500'],
+            'comment' => ['nullable', 'string', 'max:2000'],
+            'photos' => ['nullable', 'array', 'max:5'],
+            'photos.*' => ['nullable', 'string'],
+        ]);
+
+        [$startCarbon, $endCarbon] = $this->resolveSpectechWindow($validated);
+        $availabilityService = new SpectechAvailabilityService();
+        $excludeScheduleId = $spectechRequest->schedule_id;
+
+        if (! $availabilityService->isTruckAvailable(
+            (int) $validated['truck_id'],
+            $startCarbon->toIso8601String(),
+            $endCarbon->toIso8601String(),
+            $excludeScheduleId,
+        )) {
+            $freeTruck = $availabilityService->findFreeAlternativeTruck(
+                (int) $validated['truck_id'],
+                $startCarbon->toIso8601String(),
+                $endCarbon->toIso8601String(),
+                $excludeScheduleId,
+            );
+            $conflictInfo = $availabilityService->getTypeConflictInfo(
+                (int) $validated['truck_id'],
+                $startCarbon->toIso8601String(),
+                $endCarbon->toIso8601String(),
+                $excludeScheduleId,
+            );
+
+            return response()->json([
+                'available' => false,
+                'message' => 'Техника занята на указанный период',
+                'free_alternative' => $freeTruck ? [
+                    'id' => $freeTruck->id,
+                    'name' => $freeTruck->name,
+                    'plate_number' => $freeTruck->plate_number,
+                ] : null,
+                'conflict_info' => $conflictInfo,
+            ], 409);
+        }
+
+        $truck = Truck::findOrFail((int) $validated['truck_id']);
+        $photoPaths = array_key_exists('photos', $validated)
+            ? $this->prepareSpectechPhotoPaths($validated['photos'] ?? [])
+            : ($spectechRequest->photos ?? []);
+
+        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths) {
+            $scheduleId = $this->syncTelegramSpectechSchedule($spectechRequest, $truck, $startCarbon, $endCarbon, $validated);
+
+            $spectechRequest->forceFill([
+                'truck_id' => $truck->id,
+                'driver_name' => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
+                'driver_phone' => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
+                'start_date' => $startCarbon->toDateString(),
+                'end_date' => $endCarbon->toDateString(),
+                'requested_start' => $startCarbon,
+                'requested_end' => $endCarbon,
+                'terminal' => trim((string) $validated['terminal']),
+                'zone' => trim((string) $validated['zone']),
+                'gate' => isset($validated['gate']) && trim((string) $validated['gate']) !== '' ? trim((string) $validated['gate']) : null,
+                'address' => trim((string) $validated['address']),
+                'comment' => isset($validated['comment']) && trim((string) $validated['comment']) !== '' ? trim((string) $validated['comment']) : null,
+                'photos' => $photoPaths,
+                'schedule_id' => $scheduleId,
+            ])->save();
+        });
+
+        return response()->json([
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
+        ]);
+    }
+
     public function updateOperatorSpectechRequestStatus(Request $request, int $id): JsonResponse
     {
         $chat = $this->authChat($request);
@@ -539,6 +625,13 @@ class TelegramMiniAppController extends Controller
         $spectechRequest = SpectechRequest::query()
             ->with(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])
             ->findOrFail($id);
+
+        if ($spectechRequest->isStatusFrozen() && $validated['status'] !== SpectechRequest::STATUS_RETURNED) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Для просроченной заявки доступен только статус "Возврат"',
+            ], 409);
+        }
 
         $timeline = $this->buildUpdatedSpectechTimeline(
             $spectechRequest->timeline ?? SpectechRequest::buildInitialTimeline(),
@@ -564,19 +657,21 @@ class TelegramMiniAppController extends Controller
             'truck_id'        => 'required|exists:trucks,id',
             'requested_start' => 'required|date',
             'requested_end'   => 'required|date|after:requested_start',
+            'exclude_schedule_id' => 'nullable|integer|exists:spectech_schedules,id',
         ]);
 
         $start = Carbon::parse($validated['requested_start']);
         $end   = Carbon::parse($validated['requested_end']);
 
         $svc = new SpectechAvailabilityService();
+        $excludeScheduleId = isset($validated['exclude_schedule_id']) ? (int) $validated['exclude_schedule_id'] : null;
 
-        if ($svc->isTruckAvailable((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String())) {
+        if ($svc->isTruckAvailable((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String(), $excludeScheduleId)) {
             return response()->json(['available' => true, 'message' => 'Техника доступна']);
         }
 
-        $freeTruck    = $svc->findFreeAlternativeTruck((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String());
-        $conflictInfo = $svc->getTypeConflictInfo((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String());
+        $freeTruck    = $svc->findFreeAlternativeTruck((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String(), $excludeScheduleId);
+        $conflictInfo = $svc->getTypeConflictInfo((int) $validated['truck_id'], $start->toIso8601String(), $end->toIso8601String(), $excludeScheduleId);
 
         return response()->json([
             'available'        => false,
@@ -821,6 +916,81 @@ class TelegramMiniAppController extends Controller
         }
 
         return $timeline;
+    }
+
+    private function resolveSpectechWindow(array $validated): array
+    {
+        return [
+            Carbon::parse($validated['requested_start']),
+            Carbon::parse($validated['requested_end']),
+        ];
+    }
+
+    private function prepareSpectechPhotoPaths(array $photos): array
+    {
+        $prepared = [];
+
+        foreach ($photos as $photo) {
+            if (! is_string($photo) || trim($photo) === '') {
+                continue;
+            }
+
+            $photo = trim($photo);
+
+            if (str_starts_with($photo, 'data:image')) {
+                $saved = $this->saveBase64Photo($photo);
+                if ($saved !== null) {
+                    $prepared[] = $saved;
+                }
+
+                continue;
+            }
+
+            $normalized = $this->normalizePhotoUrl($photo);
+            if ($normalized !== null) {
+                $prepared[] = $normalized;
+            }
+        }
+
+        return array_values(array_unique($prepared));
+    }
+
+    private function syncTelegramSpectechSchedule(
+        SpectechRequest $spectechRequest,
+        Truck $truck,
+        Carbon $startCarbon,
+        Carbon $endCarbon,
+        array $validated,
+    ): int {
+        $typeKey = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($truck->name ?? '')) ?: ($truck->name ?? 'Спецтехника');
+        $scheduleData = [
+            'user_id' => $spectechRequest->user_id,
+            'truck_id' => $truck->id,
+            'equipment_type_key' => $typeKey,
+            'equipment_type_label' => $typeKey,
+            'assigned_truck_name' => $truck->name . ($truck->plate_number ? " ({$truck->plate_number})" : ''),
+            'scheduled_start' => $startCarbon,
+            'scheduled_end' => $endCarbon,
+            'purpose' => isset($validated['comment']) && trim((string) $validated['comment']) !== ''
+                ? trim((string) $validated['comment'])
+                : 'Заявка из Telegram',
+            'address' => trim((string) $validated['address']),
+            'notes' => isset($validated['comment']) && trim((string) $validated['comment']) !== ''
+                ? trim((string) $validated['comment'])
+                : null,
+        ];
+
+        if ($spectechRequest->schedule) {
+            $spectechRequest->schedule->update($scheduleData);
+
+            return $spectechRequest->schedule->id;
+        }
+
+        $schedule = SpectechSchedule::create(array_merge($scheduleData, [
+            'status' => SpectechSchedule::STATUS_PENDING,
+        ]));
+
+        return $schedule->id;
     }
 
     private function saveBase64Photo(string $dataUrl, string $folder = 'spectech'): ?string
