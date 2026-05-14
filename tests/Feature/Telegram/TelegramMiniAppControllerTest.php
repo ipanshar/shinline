@@ -9,6 +9,7 @@ use App\Models\SpectechRequest;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
 use App\Models\TruckCategory;
+use App\Models\UtilizationRequest;
 use App\Models\User;
 use App\Models\Yard;
 use App\Services\TelegramMessagingService;
@@ -540,153 +541,81 @@ class TelegramMiniAppControllerTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_operator_session_marks_spectech_management_capability_and_returns_all_requests(): void
+    public function test_create_utilization_request_uses_plate_number_and_photo(): void
     {
-        $category = TruckCategory::query()->create(['name' => 'Спец техника']);
-        $truck = Truck::query()->create([
-            'name' => 'Эвакуатор',
-            'plate_number' => '777OP01',
-            'truck_category_id' => $category->id,
-        ]);
+        $initData = $this->makeInitData(['id' => 7012, 'first_name' => 'Util']);
 
-        $operator = User::create([
-            'name' => 'Spectech Operator',
+        $user = User::create([
+            'name' => 'Util User',
             'login' => 'tg_7012',
             'email' => 'tg7012@example.com',
             'password' => 'x',
             'phone' => '+77000007012',
         ]);
-        $operator->roles()->attach(Role::findByName('Оператор спецтехники'));
 
         TelegramBotChat::create([
             'chat_id' => '7012',
             'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
-            'approved_user_id' => $operator->id,
-            'display_full_name' => 'Spectech Operator',
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Util User',
             'display_phone' => '+77000007012',
         ]);
 
-        $requesterOne = User::create([
-            'name' => 'Requester One',
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'A111AA777',
+            'driver_name' => 'Иван Петров',
+            'comment' => 'Срочный вывоз',
+            'photos' => [$photo],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.plate_number', 'A111AA777')
+            ->assertJsonPath('data.driver_name', 'Иван Петров')
+            ->assertJsonCount(1, 'data.photo_urls');
+
+        $request = UtilizationRequest::query()->latest('id')->first();
+
+        $this->assertNotNull($request);
+        $this->assertSame($user->id, $request->user_id);
+        $this->assertSame('Иван Петров', $request->driver_name);
+        $this->assertNotNull($request->truck_id);
+        $this->assertSame($request->requested_start?->toDateString(), $request->requested_end?->toDateString());
+
+        $this->assertDatabaseHas('trucks', [
+            'id' => $request->truck_id,
+            'plate_number' => 'A111AA777',
+        ]);
+    }
+
+    public function test_create_utilization_request_requires_photo(): void
+    {
+        $initData = $this->makeInitData(['id' => 7013, 'first_name' => 'Util']);
+
+        $user = User::create([
+            'name' => 'Util User 2',
             'login' => 'tg_7013',
             'email' => 'tg7013@example.com',
             'password' => 'x',
             'phone' => '+77000007013',
         ]);
 
-        $requesterTwo = User::create([
-            'name' => 'Requester Two',
-            'login' => 'tg_7014',
-            'email' => 'tg7014@example.com',
-            'password' => 'x',
-            'phone' => '+77000007014',
-        ]);
-
-        SpectechRequest::query()->create([
-            'user_id' => $requesterOne->id,
-            'truck_id' => $truck->id,
-            'driver_name' => 'Водитель 1',
-            'start_date' => now()->toDateString(),
-            'end_date' => now()->addDay()->toDateString(),
-            'terminal' => 'T1',
-            'zone' => 'A',
-            'gate' => '1',
-            'address' => 'Адрес 1',
-            'status' => SpectechRequest::STATUS_NEW,
-            'timeline' => SpectechRequest::buildInitialTimeline(),
-        ]);
-
-        SpectechRequest::query()->create([
-            'user_id' => $requesterTwo->id,
-            'truck_id' => $truck->id,
-            'driver_name' => 'Водитель 2',
-            'start_date' => now()->toDateString(),
-            'end_date' => now()->addDays(2)->toDateString(),
-            'terminal' => 'T2',
-            'zone' => 'B',
-            'gate' => '2',
-            'address' => 'Адрес 2',
-            'status' => SpectechRequest::STATUS_DEPARTURE,
-            'timeline' => SpectechRequest::buildInitialTimeline(),
-        ]);
-
-        $initData = $this->makeInitData(['id' => 7012, 'first_name' => 'Operator']);
-
-        $this->postJson('/api/telegram/miniapp/session', ['init_data' => $initData])
-            ->assertOk()
-            ->assertJsonPath('data.can_manage_spectech', true);
-
-        $this->getJson('/api/telegram/miniapp/operator/spectech/requests?init_data='.urlencode($initData))
-            ->assertOk()
-            ->assertJsonCount(2, 'data');
-    }
-
-    public function test_operator_can_update_spectech_request_status_from_miniapp(): void
-    {
-        $category = TruckCategory::query()->create(['name' => 'Спец техника']);
-        $truck = Truck::query()->create([
-            'name' => 'Автовышка',
-            'plate_number' => '888OP01',
-            'truck_category_id' => $category->id,
-        ]);
-
-        $operator = User::create([
-            'name' => 'Spectech Operator',
-            'login' => 'tg_7015',
-            'email' => 'tg7015@example.com',
-            'password' => 'x',
-            'phone' => '+77000007015',
-        ]);
-        $operator->roles()->attach(Role::findByName('Оператор спецтехники'));
-
         TelegramBotChat::create([
-            'chat_id' => '7015',
+            'chat_id' => '7013',
             'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
-            'approved_user_id' => $operator->id,
-            'display_full_name' => 'Spectech Operator',
-            'display_phone' => '+77000007015',
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Util User 2',
+            'display_phone' => '+77000007013',
         ]);
 
-        $requester = User::create([
-            'name' => 'Requester',
-            'login' => 'tg_7016',
-            'email' => 'tg7016@example.com',
-            'password' => 'x',
-            'phone' => '+77000007016',
-        ]);
-
-        $request = SpectechRequest::query()->create([
-            'user_id' => $requester->id,
-            'truck_id' => $truck->id,
-            'driver_name' => 'Водитель',
-            'start_date' => now()->toDateString(),
-            'end_date' => now()->addDay()->toDateString(),
-            'terminal' => 'T1',
-            'zone' => 'A',
-            'gate' => '1',
-            'address' => 'Адрес оператора',
-            'status' => SpectechRequest::STATUS_NEW,
-            'timeline' => SpectechRequest::buildInitialTimeline(),
-        ]);
-
-        $initData = $this->makeInitData(['id' => 7015, 'first_name' => 'Operator']);
-
-        $response = $this->patchJson("/api/telegram/miniapp/operator/spectech/requests/{$request->id}/status", [
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
             'init_data' => $initData,
-            'status' => SpectechRequest::STATUS_DEPARTURE,
-        ]);
-
-        $response
-            ->assertOk()
-            ->assertJsonPath('data.status', SpectechRequest::STATUS_DEPARTURE);
-
-        $this->assertDatabaseHas('spectech_requests', [
-            'id' => $request->id,
-            'status' => SpectechRequest::STATUS_DEPARTURE,
-        ]);
-
-        $updatedTimeline = $response->json('data.timeline');
-        $this->assertNotNull($updatedTimeline[1]['time'] ?? null);
+            'plate_number' => 'B222BB777',
+            'driver_name' => 'Павел Сидоров',
+            'comment' => 'Без фото нельзя',
+            'photos' => [],
+        ])->assertStatus(422);
     }
 
     private function makeInitData(array $user, ?int $authDate = null): string
