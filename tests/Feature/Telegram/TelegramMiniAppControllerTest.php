@@ -8,6 +8,7 @@ use App\Models\SpectechRequest;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
 use App\Models\TruckCategory;
+use App\Models\UtilizationRequest;
 use App\Models\User;
 use App\Models\Yard;
 use App\Services\TelegramMessagingService;
@@ -536,6 +537,83 @@ class TelegramMiniAppControllerTest extends TestCase
             'zone' => 'Склад утилизации',
             'address' => 'Ул. Примерная, 1',
             'photos' => [$photo, $photo, $photo, $photo, $photo, $photo],
+        ])->assertStatus(422);
+    }
+
+    public function test_create_utilization_request_uses_plate_number_and_photo(): void
+    {
+        $initData = $this->makeInitData(['id' => 7012, 'first_name' => 'Util']);
+
+        $user = User::create([
+            'name' => 'Util User',
+            'login' => 'tg_7012',
+            'email' => 'tg7012@example.com',
+            'password' => 'x',
+            'phone' => '+77000007012',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7012',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Util User',
+            'display_phone' => '+77000007012',
+        ]);
+
+        $photo = $this->tinyPngDataUrl();
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'A111AA777',
+            'driver_name' => 'Иван Петров',
+            'comment' => 'Срочный вывоз',
+            'photos' => [$photo],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.plate_number', 'A111AA777')
+            ->assertJsonPath('data.driver_name', 'Иван Петров')
+            ->assertJsonCount(1, 'data.photo_urls');
+
+        $request = UtilizationRequest::query()->latest('id')->first();
+
+        $this->assertNotNull($request);
+        $this->assertSame($user->id, $request->user_id);
+        $this->assertSame('Иван Петров', $request->driver_name);
+        $this->assertNotNull($request->truck_id);
+        $this->assertSame($request->requested_start?->toDateString(), $request->requested_end?->toDateString());
+
+        $this->assertDatabaseHas('trucks', [
+            'id' => $request->truck_id,
+            'plate_number' => 'A111AA777',
+        ]);
+    }
+
+    public function test_create_utilization_request_requires_photo(): void
+    {
+        $initData = $this->makeInitData(['id' => 7013, 'first_name' => 'Util']);
+
+        $user = User::create([
+            'name' => 'Util User 2',
+            'login' => 'tg_7013',
+            'email' => 'tg7013@example.com',
+            'password' => 'x',
+            'phone' => '+77000007013',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '7013',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Util User 2',
+            'display_phone' => '+77000007013',
+        ]);
+
+        $this->postJson('/api/telegram/miniapp/utilization/requests', [
+            'init_data' => $initData,
+            'plate_number' => 'B222BB777',
+            'driver_name' => 'Павел Сидоров',
+            'comment' => 'Без фото нельзя',
+            'photos' => [],
         ])->assertStatus(422);
     }
 
