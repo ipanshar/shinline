@@ -536,7 +536,7 @@ class SpectechRequestController extends Controller
     {
         $user = Auth::user();
 
-        return $user?->hasPermission('spectech.manage') ?? false;
+        return $user?->canManageSpectech() ?? false;
     }
 
 

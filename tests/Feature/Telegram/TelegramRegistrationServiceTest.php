@@ -118,4 +118,28 @@ class TelegramRegistrationServiceTest extends TestCase
         $this->assertCount(0, $blocked->yards);
         $this->assertFalse((bool) User::find($userId)->fresh()->is_telegram_guest_inviter);
     }
+
+    public function test_unblock_returns_chat_to_review_queue(): void
+    {
+        $service = $this->app->make(TelegramRegistrationService::class);
+        $admin = User::create(['name' => 'Admin', 'login' => 'admin4', 'email' => 'd@d.d', 'password' => 'x']);
+        $yard = Yard::create(['name' => 'Y2', 'strict_mode' => false, 'weighing_required' => false]);
+
+        $chat = TelegramBotChat::create([
+            'chat_id' => '555',
+            'display_full_name' => 'Y',
+            'display_phone' => '+770003',
+            'approval_status' => TelegramBotChat::APPROVAL_AWAITING_REVIEW,
+        ]);
+
+        $approved = $service->approve($chat, [$yard->id], $admin);
+        $service->block($approved, $admin);
+
+        $unblocked = $service->unblock($approved->fresh(), $admin);
+
+        $this->assertSame(TelegramBotChat::APPROVAL_AWAITING_REVIEW, $unblocked->approval_status);
+        $this->assertNull($unblocked->approved_at);
+        $this->assertNull($unblocked->rejection_reason);
+        $this->assertFalse((bool) User::find($approved->approved_user_id)->fresh()->is_telegram_guest_inviter);
+    }
 }

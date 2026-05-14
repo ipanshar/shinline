@@ -76,6 +76,15 @@ class TelegramUserAdminController extends Controller
         return response()->json(['data' => $updated]);
     }
 
+    public function unblock(Request $request, TelegramBotChat $chat): JsonResponse
+    {
+        abort_unless($request->user()?->hasPermission('telegram_users.block'), 403);
+
+        $updated = $this->registrationService->unblock($chat, $request->user());
+
+        return response()->json(['data' => $updated]);
+    }
+
     public function updateYards(UpdateTelegramUserYardsRequest $request, TelegramBotChat $chat): JsonResponse
     {
         abort_unless($chat->isApproved(), 422, 'Заявка ещё не одобрена.');

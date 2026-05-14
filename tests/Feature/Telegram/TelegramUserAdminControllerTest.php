@@ -83,6 +83,21 @@ class TelegramUserAdminControllerTest extends TestCase
             ->assertJsonPath('data.rejection_reason', 'Не наш подрядчик');
     }
 
+    public function test_admin_can_unblock_blocked_user(): void
+    {
+        $admin = $this->makeAdmin();
+        Sanctum::actingAs($admin);
+
+        $chat = TelegramBotChat::create([
+            'chat_id' => '8003',
+            'approval_status' => TelegramBotChat::APPROVAL_BLOCKED,
+        ]);
+
+        $this->postJson("/api/admin/telegram-users/{$chat->id}/unblock")
+            ->assertOk()
+            ->assertJsonPath('data.approval_status', TelegramBotChat::APPROVAL_AWAITING_REVIEW);
+    }
+
     private function makeAdmin(): User
     {
         $admin = User::create(['name' => 'Admin', 'login' => 'admintest', 'email' => 'admin@t.t', 'password' => 'x']);

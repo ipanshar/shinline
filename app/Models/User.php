@@ -138,6 +138,12 @@ class User extends Authenticatable
         return true;
     }
 
+    public function canManageSpectech(): bool
+    {
+        return $this->hasPermission('spectech.manage')
+            || $this->hasAnyRole(['Оператор', 'Оператор спецтехники']);
+    }
+
     /**
      * Получить все разрешения пользователя (через его роли)
      */

@@ -148,6 +148,8 @@ Route::prefix('admin/telegram-users')->group(function () {
         ->middleware('permission:telegram_users.approve');
     Route::post('/{chat}/block', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'block'])
         ->middleware('permission:telegram_users.block');
+    Route::post('/{chat}/unblock', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'unblock'])
+        ->middleware('permission:telegram_users.block');
     Route::post('/{chat}/yards', [\App\Http\Controllers\Api\TelegramUserAdminController::class, 'updateYards'])
         ->middleware('permission:telegram_users.approve');
 });

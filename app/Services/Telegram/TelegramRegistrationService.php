@@ -103,6 +103,26 @@ class TelegramRegistrationService
         return $chat->fresh();
     }
 
+    public function unblock(TelegramBotChat $chat, User $admin): TelegramBotChat
+    {
+        abort_unless(
+            $chat->approval_status === TelegramBotChat::APPROVAL_BLOCKED,
+            422,
+            'Пользователь не заблокирован.'
+        );
+
+        $chat->forceFill([
+            'approval_status' => TelegramBotChat::APPROVAL_AWAITING_REVIEW,
+            'approved_by' => null,
+            'approved_at' => null,
+            'rejection_reason' => null,
+        ])->save();
+
+        $this->safeSend($chat->chat_id, 'Блокировка снята. Дождитесь повторного подтверждения администратором.');
+
+        return $chat->fresh();
+    }
+
     /**
      * @param array<int> $yardIds
      */
