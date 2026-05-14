@@ -325,7 +325,7 @@ class TelegramMiniAppController extends Controller
             'driver_name' => trim((string) $validated['driver_name']),
             'requested_start' => $requestDate,
             'requested_end' => $requestDate->copy(),
-            'terminal' => 'telegram_miniapp',
+            'terminal' => 'miniapp',
             'zone' => 'telegram_miniapp',
             'gate' => null,
             'address' => 'telegram_miniapp',
