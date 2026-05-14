@@ -1,6 +1,7 @@
+import RequestCard, { type SpectechRequestData } from '@/components/spectech/RequestCard';
 import { Head } from '@inertiajs/react';
-import { useState, useEffect, useCallback, FormEvent } from 'react';
 import axios from 'axios';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
@@ -59,6 +60,7 @@ interface SessionPayload {
         last_name: string | null;
     };
     user: { id: number; name: string; phone: string | null } | null;
+    can_manage_spectech: boolean;
     yards: YardOption[];
 }
 
@@ -93,10 +95,26 @@ const visitStatusLabels: Record<string, string> = {
     canceled: 'Отозван',
 };
 
+const spectechStatusOptions = [
+    { value: '', label: 'Все статусы' },
+    { value: 'new', label: 'Новые' },
+    { value: 'departure', label: 'Выезд' },
+    { value: 'on_location', label: 'На объекте' },
+    { value: 'work_started', label: 'Работы начаты' },
+    { value: 'completed', label: 'Выполнено' },
+    { value: 'returned', label: 'Возврат' },
+];
+
+const nextSpectechStatus: Record<string, string> = {
+    new: 'departure',
+    departure: 'on_location',
+    on_location: 'work_started',
+    work_started: 'completed',
+    completed: 'returned',
+};
+
 const Wrap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div style={{ maxWidth: 520, margin: '0 auto', padding: 16, fontFamily: 'system-ui, sans-serif' }}>
-        {children}
-    </div>
+    <div style={{ maxWidth: 520, margin: '0 auto', padding: 16, fontFamily: 'system-ui, sans-serif' }}>{children}</div>
 );
 
 const btn: React.CSSProperties = {
@@ -158,8 +176,12 @@ const normalizeVisitVehicles = (vehicles?: VisitVehicle[]) => {
     return vehicles.map((vehicle) => ({ ...emptyVisitVehicle(), ...vehicle }));
 };
 
-const getErrorMessage = (error: any, fallback: string) => {
-    const validationErrors = error?.response?.data?.errors;
+const getErrorMessage = (error: unknown, fallback: string) => {
+    if (!axios.isAxiosError(error)) {
+        return fallback;
+    }
+
+    const validationErrors = error.response?.data?.errors;
 
     if (validationErrors && typeof validationErrors === 'object') {
         const firstMessage = Object.values(validationErrors)
@@ -171,7 +193,9 @@ const getErrorMessage = (error: any, fallback: string) => {
         }
     }
 
-    return error?.response?.data?.message ?? fallback;
+    const responseMessage = error.response?.data?.message;
+
+    return typeof responseMessage === 'string' && responseMessage.trim() !== '' ? responseMessage : fallback;
 };
 
 function StatusBadge({ status, reason }: { status: SessionPayload['approval_status']; reason: string | null }) {
@@ -218,8 +242,8 @@ function RegistrationForm({
                 phone,
             });
             await onDone();
-        } catch (e: any) {
-            setErr(e.response?.data?.message ?? 'Ошибка отправки');
+        } catch (e: unknown) {
+            setErr(getErrorMessage(e, 'Ошибка отправки'));
         } finally {
             setBusy(false);
         }
@@ -232,7 +256,9 @@ function RegistrationForm({
             <label>Телефон</label>
             <input style={input} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7..." required />
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
-            <button type="submit" disabled={busy} style={btn}>{busy ? 'Отправка…' : 'Отправить заявку'}</button>
+            <button type="submit" disabled={busy} style={btn}>
+                {busy ? 'Отправка…' : 'Отправить заявку'}
+            </button>
         </form>
     );
 }
@@ -241,17 +267,28 @@ function Dashboard({
     session,
     onCreate,
     onVisits,
+    onOperatorSpectech,
 }: {
     session: SessionPayload;
     onCreate: () => void;
     onVisits: () => void;
+    onOperatorSpectech: () => void;
 }) {
     return (
         <>
             <p>Добро пожаловать, {session.user?.name ?? session.profile.full_name}!</p>
             <p>Доступные площадки: {session.yards.length === 0 ? 'нет' : session.yards.map((y) => y.name).join(', ')}</p>
-            <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
-            <button style={btnSecondary} onClick={onVisits}>Мои визиты</button>
+            <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>
+                Создать гостевой визит
+            </button>
+            <button style={btnSecondary} onClick={onVisits}>
+                Мои визиты
+            </button>
+            {session.can_manage_spectech && (
+                <button style={btnSecondary} onClick={onOperatorSpectech}>
+                    Заявки спецтехники
+                </button>
+            )}
         </>
     );
 }
@@ -275,7 +312,9 @@ function CreateVisitForm({
     const [guestPosition, setGuestPosition] = useState(visit?.guest_position ?? '');
     const [company, setCompany] = useState(visit?.guest_company_name ?? '');
     const [guestIin, setGuestIin] = useState(visit?.guest_iin ?? '');
-    const [startsAt, setStartsAt] = useState(() => visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16));
+    const [startsAt, setStartsAt] = useState(() =>
+        visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16),
+    );
     const [endsAt, setEndsAt] = useState(() => toDateTimeLocalValue(visit?.visit_ends_at));
     const [permitKind, setPermitKind] = useState<'one_time' | 'multi_time'>((visit?.permit_kind as 'one_time' | 'multi_time') ?? 'one_time');
     const [comment, setComment] = useState(visit?.comment ?? '');
@@ -290,7 +329,9 @@ function CreateVisitForm({
         setGuestPosition(visit?.guest_position ?? '');
         setCompany(visit?.guest_company_name ?? '');
         setGuestIin(visit?.guest_iin ?? '');
-        setStartsAt(visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16));
+        setStartsAt(
+            visit?.visit_starts_at ? toDateTimeLocalValue(visit.visit_starts_at) : new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16),
+        );
         setEndsAt(toDateTimeLocalValue(visit?.visit_ends_at));
         setPermitKind((visit?.permit_kind as 'one_time' | 'multi_time') ?? 'one_time');
         setComment(visit?.comment ?? '');
@@ -299,11 +340,9 @@ function CreateVisitForm({
     }, [visit, yards]);
 
     const updateVehicle = (index: number, plateNumber: string) => {
-        setVehicles((current) => current.map((vehicle, vehicleIndex) => (
-            vehicleIndex === index
-                ? { ...vehicle, plate_number: plateNumber.toUpperCase() }
-                : vehicle
-        )));
+        setVehicles((current) =>
+            current.map((vehicle, vehicleIndex) => (vehicleIndex === index ? { ...vehicle, plate_number: plateNumber.toUpperCase() } : vehicle)),
+        );
     };
 
     const addVehicle = () => {
@@ -357,7 +396,7 @@ function CreateVisitForm({
                     })),
             });
             await onDone();
-        } catch (e: any) {
+        } catch (e: unknown) {
             setErr(getErrorMessage(e, visit ? 'Ошибка обновления визита' : 'Ошибка создания визита'));
         } finally {
             setBusy(false);
@@ -370,7 +409,9 @@ function CreateVisitForm({
             <label>Площадка</label>
             <select style={input} value={yardId} onChange={(e) => setYardId(Number(e.target.value))} required>
                 {yards.map((y) => (
-                    <option key={y.id} value={y.id}>{y.name}</option>
+                    <option key={y.id} value={y.id}>
+                        {y.name}
+                    </option>
                 ))}
             </select>
             <label>ФИО гостя</label>
@@ -420,8 +461,12 @@ function CreateVisitForm({
             <label>Цель визита</label>
             <textarea style={{ ...input, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} required />
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
-            <button type="submit" disabled={busy} style={btn}>{busy ? (visit ? 'Сохранение…' : 'Создание…') : (visit ? 'Сохранить изменения' : 'Создать визит')}</button>
-            <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
+            <button type="submit" disabled={busy} style={btn}>
+                {busy ? (visit ? 'Сохранение…' : 'Создание…') : visit ? 'Сохранить изменения' : 'Создать визит'}
+            </button>
+            <button type="button" style={btnSecondary} onClick={onCancel}>
+                Отмена
+            </button>
         </form>
     );
 }
@@ -450,7 +495,7 @@ function VisitList({
 
         try {
             await onCancelVisit(visit);
-        } catch (error: any) {
+        } catch (error: unknown) {
             setErr(getErrorMessage(error, 'Не удалось отозвать пропуск'));
         } finally {
             setBusyVisitId(null);
@@ -494,7 +539,82 @@ function VisitList({
                     )}
                 </div>
             ))}
-            <button style={btnSecondary} onClick={onBack}>← Назад</button>
+            <button style={btnSecondary} onClick={onBack}>
+                ← Назад
+            </button>
+        </>
+    );
+}
+
+function SpectechOperatorList({
+    requests,
+    loading,
+    error,
+    statusFilter,
+    onStatusFilterChange,
+    onRefresh,
+    onAdvanceStatus,
+    onBack,
+}: {
+    requests: SpectechRequestData[];
+    loading: boolean;
+    error: string | null;
+    statusFilter: string;
+    onStatusFilterChange: (value: string) => void;
+    onRefresh: () => void;
+    onAdvanceStatus: (requestId: number, status: string) => Promise<void>;
+    onBack: () => void;
+}) {
+    const [busyRequestId, setBusyRequestId] = useState<number | null>(null);
+
+    const handleAdvanceStatus = async (requestId: number, currentStatus: string) => {
+        const nextStatus = nextSpectechStatus[currentStatus];
+        if (!nextStatus) {
+            return;
+        }
+
+        setBusyRequestId(requestId);
+
+        try {
+            await onAdvanceStatus(requestId, nextStatus);
+        } finally {
+            setBusyRequestId(null);
+        }
+    };
+
+    return (
+        <>
+            <h3>Заявки спецтехники</h3>
+            <p style={{ color: '#666' }}>Операторский режим: здесь видны все заявки, в том числе созданные через Telegram.</p>
+            <label>Фильтр по статусу</label>
+            <select style={input} value={statusFilter} onChange={(event) => onStatusFilterChange(event.target.value)}>
+                {spectechStatusOptions.map((option) => (
+                    <option key={option.value || 'all'} value={option.value}>
+                        {option.label}
+                    </option>
+                ))}
+            </select>
+            <button type="button" style={btnSecondary} onClick={onRefresh} disabled={loading}>
+                {loading ? 'Обновление…' : 'Обновить список'}
+            </button>
+            {error && <p style={{ color: 'crimson' }}>{error}</p>}
+            {!loading && requests.length === 0 && <p>Заявок пока нет.</p>}
+            <div style={{ display: 'grid', gap: 12 }}>
+                {requests.map((request) => (
+                    <div
+                        key={request.id}
+                        style={{
+                            opacity: busyRequestId === request.id ? 0.65 : 1,
+                            pointerEvents: busyRequestId === request.id ? 'none' : 'auto',
+                        }}
+                    >
+                        <RequestCard request={request} isOperator onStatusChange={() => handleAdvanceStatus(request.id, request.status)} />
+                    </div>
+                ))}
+            </div>
+            <button style={btnSecondary} onClick={onBack}>
+                ← Назад
+            </button>
         </>
     );
 }
@@ -504,9 +624,13 @@ export default function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'spectech-operator'>('home');
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
+    const [spectechRequests, setSpectechRequests] = useState<SpectechRequestData[]>([]);
+    const [spectechLoading, setSpectechLoading] = useState(false);
+    const [spectechError, setSpectechError] = useState<string | null>(null);
+    const [spectechStatusFilter, setSpectechStatusFilter] = useState('');
 
     useEffect(() => {
         const initTelegram = async () => {
@@ -550,17 +674,13 @@ export default function TelegramMiniApp() {
                             'X-Telegram-Init-Data': data,
                             'Content-Type': 'application/json',
                         },
-                    }
+                    },
                 );
                 console.log('[TG] Session loaded:', response.data.data);
                 setSession(response.data.data);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error('[TG] Initialization error:', err);
-                const errorMsg =
-                    err.response?.data?.message ??
-                    (err.response?.status ? `HTTP ${err.response.status}` : err.message) ??
-                    'Ошибка инициализации';
-                setError(errorMsg);
+                setError(getErrorMessage(err, 'Ошибка инициализации'));
             } finally {
                 setLoading(false);
             }
@@ -592,28 +712,88 @@ export default function TelegramMiniApp() {
         void loadVisits();
     }, [view, initData, loadVisits]);
 
+    const loadOperatorSpectechRequests = useCallback(async () => {
+        if (!initData || !session?.can_manage_spectech) {
+            return;
+        }
+
+        setSpectechLoading(true);
+        setSpectechError(null);
+
+        try {
+            const response = await axios.get('/api/telegram/miniapp/operator/spectech/requests', {
+                params: {
+                    init_data: initData,
+                    ...(spectechStatusFilter ? { status: spectechStatusFilter } : {}),
+                },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            setSpectechRequests(response.data.data ?? []);
+        } catch (err: unknown) {
+            setSpectechRequests([]);
+            setSpectechError(getErrorMessage(err, 'Не удалось загрузить заявки спецтехники'));
+        } finally {
+            setSpectechLoading(false);
+        }
+    }, [initData, session?.can_manage_spectech, spectechStatusFilter]);
+
+    useEffect(() => {
+        if (view !== 'spectech-operator' || !initData || !session?.can_manage_spectech) {
+            return;
+        }
+
+        void loadOperatorSpectechRequests();
+    }, [view, initData, session?.can_manage_spectech, loadOperatorSpectechRequests]);
+
     const handleVisitSaved = useCallback(async () => {
         await loadVisits();
         setSelectedVisit(null);
         setView('visits');
     }, [loadVisits]);
 
-    const cancelVisit = useCallback(async (visit: VisitItem) => {
-        await axios.post(
-            '/api/telegram/miniapp/visits/cancel',
-            {
-                init_data: initData,
-                id: visit.id,
-            },
-            {
-                headers: { 'X-Telegram-Init-Data': initData },
-            }
+    const cancelVisit = useCallback(
+        async (visit: VisitItem) => {
+            await axios.post(
+                '/api/telegram/miniapp/visits/cancel',
+                {
+                    init_data: initData,
+                    id: visit.id,
+                },
+                {
+                    headers: { 'X-Telegram-Init-Data': initData },
+                },
+            );
+
+            await loadVisits();
+        },
+        [initData, loadVisits],
+    );
+
+    const advanceSpectechStatus = useCallback(
+        async (requestId: number, status: string) => {
+            await axios.patch(
+                `/api/telegram/miniapp/operator/spectech/requests/${requestId}/status`,
+                {
+                    init_data: initData,
+                    status,
+                },
+                {
+                    headers: { 'X-Telegram-Init-Data': initData },
+                },
+            );
+
+            await loadOperatorSpectechRequests();
+        },
+        [initData, loadOperatorSpectechRequests],
+    );
+
+    if (loading)
+        return (
+            <Wrap>
+                <p>Загрузка…</p>
+            </Wrap>
         );
-
-        await loadVisits();
-    }, [initData, loadVisits]);
-
-    if (loading) return <Wrap><p>Загрузка…</p></Wrap>;
 
     if (error) {
         return (
@@ -624,9 +804,9 @@ export default function TelegramMiniApp() {
                     <details style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
                         <summary>Диагностика</summary>
                         <pre style={{ overflow: 'auto', background: '#fff', padding: 8, borderRadius: 4 }}>
-Telegram SDK: {typeof window.Telegram !== 'undefined' ? 'загружен' : 'не найден'}
-WebApp: {typeof window.Telegram?.WebApp !== 'undefined' ? 'доступен' : 'не доступен'}
-initData: {initData ? 'присутствует' : 'отсутствует'}
+                            Telegram SDK: {typeof window.Telegram !== 'undefined' ? 'загружен' : 'не найден'}
+                            WebApp: {typeof window.Telegram?.WebApp !== 'undefined' ? 'доступен' : 'не доступен'}
+                            initData: {initData ? 'присутствует' : 'отсутствует'}
                         </pre>
                     </details>
                 </div>
@@ -634,7 +814,12 @@ initData: {initData ? 'присутствует' : 'отсутствует'}
         );
     }
 
-    if (!session) return <Wrap><p>Нет данных</p></Wrap>;
+    if (!session)
+        return (
+            <Wrap>
+                <p>Нет данных</p>
+            </Wrap>
+        );
 
     const status = session.approval_status;
 
@@ -647,7 +832,9 @@ initData: {initData ? 'присутствует' : 'отсутствует'}
             {(status === 'none' || status === 'rejected') && view !== 'register' && (
                 <>
                     <p>Чтобы пользоваться ботом, представьтесь.</p>
-                    <button onClick={() => setView('register')} style={btn}>Заполнить ФИО и телефон</button>
+                    <button onClick={() => setView('register')} style={btn}>
+                        Заполнить ФИО и телефон
+                    </button>
                 </>
             )}
 
@@ -662,29 +849,21 @@ initData: {initData ? 'присутствует' : 'отсутствует'}
                 />
             )}
 
-            {status === 'awaiting_review' && view === 'home' && (
-                <p>Ваша заявка отправлена администратору. Дождитесь подтверждения.</p>
-            )}
+            {status === 'awaiting_review' && view === 'home' && <p>Ваша заявка отправлена администратору. Дождитесь подтверждения.</p>}
 
-            {status === 'blocked' && (
-                <p style={{ color: 'crimson' }}>Доступ заблокирован администратором.</p>
-            )}
+            {status === 'blocked' && <p style={{ color: 'crimson' }}>Доступ заблокирован администратором.</p>}
 
             {status === 'approved' && view === 'home' && (
                 <Dashboard
                     session={session}
                     onCreate={() => setView('create')}
                     onVisits={() => setView('visits')}
+                    onOperatorSpectech={() => setView('spectech-operator')}
                 />
             )}
 
             {status === 'approved' && view === 'create' && (
-                <CreateVisitForm
-                    initData={initData}
-                    yards={session.yards}
-                    onDone={handleVisitSaved}
-                    onCancel={() => setView('home')}
-                />
+                <CreateVisitForm initData={initData} yards={session.yards} onDone={handleVisitSaved} onCancel={() => setView('home')} />
             )}
 
             {status === 'approved' && view === 'edit' && selectedVisit && (
@@ -709,6 +888,19 @@ initData: {initData ? 'присутствует' : 'отсутствует'}
                         setView('edit');
                     }}
                     onCancelVisit={cancelVisit}
+                />
+            )}
+
+            {status === 'approved' && view === 'spectech-operator' && session.can_manage_spectech && (
+                <SpectechOperatorList
+                    requests={spectechRequests}
+                    loading={spectechLoading}
+                    error={spectechError}
+                    statusFilter={spectechStatusFilter}
+                    onStatusFilterChange={setSpectechStatusFilter}
+                    onRefresh={() => void loadOperatorSpectechRequests()}
+                    onAdvanceStatus={advanceSpectechStatus}
+                    onBack={() => setView('home')}
                 />
             )}
         </Wrap>
