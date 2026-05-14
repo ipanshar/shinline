@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GuestVisit;
 use App\Models\SpectechRequest;
+use App\Models\SpectechSchedule;
 use App\Models\TelegramBotChat;
 use App\Models\Truck;
 use App\Models\TruckCategory;
@@ -426,7 +427,7 @@ class TelegramMiniAppController extends Controller
 
         $validated = $request->validate([
             'truck_id' => ['required', 'integer', 'exists:trucks,id'],
-            'driver_name' => ['required', 'string', 'max:160'],
+            'driver_name' => ['nullable', 'string', 'max:160'],
             'driver_phone' => ['nullable', 'string', 'max:20'],
             'requested_start' => ['required', 'date', 'after_or_equal:now'],
             'requested_end' => ['required', 'date', 'after:requested_start'],
@@ -472,23 +473,42 @@ class TelegramMiniAppController extends Controller
             }
         }
 
+        $truck   = Truck::findOrFail((int) $validated['truck_id']);
+        $typeKey = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($truck->name ?? '')) ?: ($truck->name ?? 'Спецтехника');
+
+        $schedule = SpectechSchedule::create([
+            'user_id'              => $user->id,
+            'truck_id'             => $truck->id,
+            'equipment_type_key'   => $typeKey,
+            'equipment_type_label' => $typeKey,
+            'assigned_truck_name'  => $truck->name . ($truck->plate_number ? " ({$truck->plate_number})" : ''),
+            'scheduled_start'      => $startCarbon,
+            'scheduled_end'        => $endCarbon,
+            'purpose'              => isset($validated['comment']) ? trim((string) $validated['comment']) : 'Заявка из Telegram',
+            'address'              => trim((string) $validated['address']),
+            'notes'                => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
+            'status'               => SpectechSchedule::STATUS_PENDING,
+        ]);
+
         $spectechRequest = SpectechRequest::query()->create([
-            'user_id' => $user->id,
-            'truck_id' => (int) $validated['truck_id'],
-            'driver_name' => trim((string) $validated['driver_name']),
-            'driver_phone' => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
-            'start_date' => Carbon::parse($validated['requested_start'])->toDateString(),
-            'end_date' => Carbon::parse($validated['requested_end'])->toDateString(),
-            'requested_start' => Carbon::parse($validated['requested_start']),
-            'requested_end' => Carbon::parse($validated['requested_end']),
-            'terminal' => trim((string) $validated['terminal']),
-            'zone' => trim((string) $validated['zone']),
-            'gate' => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
-            'address' => trim((string) $validated['address']),
-            'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
-            'status' => SpectechRequest::STATUS_NEW,
-            'photos' => $photoPaths,
-            'timeline' => SpectechRequest::buildInitialTimeline(),
+            'user_id'         => $user->id,
+            'truck_id'        => $truck->id,
+            'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
+            'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
+            'start_date'      => $startCarbon->toDateString(),
+            'end_date'        => $endCarbon->toDateString(),
+            'requested_start' => $startCarbon,
+            'requested_end'   => $endCarbon,
+            'terminal'        => trim((string) $validated['terminal']),
+            'zone'            => trim((string) $validated['zone']),
+            'gate'            => isset($validated['gate']) ? trim((string) $validated['gate']) : null,
+            'address'         => trim((string) $validated['address']),
+            'comment'         => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
+            'status'          => SpectechRequest::STATUS_NEW,
+            'photos'          => $photoPaths,
+            'timeline'        => SpectechRequest::buildInitialTimeline(),
+            'schedule_id'     => $schedule->id,
+            'from_scheduling' => false,
         ]);
 
         $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name']);
