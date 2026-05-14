@@ -561,12 +561,7 @@ class SpectechRequestController extends Controller
             return null;
         }
 
-        if (
-            str_starts_with($photo, 'http://') ||
-            str_starts_with($photo, 'https://') ||
-            str_starts_with($photo, 'data:image') ||
-            str_starts_with($photo, '/storage/')
-        ) {
+        if (str_starts_with($photo, 'data:image') || str_starts_with($photo, '/storage/')) {
             return $photo;
         }
 
@@ -574,12 +569,22 @@ class SpectechRequestController extends Controller
             return '/' . $photo;
         }
 
-        $normalized = ltrim($photo, '/');
-        if (str_starts_with($normalized, 'spectech/')) {
-            return Storage::disk('public')->url($normalized);
+        if (str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) {
+            $path = parse_url($photo, PHP_URL_PATH);
+
+            if (is_string($path) && $path !== '') {
+                $storageOffset = strpos($path, '/storage/');
+                if ($storageOffset !== false) {
+                    return substr($path, $storageOffset);
+                }
+            }
+
+            return $photo;
         }
 
-        return Storage::disk('public')->url($normalized);
+        $normalized = ltrim($photo, '/');
+
+        return '/storage/' . $normalized;
     }
 }
 
