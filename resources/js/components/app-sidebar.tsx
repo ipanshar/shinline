@@ -207,12 +207,7 @@ export function AppSidebar() {
                     icon: MapPin,
                     permission: 'spectech.view',
                 },
-                {
-                    title: 'Планирование',
-                    href: '/spectech/planning',
-                    icon: CalendarRange,
-                    permission: 'spectech.view',
-                },
+
             ],
         },
         {
