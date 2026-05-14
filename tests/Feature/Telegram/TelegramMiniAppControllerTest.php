@@ -582,6 +582,7 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->assertSame('Иван Петров', $request->driver_name);
         $this->assertNotNull($request->truck_id);
         $this->assertSame($request->requested_start?->toDateString(), $request->requested_end?->toDateString());
+        $this->assertSame('miniapp', $request->terminal);
 
         $this->assertDatabaseHas('trucks', [
             'id' => $request->truck_id,
