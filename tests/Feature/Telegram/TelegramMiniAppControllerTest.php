@@ -580,7 +580,8 @@ class TelegramMiniAppControllerTest extends TestCase
             ->assertJsonPath('data.plate_number', 'A111AA777')
             ->assertJsonPath('data.status', UtilizationRequest::STATUS_REVIEWING)
             ->assertJsonPath('data.driver_name', 'Иван Петров')
-            ->assertJsonCount(1, 'data.photo_urls');
+            ->assertJsonCount(1, 'data.photo_urls')
+            ->assertJsonPath('data.photo_urls.0', fn (string $photoUrl) => str_starts_with($photoUrl, '/storage/utilization/'));
 
         $request = UtilizationRequest::query()->latest('id')->first();
 

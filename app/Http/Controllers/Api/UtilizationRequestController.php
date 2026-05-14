@@ -133,14 +133,27 @@ class UtilizationRequestController extends Controller
             return '';
         }
 
-        if (str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) {
+        if (str_starts_with($photo, 'data:image') || str_starts_with($photo, '/storage/')) {
             return $photo;
         }
 
-        if (str_starts_with($photo, '/storage/')) {
-            return url($photo);
+        if (str_starts_with($photo, 'storage/')) {
+            return '/' . $photo;
         }
 
-        return Storage::disk('public')->url(ltrim($photo, '/'));
+        if (str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) {
+            $path = parse_url($photo, PHP_URL_PATH);
+
+            if (is_string($path) && $path !== '') {
+                $storageOffset = strpos($path, '/storage/');
+                if ($storageOffset !== false) {
+                    return substr($path, $storageOffset);
+                }
+            }
+
+            return $photo;
+        }
+
+        return '/storage/' . ltrim($photo, '/');
     }
 }

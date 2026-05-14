@@ -849,7 +849,7 @@ class TelegramMiniAppController extends Controller
             $path = trim($folder, '/').'/'.uniqid('tg_photo_', true).'.'.$ext;
             Storage::disk('public')->put($path, $binary);
 
-            return Storage::disk('public')->url($path);
+            return '/storage/'.$path;
         } catch (\Throwable) {
             return null;
         }
@@ -927,12 +927,7 @@ class TelegramMiniAppController extends Controller
             return null;
         }
 
-        if (
-            str_starts_with($photo, 'http://') ||
-            str_starts_with($photo, 'https://') ||
-            str_starts_with($photo, 'data:image') ||
-            str_starts_with($photo, '/storage/')
-        ) {
+        if (str_starts_with($photo, 'data:image') || str_starts_with($photo, '/storage/')) {
             return $photo;
         }
 
@@ -940,7 +935,20 @@ class TelegramMiniAppController extends Controller
             return '/'.$photo;
         }
 
-        return Storage::disk('public')->url(ltrim($photo, '/'));
+        if (str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) {
+            $path = parse_url($photo, PHP_URL_PATH);
+
+            if (is_string($path) && $path !== '') {
+                $storageOffset = strpos($path, '/storage/');
+                if ($storageOffset !== false) {
+                    return substr($path, $storageOffset);
+                }
+            }
+
+            return $photo;
+        }
+
+        return '/storage/'.ltrim($photo, '/');
     }
 
     private function notifySpectechOperators(SpectechRequest $request, TelegramBotChat $chat): void
@@ -979,6 +987,11 @@ class TelegramMiniAppController extends Controller
 
     private function formatUtilizationRequest(UtilizationRequest $item): array
     {
+        $photos = array_values(array_filter(array_map(
+            fn ($photo) => $this->normalizePhotoUrl(is_string($photo) ? $photo : ''),
+            $item->photos ?? []
+        )));
+
         $plateNumber = $item->truck?->plate_number ?: (is_array($item->meta) ? ($item->meta['plate_number'] ?? null) : null);
 
         return [
@@ -1000,8 +1013,8 @@ class TelegramMiniAppController extends Controller
             'comment' => $item->comment,
             'status' => UtilizationRequest::normalizeWorkflowStatus($item->status),
             'status_label' => UtilizationRequest::labelFor($item->status),
-            'photos' => $item->photos ?? [],
-            'photo_urls' => $item->photos ?? [],
+            'photos' => $photos,
+            'photo_urls' => $photos,
             'timeline' => $item->timeline ?? [],
             'client_name' => $item->user?->name,
             'source' => $item->source,
