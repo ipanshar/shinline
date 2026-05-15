@@ -2,17 +2,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import {
+  AlertTriangle,
   ArrowRightLeft,
   Camera,
   CheckCircle2,
+  ClipboardList,
   Clock3,
+  FileCheck,
+  Info,
   Loader2,
   LogIn,
   LogOut,
   Plus,
   Radio,
+  Scale,
+  ScrollText,
   ShieldAlert,
   ShieldCheck,
+  Truck,
   Wifi,
   WifiOff,
   XCircle,
@@ -57,6 +64,7 @@ type CheckpointQueueItem = {
   loading_points_count: number;
   has_weighing_task: boolean;
   weighing_reason?: string | null;
+  weighing_required_type?: 'entry' | 'exit' | 'both' | null;
   pending_reason?: string | null;
   pending_reason_text?: string | null;
   capture_id?: number | null;
@@ -118,6 +126,17 @@ type ExitCandidate = {
   exit_permit?: ExitPermitSummary | null;
   is_exact_truck_match: boolean;
   is_exact_plate_match: boolean;
+  weighing?: {
+    status: 'pending' | 'entry_done' | 'completed' | 'skipped';
+    required_type: 'entry' | 'exit' | 'both';
+    reason: string;
+    needs_entry: boolean;
+    needs_exit: boolean;
+    entry_weight: number | null;
+    entry_weighed_at: string | null;
+    exit_weight: number | null;
+    exit_weighed_at: string | null;
+  } | null;
 };
 
 type ExitReviewItem = {
@@ -1636,18 +1655,33 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     </div>
   );
 
-  const renderGuardDecisionHint = (title: string, description: string, tone: 'neutral' | 'warning' | 'danger' = 'neutral') => {
-    const toneClassName = tone === 'danger'
-      ? 'border-red-200 bg-red-50 text-red-900'
+  const renderIconTile = (icon: React.ReactNode, label: string, value: string, toneClass?: string) => (
+    <div className="flex items-center gap-2.5 rounded-xl border bg-background/70 px-2.5 py-2">
+      <div className="shrink-0 text-muted-foreground/60">{icon}</div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+        <div className={`mt-0.5 truncate text-xs font-semibold ${toneClass ?? 'text-foreground'}`}>{value}</div>
+      </div>
+    </div>
+  );
+
+  const renderGuardDecisionHint = (title: string, tone: 'neutral' | 'warning' | 'danger' = 'neutral') => {
+    const config = tone === 'danger'
+      ? { wrapper: 'border-red-200 bg-red-50/90 text-red-900', bar: 'bg-red-500', icon: <ShieldAlert className="h-4 w-4 shrink-0" /> }
       : tone === 'warning'
-        ? 'border-amber-200 bg-amber-50 text-amber-900'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-900';
+        ? { wrapper: 'border-amber-200 bg-amber-50/90 text-amber-900', bar: 'bg-amber-500', icon: <AlertTriangle className="h-4 w-4 shrink-0" /> }
+        : { wrapper: 'border-emerald-200 bg-emerald-50/90 text-emerald-900', bar: 'bg-emerald-500', icon: <Info className="h-4 w-4 shrink-0" /> };
 
     return (
-      <div className={`rounded-xl border px-3 py-2.5 ${toneClassName}`}>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-80">Решение охраны</div>
-        <div className="mt-1 text-sm font-semibold leading-5">{title}</div>
-        <div className="mt-1 text-xs leading-5 opacity-90 sm:text-sm">{description}</div>
+      <div className={`flex items-stretch overflow-hidden rounded-xl border ${config.wrapper}`}>
+        <div className={`w-1 shrink-0 ${config.bar}`} />
+        <div className="flex min-w-0 items-start gap-2.5 px-3 py-2.5">
+          <div className="mt-0.5 shrink-0 opacity-70">{config.icon}</div>
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-60">Причина ожидания</div>
+            <div className="mt-0.5 text-sm font-semibold leading-5">{title}</div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -1692,38 +1726,46 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         ? 'Без разрешения, строгий режим'
         : 'Без разрешения';
     const taskLabel = item?.task_name || 'Задание не назначено';
-    const weighingLabel = item?.has_weighing_task ? (item?.weighing_reason || 'Весовой контроль назначен') : 'Весовой контроль не требуется';
+    const weighingTypeText = (t?: string | null) => t === 'entry' ? 'Въезд' : t === 'exit' ? 'Выезд' : t === 'both' ? 'Въезд + выезд' : null;
+    const weighingReasonText = (r?: string | null) => {
+      switch (r) {
+        case 'yard_policy': return 'политика территории';
+        case 'truck_category': return 'категория ТС';
+        case 'truck_flag': return 'флаг ТС';
+        case 'permit': return 'условие разрешения';
+        case 'task': return 'задание';
+        case 'manual': return 'ручное назначение';
+        default: return r || null;
+      }
+    };
+    const weighingLabel = item?.has_weighing_task
+      ? [weighingTypeText(item.weighing_required_type), weighingReasonText(item.weighing_reason)].filter(Boolean).join(' — ')
+      : 'Не требуется';
     const entryDecisionHint = !item
-      ? renderGuardDecisionHint(
-        'Нужно вручную проверить въезд',
-        'Сверьте номер и фото. Если это реальное ТС у шлагбаума, нажмите «Исправить номер и добавить».',
-        'warning',
-      )
-      : item.yard_strict_mode && !item.has_permit
-        ? renderGuardDecisionHint(
-          'Без разрешения въезд подтверждать нельзя',
-          'Исправьте номер, выберите правильное ТС или задание. Если основания для въезда нет, отклоните запись.',
-          'danger',
-        )
-        : !item.matched_truck_id
-          ? renderGuardDecisionHint(
-            'Нужно подтвердить, какое это ТС',
-            'Проверьте номер, выберите правильное ТС и только после этого подтверждайте въезд или отклоняйте запись.',
-            'warning',
-          )
-          : renderGuardDecisionHint(
-            'Сверьте основание для въезда',
-            'Если номер, ТС и основание въезда совпадают, подтвердите въезд. При несоответствии отклоните запись.',
-            'neutral',
-          );
+      ? renderGuardDecisionHint('ТС не привязано к записи очереди — нет контекста КПП', 'warning')
+      : item.pending_reason === 'truck_not_found'
+        ? renderGuardDecisionHint('🚫 ТС не найдено в базе — номер не распознан или ТС не зарегистрировано', 'danger')
+        : item.pending_reason === 'no_permit'
+          ? renderGuardDecisionHint('🔒 Нет разрешения — территория работает в строгом режиме', 'danger')
+          : item.pending_reason === 'low_confidence'
+            ? renderGuardDecisionHint(`⚠️ Низкая уверенность распознавания номера (${item.recognition_confidence ?? '?'}%) — требуется сверка`, 'warning')
+            : !item.has_permit && item.matched_truck_id
+              ? renderGuardDecisionHint('🔓 Нет разрешения на въезд — ТС найдено в базе, но разрешение не оформлено', 'warning')
+              : !item.matched_truck_id
+                ? renderGuardDecisionHint('🔍 ТС не найдено в базе — требуется ручная проверка номера', 'warning')
+                : item.pending_reason_text
+                  ? renderGuardDecisionHint(item.pending_reason_text, 'neutral')
+                  : renderGuardDecisionHint('Ручная проверка: подтвердите или отклоните въезд', 'neutral');
 
     return (
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="shrink-0 border-b bg-muted/20 px-3 py-3 sm:px-4">
+        <div className="shrink-0 border-b bg-gradient-to-b from-emerald-50/50 to-muted/10 px-3 py-3 sm:px-4">
           <div className="space-y-3">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="min-w-0 break-all font-mono text-xl font-bold tracking-[0.12em] text-foreground sm:text-2xl">{plateLabel}</span>
+                <div className="shrink-0 rounded-lg bg-foreground/[0.05] px-3 py-1.5 ring-1 ring-foreground/[0.09]">
+                  <span className="min-w-0 break-all font-mono text-xl font-black tracking-[0.18em] text-foreground sm:text-2xl">{plateLabel}</span>
+                </div>
                 <Badge className="bg-emerald-100 text-emerald-700">Въезд</Badge>
                 {item ? <Badge className={getEntryStatusBadgeClass(item.confirmation_status)}>{getEntryStatusLabel(item.confirmation_status)}</Badge> : <Badge variant="outline">Нет review-контекста</Badge>}
                 {item?.recognition_confidence != null && <Badge className={getConfidenceBadgeClass(item.recognition_confidence)}>Точность {item.recognition_confidence}%</Badge>}
@@ -1733,10 +1775,10 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
             </div>
 
             <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-4">
-              {renderCompactSummaryTile('Сопоставление', matchLabel, item?.matched_truck_id ? 'text-emerald-700' : 'text-amber-700')}
-              {renderCompactSummaryTile('Разрешение', permitLabel, item?.has_permit ? 'text-emerald-700' : item?.yard_strict_mode ? 'text-red-700' : 'text-amber-700')}
-              {renderCompactSummaryTile('Задание', taskLabel, item?.task_name ? 'text-foreground' : 'text-muted-foreground')}
-              {renderCompactSummaryTile('Весовой контроль', weighingLabel, item?.has_weighing_task ? 'text-foreground' : 'text-muted-foreground')}
+              {renderIconTile(<Truck className="h-3.5 w-3.5" />, 'Сопоставление', matchLabel, item?.matched_truck_id ? 'text-emerald-700' : 'text-amber-700')}
+              {renderIconTile(<FileCheck className="h-3.5 w-3.5" />, 'Разрешение', permitLabel, item?.has_permit ? 'text-emerald-700' : item?.yard_strict_mode ? 'text-red-700' : 'text-amber-700')}
+              {renderIconTile(<ClipboardList className="h-3.5 w-3.5" />, 'Задание', taskLabel, item?.task_name ? 'text-foreground' : 'text-muted-foreground')}
+              {renderIconTile(<Scale className="h-3.5 w-3.5" />, 'Весовой контроль', weighingLabel, item?.has_weighing_task ? 'text-blue-700' : 'text-muted-foreground')}
             </div>
 
             {entryDecisionHint}
@@ -1839,36 +1881,22 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     const hasSuggestedCandidate = suggestedCandidate !== null;
     const hasMissingRequiredExitPermit = item?.candidate_visitors.some((candidate) => candidate.exit_permit_required && !candidate.has_active_exit_permit) ?? false;
     const exitDecisionHint = !item
-      ? renderGuardDecisionHint(
-        'Нужно вручную определить ТС на выезде',
-        'Сверьте номер и фото. Если ТС реально стоит на выезде, выберите его из списка машин на территории.',
-        'warning',
-      )
+      ? renderGuardDecisionHint('ТС зафиксировано на выезде без контекста обзора', 'warning')
       : !hasSuggestedCandidate
-        ? renderGuardDecisionHint(
-          'Система не выбрала активный визит автоматически',
-          'Найдите ТС на территории, выберите нужный визит и только потом подтверждайте выезд или отклоняйте запись.',
-          'warning',
-        )
+        ? renderGuardDecisionHint('🔍 Активный визит не найден — ТС, возможно, въезжало без камеры', 'warning')
         : hasMissingRequiredExitPermit
-          ? renderGuardDecisionHint(
-            'Проверьте разрешение на выезд',
-            'Подтверждайте выезд только для визита с действующим разрешением или выпускайте вручную с указанием причины.',
-            'danger',
-          )
-          : renderGuardDecisionHint(
-            'Сверьте ТС и активный визит',
-            'Если номер и выбранный визит совпадают, подтвердите выезд. Если камера ошиблась или это не то ТС, отклоните запись.',
-            'neutral',
-          );
+          ? renderGuardDecisionHint('🔒 Нет активного разрешения на выезд для выбранного визита', 'danger')
+          : renderGuardDecisionHint('✅ Визит определён — требуется подтверждение оператора', 'neutral');
 
     return (
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="shrink-0 border-b bg-muted/20 px-3 py-3 sm:px-4">
+        <div className="shrink-0 border-b bg-gradient-to-b from-orange-50/50 to-muted/10 px-3 py-3 sm:px-4">
           <div className="space-y-3">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="min-w-0 break-all font-mono text-xl font-bold tracking-[0.12em] text-foreground sm:text-2xl">{plateLabel}</span>
+                <div className="shrink-0 rounded-lg bg-foreground/[0.05] px-3 py-1.5 ring-1 ring-foreground/[0.09]">
+                  <span className="min-w-0 break-all font-mono text-xl font-black tracking-[0.18em] text-foreground sm:text-2xl">{plateLabel}</span>
+                </div>
                 <Badge className="bg-orange-100 text-orange-700">Выезд</Badge>
                 {item ? <Badge className={getExitStatusBadgeClass(item.status)}>{getExitStatusLabel(item.status)}</Badge> : <Badge variant="outline">Нет exit-review контекста</Badge>}
                 {item?.recognition_confidence != null && <Badge className={getConfidenceBadgeClass(item.recognition_confidence)}>Точность {item.recognition_confidence}%</Badge>}
@@ -1878,9 +1906,45 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
             </div>
 
             <div className="grid gap-1.5 sm:grid-cols-2">
-              {renderCompactSummaryTile('Сопоставление', item?.truck_id ? 'ТС найдено в базе' : 'Нужен ручной выбор', item?.truck_id ? 'text-emerald-700' : 'text-amber-700')}
-              {renderCompactSummaryTile('Комментарий к выезду', exitPermitComments.length > 0 ? 'Есть комментарий' : 'Нет комментария', exitPermitComments.length > 0 ? 'text-emerald-700' : 'text-muted-foreground')}
+              {renderIconTile(<Truck className="h-3.5 w-3.5" />, 'Сопоставление', item?.truck_id ? 'ТС найдено в базе' : 'Нужен ручной выбор', item?.truck_id ? 'text-emerald-700' : 'text-amber-700')}
+              {renderIconTile(<ScrollText className="h-3.5 w-3.5" />, 'Комментарий к выезду', exitPermitComments.length > 0 ? 'Есть комментарий' : 'Нет комментария', exitPermitComments.length > 0 ? 'text-emerald-700' : 'text-muted-foreground')}
             </div>
+
+            {suggestedCandidate?.weighing && (
+              <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700/70 mb-1.5">Весовой контроль</div>
+                <div className="flex flex-wrap gap-x-5 gap-y-1">
+                  {suggestedCandidate.weighing.entry_weight !== null ? (
+                    <div className="flex items-baseline gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Въезд:</span>
+                      <span className="font-bold text-green-700">{Number(suggestedCandidate.weighing.entry_weight).toFixed(0)} кг</span>
+                      {suggestedCandidate.weighing.entry_weighed_at && <span className="text-[10px] text-muted-foreground">{formatDateTime(suggestedCandidate.weighing.entry_weighed_at)}</span>}
+                    </div>
+                  ) : suggestedCandidate.weighing.needs_entry ? (
+                    <span className="text-xs text-amber-600">⚠ Въездное взвешивание не выполнено</span>
+                  ) : null}
+                  {suggestedCandidate.weighing.exit_weight !== null ? (
+                    <div className="flex items-baseline gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Выезд:</span>
+                      <span className="font-bold text-orange-700">{Number(suggestedCandidate.weighing.exit_weight).toFixed(0)} кг</span>
+                      {suggestedCandidate.weighing.exit_weighed_at && <span className="text-[10px] text-muted-foreground">{formatDateTime(suggestedCandidate.weighing.exit_weighed_at)}</span>}
+                    </div>
+                  ) : suggestedCandidate.weighing.needs_exit ? (
+                    <span className="text-xs font-semibold text-amber-700">⚠ Требуется выездное взвешивание</span>
+                  ) : null}
+                  {suggestedCandidate.weighing.entry_weight !== null && suggestedCandidate.weighing.exit_weight !== null && (
+                    <div className="flex items-baseline gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Разница:</span>
+                      <span className="font-bold">{(Number(suggestedCandidate.weighing.exit_weight) - Number(suggestedCandidate.weighing.entry_weight)).toFixed(0)} кг</span>
+                    </div>
+                  )}
+                  {!suggestedCandidate.weighing.needs_entry && !suggestedCandidate.weighing.needs_exit
+                    && suggestedCandidate.weighing.entry_weight === null && suggestedCandidate.weighing.exit_weight === null && (
+                    <span className="text-xs text-muted-foreground">Взвешивание не требуется</span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {exitDecisionHint}
           </div>
@@ -1962,7 +2026,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
       <div className="grid items-stretch gap-4 xl:grid-cols-2">
         <Card className="h-full gap-0 py-0">
-          <CardHeader className="border-b px-4 py-3 sm:px-6">
+          <CardHeader className="border-b bg-gradient-to-r from-emerald-50/60 to-transparent px-4 py-3 sm:px-6">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <LogIn className="h-5 w-5 text-emerald-600" />
@@ -1980,7 +2044,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         </Card>
 
         <Card className="h-full gap-0 py-0">
-          <CardHeader className="border-b px-4 py-3 sm:px-6">
+          <CardHeader className="border-b bg-gradient-to-r from-orange-50/60 to-transparent px-4 py-3 sm:px-6">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <LogOut className="h-5 w-5 text-orange-600" />

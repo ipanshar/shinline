@@ -16,6 +16,7 @@ use App\Models\TruckModel;
 use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
+use App\Models\WeighingRequirement;
 use App\Services\DssMediaService;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssParkingService;
@@ -1229,6 +1230,7 @@ class VisitorsCotroller extends Controller
                     'loading_points_count' => $loadingCount,
                     'has_weighing_task' => $weighingRequirement !== null,
                     'weighing_reason' => $weighingRequirement['reason'] ?? null,
+                    'weighing_required_type' => $weighingRequirement['required_type'] ?? null,
                     'pending_reason' => $pendingReason['code'],
                     'pending_reason_text' => $pendingReason['text'],
                     'capture_id' => $capture?->id,
@@ -2394,6 +2396,25 @@ class VisitorsCotroller extends Controller
     {
         $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
 
+        $weighingReq = WeighingRequirement::query()
+            ->where('visitor_id', $visitor->id)
+            ->whereNotIn('status', [WeighingRequirement::STATUS_COMPLETED, WeighingRequirement::STATUS_SKIPPED])
+            ->with(['entryWeighing', 'exitWeighing'])
+            ->orderByDesc('id')
+            ->first();
+
+        $weighingData = $weighingReq ? [
+            'status' => $weighingReq->status,
+            'required_type' => $weighingReq->required_type,
+            'reason' => $weighingReq->reason,
+            'needs_entry' => $weighingReq->needsEntryWeighing(),
+            'needs_exit' => $weighingReq->needsExitWeighing(),
+            'entry_weight' => $weighingReq->entryWeighing?->weight !== null ? (float) $weighingReq->entryWeighing->weight : null,
+            'entry_weighed_at' => $weighingReq->entryWeighing?->weighed_at?->format('Y-m-d H:i:s'),
+            'exit_weight' => $weighingReq->exitWeighing?->weight !== null ? (float) $weighingReq->exitWeighing->weight : null,
+            'exit_weighed_at' => $weighingReq->exitWeighing?->weighed_at?->format('Y-m-d H:i:s'),
+        ] : null;
+
         return array_merge([
             'visitor_id' => $visitor->id,
             'plate_number' => $visitor->plate_number,
@@ -2405,6 +2426,7 @@ class VisitorsCotroller extends Controller
             'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($visitor),
             'has_active_exit_permit' => $exitPermit !== null,
             'exit_permit' => $this->buildExitPermitPayload($exitPermit),
+            'weighing' => $weighingData,
             'is_exact_truck_match' => false,
             'is_exact_plate_match' => false,
         ], $overrides);
