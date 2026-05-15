@@ -411,12 +411,16 @@ class DssVisitorFlowService
         $captureMoment = $captureTime ?? now();
         $normalizedPlate = $this->normalizePlate($plateNo);
 
+        // Ищем любой недавний Visitor (pending ИЛИ confirmed) для того же устройства
+        // в 5-минутном окне. Это защищает от дублей, когда webhook и daemon обрабатывают
+        // одну и ту же физическую фиксацию с небольшим временны́м сдвигом и создают
+        // два разных VehicleCapture (из-за разницы captureTime / alarmTime).
         $query = Visitor::query()
             ->where('yard_id', $yardId)
             ->where('entrance_device_id', $device->id)
-            ->where('confirmation_status', Visitor::CONFIRMATION_PENDING)
+            ->whereIn('confirmation_status', [Visitor::CONFIRMATION_PENDING, Visitor::CONFIRMATION_CONFIRMED])
             ->whereNull('exit_date')
-            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(2));
+            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(5));
 
         if ($truck) {
             $query->where('truck_id', $truck->id);

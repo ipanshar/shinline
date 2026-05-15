@@ -1473,6 +1473,8 @@ class VisitorsCotroller extends Controller
                 'override_exit_permit' => 'nullable|boolean',
                 'override_reason' => 'nullable|string|max:500',
                 'open_barrier' => 'nullable|boolean',
+                'release_without_visit' => 'nullable|boolean',
+                'release_reason' => 'nullable|string|max:500',
             ]);
 
             $review = CheckpointExitReview::findOrFail($validate['review_id']);
@@ -1483,6 +1485,44 @@ class VisitorsCotroller extends Controller
                 ], 400);
             }
 
+            // Выпуск без активного визита: ТС заехало через ворота без камеры
+            if (!empty($validate['release_without_visit'])) {
+                $releaseReason = trim((string) ($validate['release_reason'] ?? ''));
+                if ($releaseReason === '') {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Укажите причину выпуска ТС без активного визита.',
+                        'code' => 'release_reason_required',
+                    ], 422);
+                }
+
+                $device = Devaice::find($review->device_id);
+
+                $review->status = 'confirmed';
+                $review->resolved_at = now();
+                $review->resolved_by_user_id = $validate['operator_user_id'];
+                $review->resolved_visitor_id = null;
+                $review->note = ($review->note ? $review->note . "\n" : '')
+                    . 'Выпуск без визита. Причина: ' . $releaseReason;
+                $review->save();
+
+                $shouldOpenBarrier = !empty($validate['open_barrier']);
+                $barrierOpenResult = null;
+                if ($shouldOpenBarrier && $device?->id) {
+                    $barrierOpenResult = $this->dssParkingService->openBarrierForDevice($device->id);
+                }
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'ТС выпущено без визита',
+                    'data' => [
+                        'barrier_open_requested' => $shouldOpenBarrier,
+                        'barrier_opened' => isset($barrierOpenResult['success']) && $barrierOpenResult['success'] === true,
+                        'barrier_open_error' => $barrierOpenResult['error'] ?? null,
+                    ],
+                ], 200);
+            }
+
             $visitor = !empty($validate['visitor_id'])
                 ? Visitor::find($validate['visitor_id'])
                 : $this->resolveSingleExitCandidate($review);
@@ -1491,6 +1531,7 @@ class VisitorsCotroller extends Controller
                 return response()->json([
                     'status' => false,
                     'message' => 'Не удалось определить активный визит для выезда',
+                    'code' => 'no_active_visit',
                 ], 422);
             }
 

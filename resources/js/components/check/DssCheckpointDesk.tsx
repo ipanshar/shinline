@@ -574,6 +574,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     openBarrier: boolean;
     overrideExitPermit: boolean;
     overrideReason: string;
+    releaseWithoutVisit: boolean;
+    releaseReason: string;
   }>({
     open: false,
     item: null,
@@ -582,6 +584,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     openBarrier: false,
     overrideExitPermit: false,
     overrideReason: '',
+    releaseWithoutVisit: false,
+    releaseReason: '',
   });
   const [manualSearchResults, setManualSearchResults] = useState<ExitCandidate[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
@@ -1259,6 +1263,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       openBarrier: false,
       overrideExitPermit: false,
       overrideReason: '',
+      releaseWithoutVisit: false,
+      releaseReason: '',
     });
     setManualSearchResults(item.candidate_visitors);
   };
@@ -1272,6 +1278,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       openBarrier: false,
       overrideExitPermit: false,
       overrideReason: '',
+      releaseWithoutVisit: false,
+      releaseReason: '',
     });
     setManualSearchResults([]);
     setExitTerritoryVisitors([]);
@@ -1351,18 +1359,22 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         headers: getAuthHeaders(),
       });
 
-      toast.success(manualExitDialog.overrideExitPermit ? 'Выезд зафиксирован вручную' : 'Выезд зафиксирован');
+      if (response.data?.status) {
+        toast.success(manualExitDialog.overrideExitPermit ? 'Выезд зафиксирован вручную' : 'Выезд зафиксирован');
 
-      if (manualExitDialog.openBarrier) {
-        if (response.data?.data?.barrier_opened) {
-          toast.success('Шлагбаум открыт');
-        } else {
-          toast.error(response.data?.data?.barrier_open_error || 'Выезд зафиксирован, но шлагбаум не открылся');
+        if (manualExitDialog.openBarrier) {
+          if (response.data?.data?.barrier_opened) {
+            toast.success('Шлагбаум открыт');
+          } else {
+            toast.error(response.data?.data?.barrier_open_error || 'Выезд зафиксирован, но шлагбаум не открылся');
+          }
         }
-      }
 
-      closeManualExitDialog();
-      await refreshCheckpointContext(checkpointId);
+        closeManualExitDialog();
+        await refreshCheckpointContext(checkpointId);
+      } else {
+        toast.error(response.data?.message || 'Не удалось зафиксировать выезд');
+      }
     } catch (error: unknown) {
       console.error('Ошибка ручного завершения визита:', error);
       toast.error(getRequestErrorMessage(error, 'Не удалось зафиксировать ручной выезд'));
@@ -1435,6 +1447,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         dismissEntryContext(item);
         closeConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
+      } else {
+        toast.error(response.data?.message || 'Не удалось подтвердить въезд');
       }
     } catch (error: unknown) {
       console.error('Ошибка подтверждения въезда:', error);
@@ -1474,14 +1488,20 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
     const item = exitConfirmDialog.item;
     if (!item) return;
 
-    if (!exitConfirmDialog.selectedVisitorId) {
-      toast.error('Выберите активный визит для подтверждения выезда');
-      return;
-    }
-
-    if (exitConfirmDialog.overrideExitPermit && exitConfirmDialog.overrideReason.trim().length < 3) {
-      toast.error('Укажите причину выпуска без разрешения на выезд');
-      return;
+    if (exitConfirmDialog.releaseWithoutVisit) {
+      if (exitConfirmDialog.releaseReason.trim().length < 3) {
+        toast.error('Укажите причину выпуска ТС без визита (минимум 3 символа)');
+        return;
+      }
+    } else {
+      if (!exitConfirmDialog.selectedVisitorId) {
+        toast.error('Выберите активный визит для подтверждения выезда');
+        return;
+      }
+      if (exitConfirmDialog.overrideExitPermit && exitConfirmDialog.overrideReason.trim().length < 3) {
+        toast.error('Укажите причину выпуска без разрешения на выезд');
+        return;
+      }
     }
 
     const userId = Number(localStorage.getItem('user_id') || '1');
@@ -1491,10 +1511,18 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       const response = await axios.post('/security/confirm-exit-review', {
         review_id: item.review_id,
         operator_user_id: userId,
-        visitor_id: exitConfirmDialog.selectedVisitorId,
-        open_barrier: exitConfirmDialog.openBarrier,
-        override_exit_permit: exitConfirmDialog.overrideExitPermit,
-        override_reason: exitConfirmDialog.overrideExitPermit ? exitConfirmDialog.overrideReason : undefined,
+        ...(exitConfirmDialog.releaseWithoutVisit
+          ? {
+              release_without_visit: true,
+              release_reason: exitConfirmDialog.releaseReason,
+              open_barrier: exitConfirmDialog.openBarrier,
+            }
+          : {
+              visitor_id: exitConfirmDialog.selectedVisitorId,
+              open_barrier: exitConfirmDialog.openBarrier,
+              override_exit_permit: exitConfirmDialog.overrideExitPermit,
+              override_reason: exitConfirmDialog.overrideExitPermit ? exitConfirmDialog.overrideReason : undefined,
+            }),
       }, {
         headers: getAuthHeaders(),
       });
@@ -1513,6 +1541,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         dismissExitContext(item);
         closeExitConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
+      } else {
+        toast.error(response.data?.message || 'Не удалось подтвердить выезд');
       }
     } catch (error: unknown) {
       console.error('Ошибка подтверждения выезда:', error);
@@ -1970,64 +2000,54 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       />
 
       <Dialog open={confirmDialog.open} onOpenChange={(open) => !open && closeConfirmDialog()}>
-        <DialogContent className="max-h-[80vh] gap-3 overflow-y-auto p-3 sm:max-w-xl sm:p-4">
-          <DialogHeader className="gap-1 pr-8">
-            <DialogTitle>Подтверждение въезда</DialogTitle>
-            <DialogDescription className="text-xs leading-5">
-              Исправьте номер ТС, если камера ошиблась, затем выберите ТС, задание, разрешение, весовой контроль и открытие шлагбаума.
-            </DialogDescription>
+        <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="shrink-0 gap-0 border-b px-3 py-2.5 pr-10">
+            <DialogTitle className="text-base">Подтверждение въезда</DialogTitle>
           </DialogHeader>
 
           {confirmDialog.item && (
-            <div className="space-y-4">
-              <div className="rounded-xl border bg-muted/20 p-2.5">
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="break-all font-mono text-xl font-semibold tracking-[0.12em] text-foreground sm:text-[1.4rem]">{confirmDialog.correctedPlate || confirmDialog.item.plate_number}</span>
-                      <Badge className={getEntryStatusBadgeClass(confirmDialog.item.confirmation_status)}>{getEntryStatusLabel(confirmDialog.item.confirmation_status)}</Badge>
-                      <Badge variant={confirmDialog.item.matched_truck_id ? 'default' : 'outline'}>{confirmDialog.item.matched_truck_id ? 'ТС есть в базе' : 'Нужна ручная проверка'}</Badge>
-                      <Badge variant={confirmDialog.item.has_permit ? 'default' : 'outline'}>{confirmDialog.item.has_permit ? 'Разрешение есть' : 'Разрешения нет'}</Badge>
-                      {confirmDialog.item.can_open_barrier && <Badge className="bg-sky-100 text-sky-700">Можно открыть шлагбаум</Badge>}
-                    </div>
-                    <div className="text-xs leading-5 text-muted-foreground">
-                      Если камера ошиблась, сначала поправьте номер, затем выберите ТС и задание. Все дополнительные действия собраны ниже в одном месте.
-                    </div>
-                  </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="space-y-2 p-3">
 
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {renderSummaryTile('Выбранное ТС', resolvedConfirmTruck.truckId ? `#${resolvedConfirmTruck.truckId}` : 'Новое / не определено', resolvedConfirmTruck.truckId ? 'text-foreground' : 'text-amber-700')}
-                    {renderSummaryTile('Разрешение', resolvedConfirmTruck.hasPermit || confirmDialog.createPermit ? 'Будет доступно' : 'Не будет создано', resolvedConfirmTruck.hasPermit || confirmDialog.createPermit ? 'text-emerald-700' : 'text-muted-foreground')}
-                    {renderSummaryTile('Задание', selectedConfirmTask?.name || (confirmDialog.selectedTaskId ? `#${confirmDialog.selectedTaskId}` : 'Не выбрано'), confirmDialog.selectedTaskId ? 'text-foreground' : 'text-muted-foreground')}
-                    {renderSummaryTile('Весовой контроль', confirmDialog.createWeighing || confirmDialog.item.has_weighing_task ? 'Будет активен' : 'Не требуется', confirmDialog.createWeighing || confirmDialog.item.has_weighing_task ? 'text-foreground' : 'text-muted-foreground')}
-                  </div>
+                {/* Плашка: номер + статусные бейджи */}
+                <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/20 px-2.5 py-2">
+                  <span className="mr-1 font-mono text-lg font-bold tracking-[0.12em]">{confirmDialog.correctedPlate || confirmDialog.item.plate_number}</span>
+                  <Badge className={getEntryStatusBadgeClass(confirmDialog.item.confirmation_status)}>{getEntryStatusLabel(confirmDialog.item.confirmation_status)}</Badge>
+                  <Badge variant={confirmDialog.item.matched_truck_id ? 'default' : 'outline'} className="text-xs">{confirmDialog.item.matched_truck_id ? 'В базе' : 'Нужна проверка'}</Badge>
+                  {confirmDialog.item.has_permit
+                    ? <Badge className="bg-emerald-100 text-emerald-800 text-xs">Разрешение есть</Badge>
+                    : <Badge variant="outline" className="border-amber-200 text-amber-700 text-xs">Нет разрешения</Badge>}
+                  {confirmDialog.item.can_open_barrier && <Badge className="bg-sky-100 text-sky-700 text-xs">Шлагбаум</Badge>}
                 </div>
-              </div>
 
-              <div className="space-y-3">
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 text-sm font-medium text-foreground">Исправление номера и комментарий</div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Номер ТС</div>
-                      <Input className="h-9" value={confirmDialog.correctedPlate} onChange={(event) => setConfirmDialog((current) => ({ ...current, correctedPlate: event.target.value.toUpperCase() }))} />
-                    </div>
+                {/* Компактная сводка: 4 плитки */}
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {renderCompactSummaryTile('ТС', resolvedConfirmTruck.truckId ? `#${resolvedConfirmTruck.truckId}` : 'Новое', resolvedConfirmTruck.truckId ? 'text-foreground' : 'text-amber-700')}
+                  {renderCompactSummaryTile('Разрешение', resolvedConfirmTruck.hasPermit || confirmDialog.createPermit ? 'Будет' : 'Нет', resolvedConfirmTruck.hasPermit || confirmDialog.createPermit ? 'text-emerald-700' : 'text-muted-foreground')}
+                  {renderCompactSummaryTile('Задание', selectedConfirmTask?.name || (confirmDialog.selectedTaskId ? `#${confirmDialog.selectedTaskId}` : 'Не выбрано'), confirmDialog.selectedTaskId ? 'text-foreground' : 'text-muted-foreground')}
+                  {renderCompactSummaryTile('Весы', confirmDialog.createWeighing || confirmDialog.item.has_weighing_task ? 'Активен' : 'Нет', confirmDialog.createWeighing || confirmDialog.item.has_weighing_task ? 'text-foreground' : 'text-muted-foreground')}
+                </div>
 
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Комментарий оператора</div>
-                      <Input className="h-9" value={confirmDialog.comment} onChange={(event) => setConfirmDialog((current) => ({ ...current, comment: event.target.value }))} placeholder="Комментарий оператора" />
-                    </div>
+                {/* Номер и комментарий */}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground">Номер ТС</div>
+                    <Input className="h-8 text-sm" value={confirmDialog.correctedPlate} onChange={(event) => setConfirmDialog((current) => ({ ...current, correctedPlate: event.target.value.toUpperCase() }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground">Комментарий</div>
+                    <Input className="h-8 text-sm" value={confirmDialog.comment} onChange={(event) => setConfirmDialog((current) => ({ ...current, comment: event.target.value }))} placeholder="Комментарий оператора" />
                   </div>
                 </div>
 
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-foreground">Похожие номера и ТС</div>
-                    {searching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                {/* Похожие ТС */}
+                <div className="rounded-lg border">
+                  <div className="flex items-center justify-between border-b px-2.5 py-1.5">
+                    <span className="text-xs font-medium">Похожие ТС</span>
+                    {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                   </div>
-
                   {searchResults.length > 0 ? (
-                    <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+                    <div className="max-h-36 space-y-px overflow-y-auto p-1">
                       {searchResults.map((result) => (
                         <button
                           key={result.truck_id}
@@ -2038,80 +2058,79 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                             correctedPlate: result.plate_number,
                             selectedTaskId: current.selectedTaskId ?? result.task_id ?? null,
                           }))}
-                          className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${confirmDialog.selectedTruckId === result.truck_id ? 'border-blue-500 bg-blue-50' : 'hover:bg-muted/40'}`}
+                          className={`w-full rounded-md border px-2.5 py-1.5 text-left transition-colors ${confirmDialog.selectedTruckId === result.truck_id ? 'border-blue-400 bg-blue-50' : 'hover:bg-muted/40'}`}
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="font-mono text-base font-semibold tracking-wide text-foreground">{result.plate_number}</div>
-                              <div className="text-sm text-muted-foreground">{result.task_name || result.truck_model_name || 'Без модели или задания'}</div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant={result.has_permit ? 'default' : 'outline'}>{result.has_permit ? 'Есть разрешение' : 'Без разрешения'}</Badge>
-                              <Badge variant="outline">Совпадение {result.similarity_percent}%</Badge>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-sm font-semibold">{result.plate_number}</span>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <Badge variant={result.has_permit ? 'default' : 'outline'} className={`text-[10px] ${result.has_permit ? 'bg-emerald-100 text-emerald-800' : ''}`}>{result.has_permit ? 'Разрешение' : 'Без разреш.'}</Badge>
+                              <span className="text-[11px] text-muted-foreground">{result.similarity_percent}%</span>
                             </div>
                           </div>
+                          {(result.task_name || result.truck_model_name) && (
+                            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{result.task_name || result.truck_model_name}</div>
+                          )}
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Похожие ТС не найдены. Можно продолжить с новым номером вручную.</div>
+                    <div className="px-2.5 py-2 text-xs text-muted-foreground">Похожие ТС не найдены.</div>
                   )}
                 </div>
 
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-foreground">Ожидаемые задания</div>
-                    {loadingExpectedTasks && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                {/* Ожидаемые задания */}
+                <div className="rounded-lg border">
+                  <div className="flex items-center justify-between border-b px-2.5 py-1.5">
+                    <span className="text-xs font-medium">Ожидаемые задания</span>
+                    {loadingExpectedTasks && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                   </div>
-
                   {expectedTasks.length > 0 ? (
-                    <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                    <div className="max-h-32 space-y-px overflow-y-auto p-1">
                       {expectedTasks.slice(0, 8).map((task) => (
                         <button
                           key={task.id}
                           type="button"
                           onClick={() => setConfirmDialog((current) => ({ ...current, selectedTaskId: task.id, selectedTruckId: current.selectedTruckId ?? task.truck_id ?? null }))}
-                          className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${confirmDialog.selectedTaskId === task.id ? 'border-blue-500 bg-blue-50' : 'hover:bg-muted/40'}`}
+                          className={`w-full rounded-md border px-2.5 py-1.5 text-left transition-colors ${confirmDialog.selectedTaskId === task.id ? 'border-blue-400 bg-blue-50' : 'hover:bg-muted/40'}`}
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="text-sm font-semibold text-foreground">{task.name}</div>
-                              <div className="text-xs text-muted-foreground">{task.plate_number || task.driver_name || 'Без привязки к ТС'}</div>
-                            </div>
-                            <Badge variant="outline">#{task.id}</Badge>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold">{task.name}</span>
+                            <Badge variant="outline" className="shrink-0 text-[10px]">#{task.id}</Badge>
                           </div>
+                          {(task.plate_number || task.driver_name) && (
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">{task.plate_number || task.driver_name}</div>
+                          )}
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Ожидаемых заданий нет.</div>
+                    <div className="px-2.5 py-2 text-xs text-muted-foreground">Ожидаемых заданий нет.</div>
                   )}
                 </div>
 
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 text-sm font-medium text-foreground">Дополнительные действия</div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="flex items-center gap-3 rounded-xl border px-3 py-2 text-sm hover:bg-muted/30">
-                      <Checkbox checked={confirmDialog.createPermit} onCheckedChange={(checked) => setConfirmDialog((current) => ({ ...current, createPermit: checked === true }))} />
-                      <span>Создать разрешение</span>
-                    </label>
-                    <label className="flex items-center gap-3 rounded-xl border px-3 py-2 text-sm hover:bg-muted/30">
-                      <Checkbox checked={confirmDialog.createWeighing} onCheckedChange={(checked) => setConfirmDialog((current) => ({ ...current, createWeighing: checked === true }))} />
-                      <span>Создать весовой контроль</span>
-                    </label>
-                    <label className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm sm:col-span-2 ${confirmDialog.item.can_open_barrier ? 'hover:bg-muted/30' : 'opacity-60'}`}>
-                      <Checkbox checked={confirmDialog.openBarrier} onCheckedChange={(checked) => setConfirmDialog((current) => ({ ...current, openBarrier: checked === true }))} disabled={!confirmDialog.item.can_open_barrier} />
-                      <span>Открыть шлагбаум</span>
-                    </label>
-                  </div>
+                {/* Действия: 3 чекбокса в ряд */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted/30">
+                    <Checkbox checked={confirmDialog.createPermit} onCheckedChange={(checked) => setConfirmDialog((current) => ({ ...current, createPermit: checked === true }))} />
+                    Создать разрешение
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted/30">
+                    <Checkbox checked={confirmDialog.createWeighing} onCheckedChange={(checked) => setConfirmDialog((current) => ({ ...current, createWeighing: checked === true }))} />
+                    Весовой контроль
+                  </label>
+                  <label className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${confirmDialog.item.can_open_barrier ? 'hover:bg-muted/30' : 'cursor-not-allowed opacity-60'}`}>
+                    <Checkbox checked={confirmDialog.openBarrier} onCheckedChange={(checked) => setConfirmDialog((current) => ({ ...current, openBarrier: checked === true }))} disabled={!confirmDialog.item.can_open_barrier} />
+                    Открыть шлагбаум
+                  </label>
                 </div>
+
               </div>
             </div>
           )}
 
-          <DialogFooter className="gap-2 border-t pt-2 sm:justify-between">
-            <Button type="button" variant="outline" className="h-9 sm:min-w-28" onClick={closeConfirmDialog}>Отмена</Button>
-            <Button type="button" className="h-9 sm:min-w-40" onClick={handleConfirmEntry} disabled={!confirmDialog.item || processingVisitorId === confirmDialog.item?.visitor_id}>
+          <DialogFooter className="shrink-0 gap-2 border-t px-3 py-2 sm:justify-between">
+            <Button type="button" variant="outline" className="h-8 sm:min-w-24" onClick={closeConfirmDialog}>Отмена</Button>
+            <Button type="button" className="h-8 sm:min-w-36" onClick={handleConfirmEntry} disabled={!confirmDialog.item || processingVisitorId === confirmDialog.item?.visitor_id}>
               {processingVisitorId === confirmDialog.item?.visitor_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Подтвердить въезд
             </Button>
@@ -2120,68 +2139,70 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       </Dialog>
 
       <Dialog open={manualDialog.open} onOpenChange={(open) => !open && closeManualDialog()}>
-        <DialogContent className="max-h-[74vh] gap-3 overflow-y-auto p-3 sm:max-w-md sm:p-4">
-          <DialogHeader className="gap-1 pr-8">
-            <DialogTitle>Ручное добавление ТС</DialogTitle>
-            <DialogDescription className="text-xs leading-5">
-              Используйте, если DSS пропустил capture-событие по въезду.
-            </DialogDescription>
+        <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="shrink-0 gap-0 border-b px-3 py-2.5 pr-10">
+            <DialogTitle className="text-base">Ручное добавление ТС</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-2.5">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Номер ТС</div>
-              <Input className="h-9" value={manualDialog.plateNumber} onChange={(event) => setManualDialog((current) => ({ ...current, plateNumber: event.target.value.toUpperCase() }))} placeholder="A123BC777" />
-            </div>
-
-            <div className="space-y-2 rounded-lg border p-2.5">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">Найденные ТС в базе</div>
-                {manualTruckSearchLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="space-y-2 p-3">
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-muted-foreground">Номер ТС</div>
+                <Input className="h-8 text-sm" value={manualDialog.plateNumber} onChange={(event) => setManualDialog((current) => ({ ...current, plateNumber: event.target.value.toUpperCase() }))} placeholder="A123BC777" />
               </div>
 
-              {manualTruckResults.length > 0 ? (
-                <div className="max-h-32 space-y-2 overflow-y-auto pr-1">
-                  {manualTruckResults.map((truck) => (
-                    <div key={truck.id} className={`rounded-lg border px-3 py-2 text-sm ${selectedManualTruck?.id === truck.id ? 'border-blue-500 bg-blue-50' : ''}`}>
-                      <div className="font-medium">{truck.plate_number}</div>
-                      <div className="text-xs text-muted-foreground">{truck.truck_model_name || truck.truck_brand_name || 'Модель не указана'}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Badge variant={truck.has_permit ? 'default' : 'outline'}>{truck.has_permit ? 'Есть разрешение' : 'Без разрешения'}</Badge>
-                        {truck.task_name && <Badge variant="outline">{truck.task_name}</Badge>}
-                      </div>
-                    </div>
-                  ))}
+              <div className="rounded-lg border">
+                <div className="flex items-center justify-between border-b px-2.5 py-1.5">
+                  <span className="text-xs font-medium">Найденные ТС в базе</span>
+                  {manualTruckSearchLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                 </div>
-              ) : (
-                <div className="text-xs leading-5 text-muted-foreground">Совпадений по базе пока нет. Можно добавить новое ТС по введённому номеру.</div>
-              )}
-            </div>
+                {manualTruckResults.length > 0 ? (
+                  <div className="max-h-32 space-y-px overflow-y-auto p-1">
+                    {manualTruckResults.map((truck) => (
+                      <div key={truck.id} className={`rounded-md border px-2.5 py-1.5 ${selectedManualTruck?.id === truck.id ? 'border-blue-400 bg-blue-50' : ''}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-sm font-semibold">{truck.plate_number}</span>
+                          <div className="flex shrink-0 gap-1.5">
+                            <Badge variant={truck.has_permit ? 'default' : 'outline'} className={`text-[10px] ${truck.has_permit ? 'bg-emerald-100 text-emerald-800' : ''}`}>{truck.has_permit ? 'Разрешение' : 'Без разреш.'}</Badge>
+                            {truck.task_name && <Badge variant="outline" className="text-[10px]">{truck.task_name}</Badge>}
+                          </div>
+                        </div>
+                        {(truck.truck_model_name || truck.truck_brand_name) && (
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">{truck.truck_model_name || truck.truck_brand_name}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-2.5 py-2 text-xs text-muted-foreground">Совпадений нет — будет создано новое ТС.</div>
+                )}
+              </div>
 
-            <div className="grid gap-2 rounded-lg border p-2.5 sm:grid-cols-2">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={manualCreatePermit} onCheckedChange={(checked) => setManualCreatePermit(checked === true)} />
-                Создать разрешение
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={manualCreateWeighing} onCheckedChange={(checked) => setManualCreateWeighing(checked === true)} />
-                Создать весовой контроль
-              </label>
-              <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                <Checkbox checked={manualOpenBarrier} onCheckedChange={(checked) => setManualOpenBarrier(checked === true)} />
-                Открыть шлагбаум
-              </label>
-            </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs hover:bg-muted/30">
+                  <Checkbox checked={manualCreatePermit} onCheckedChange={(checked) => setManualCreatePermit(checked === true)} />
+                  Разрешение
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs hover:bg-muted/30">
+                  <Checkbox checked={manualCreateWeighing} onCheckedChange={(checked) => setManualCreateWeighing(checked === true)} />
+                  Весовой
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs hover:bg-muted/30">
+                  <Checkbox checked={manualOpenBarrier} onCheckedChange={(checked) => setManualOpenBarrier(checked === true)} />
+                  Шлагбаум
+                </label>
+              </div>
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Комментарий</div>
-              <Input className="h-9" value={manualComment} onChange={(event) => setManualComment(event.target.value)} placeholder="Комментарий оператора" />
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-muted-foreground">Комментарий</div>
+                <Input className="h-8 text-sm" value={manualComment} onChange={(event) => setManualComment(event.target.value)} placeholder="Комментарий оператора" />
+              </div>
             </div>
           </div>
 
-          <DialogFooter className="gap-2 border-t pt-2">
-            <Button type="button" variant="outline" className="h-9" onClick={closeManualDialog}>Отмена</Button>
-            <Button type="button" className="h-9" onClick={handleManualCreate} disabled={!manualDialog.checkpointId || creatingManualVisitor}>
+          <DialogFooter className="shrink-0 gap-2 border-t px-3 py-2">
+            <Button type="button" variant="outline" className="h-8" onClick={closeManualDialog}>Отмена</Button>
+            <Button type="button" className="h-8" onClick={handleManualCreate} disabled={!manualDialog.checkpointId || creatingManualVisitor}>
               {creatingManualVisitor ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Добавить ТС
             </Button>
@@ -2190,155 +2211,128 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       </Dialog>
 
       <Dialog open={manualExitDialog.open} onOpenChange={(open) => !open && closeManualExitDialog()}>
-        <DialogContent className="max-h-[78vh] gap-3 overflow-y-auto p-3 sm:max-w-lg sm:p-4">
-          <DialogHeader className="gap-1 pr-8">
-            <DialogTitle>Ручной выезд</DialogTitle>
-            <DialogDescription className="text-xs leading-5">
-              Используйте, если камера не зафиксировала выезд.
-            </DialogDescription>
+        <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="shrink-0 gap-0 border-b px-3 py-2.5 pr-10">
+            <DialogTitle className="text-base">Ручной выезд</DialogTitle>
+            {manualExitCheckpoint?.name && (
+              <p className="text-xs text-muted-foreground">
+                {manualExitCheckpoint.yard_name ? `${manualExitCheckpoint.name} — ${manualExitCheckpoint.yard_name}` : manualExitCheckpoint.name}
+              </p>
+            )}
           </DialogHeader>
 
-          <div className="space-y-2.5">
-            <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-              {manualExitCheckpoint?.yard_id
-                ? `КПП: ${manualExitCheckpoint.yard_name ? `${manualExitCheckpoint.name} - ${manualExitCheckpoint.yard_name}` : manualExitCheckpoint.name}`
-                : 'КПП не выбран'}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Поиск по ТС на территории</div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="space-y-2 p-3">
               <Input
-                className="h-9"
+                className="h-8 text-sm"
                 value={manualExitDialog.search}
                 onChange={(event) => setManualExitDialog((current) => ({ ...current, search: event.target.value.toUpperCase() }))}
-                placeholder="Номер, водитель, телефон, задание"
+                placeholder="Поиск: номер, водитель, телефон, задание"
               />
-            </div>
 
-            <div className="space-y-2 rounded-lg border p-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium">Активные ТС на территории</div>
-                <div className="text-xs text-muted-foreground">
-                  {manualExitLoading ? 'Обновляем список...' : `Найдено: ${filteredManualExitVisitors.length}`}
+              <div className="rounded-lg border">
+                <div className="flex items-center justify-between border-b px-2.5 py-1.5">
+                  <span className="text-xs font-medium">ТС на территории</span>
+                  <span className="text-xs text-muted-foreground">
+                    {manualExitLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : filteredManualExitVisitors.length}
+                  </span>
                 </div>
+                {manualExitLoading ? (
+                  <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    Загрузка...
+                  </div>
+                ) : filteredManualExitVisitors.length > 0 ? (
+                  <div className="max-h-64 space-y-px overflow-y-auto p-1">
+                    {filteredManualExitVisitors.map((visitor) => {
+                      const exitPermitComment = visitor.exit_permit?.comment?.trim();
+
+                      return (
+                        <button
+                          key={visitor.id}
+                          type="button"
+                          onClick={() => setManualExitDialog((current) => ({ ...current, selectedVisitorId: visitor.id }))}
+                          className={`w-full rounded-md border px-2.5 py-1.5 text-left transition-colors ${manualExitDialog.selectedVisitorId === visitor.id ? 'border-orange-400 bg-orange-50' : 'hover:bg-muted/40'}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-sm font-semibold">{visitor.plate_number}</span>
+                            <div className="flex shrink-0 flex-wrap gap-1">
+                              {visitor.exit_permit_required
+                                ? visitor.has_active_exit_permit
+                                  ? <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">Выезд ✓</Badge>
+                                  : <Badge variant="outline" className="border-amber-200 text-amber-700 text-[10px]">Нужно разреш.</Badge>
+                                : <Badge variant="outline" className="text-[10px]">Свободный</Badge>}
+                              {visitor.name && <Badge variant="outline" className="text-[10px]">{visitor.name}</Badge>}
+                            </div>
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            Въезд {formatDateTime(visitor.entry_date)}
+                            {visitor.entrance_device_name ? ` · ${visitor.entrance_device_name}` : ''}
+                            {visitor.user_name ? ` · ${visitor.user_name}` : ''}
+                          </div>
+                          {exitPermitComment && (
+                            <div className="mt-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">{exitPermitComment}</div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-2.5 py-2 text-xs text-muted-foreground">Нет активных ТС на территории.</div>
+                )}
               </div>
 
-              {manualExitLoading ? (
-                <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Загрузка ТС на территории...
+              {selectedManualExitVisitor && (
+                <div className="rounded-md border-l-2 border-orange-400 bg-orange-50/50 py-1.5 pl-3 pr-2.5 text-xs">
+                  <span className="font-semibold">{selectedManualExitVisitor.plate_number}</span>
+                  {' · '}въезд {formatDateTime(selectedManualExitVisitor.entry_date)}
+                  {' · '}
+                  <span className={selectedManualExitVisitor.exit_permit_required && !selectedManualExitVisitor.has_active_exit_permit && !manualExitDialog.overrideExitPermit ? 'text-amber-700' : 'text-emerald-700'}>
+                    {selectedManualExitVisitor.exit_permit_required
+                      ? selectedManualExitVisitor.has_active_exit_permit
+                        ? 'разрешение активно'
+                        : manualExitDialog.overrideExitPermit
+                          ? 'ручной выпуск'
+                          : 'нужно разрешение'
+                      : 'выезд свободный'}
+                  </span>
                 </div>
-              ) : filteredManualExitVisitors.length > 0 ? (
-                <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
-                  {filteredManualExitVisitors.map((visitor) => {
-                    const exitPermitComment = visitor.exit_permit?.comment?.trim();
-
-                    return (
-                      <button
-                        key={visitor.id}
-                        type="button"
-                        onClick={() => setManualExitDialog((current) => ({ ...current, selectedVisitorId: visitor.id }))}
-                        className={`w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${manualExitDialog.selectedVisitorId === visitor.id ? 'border-orange-500 bg-orange-50' : 'hover:bg-muted/40'}`}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-mono text-base font-semibold tracking-wide">{visitor.plate_number}</span>
-                              <Badge variant={visitor.has_permit ? 'default' : 'outline'}>
-                                {visitor.has_permit ? (visitor.permit_type === 'one_time' ? 'Разовый пропуск' : 'Разрешение есть') : 'Без разрешения на въезд'}
-                              </Badge>
-                              {visitor.name && <Badge variant="outline">{visitor.name}</Badge>}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Въезд: {formatDateTime(visitor.entry_date)}
-                              {visitor.entrance_device_name ? ` • Камера: ${visitor.entrance_device_name}` : ''}
-                            </div>
-                            {(visitor.user_name || visitor.user_phone || visitor.truck_model_name) && (
-                              <div className="text-xs text-muted-foreground">
-                                {[visitor.user_name, visitor.user_phone, visitor.truck_model_name].filter(Boolean).join(' • ')}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex flex-wrap gap-2">
-                            {visitor.exit_permit_required ? (
-                              visitor.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение на выезд</Badge>
-                            ) : <Badge variant="outline">Выезд свободный</Badge>}
-                            <Badge variant="outline">{visitor.status_name}</Badge>
-                          </div>
-                        </div>
-
-                        {exitPermitComment && (
-                          <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-                            <div className="font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
-                            <div className="mt-1 whitespace-pre-wrap">{exitPermitComment}</div>
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">Подходящих активных ТС на территории не найдено.</div>
               )}
-            </div>
 
-            <div className="space-y-2 rounded-lg border p-2.5">
-              <label className="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={manualExitDialog.openBarrier}
-                  onChange={(event) => setManualExitDialog((current) => ({ ...current, openBarrier: event.target.checked }))}
-                />
-                <span>
-                  Открыть шлагбаум
-                  <span className="block text-xs text-muted-foreground">После фиксации выезда будет отправлена команда на открытие выездного шлагбаума.</span>
-                </span>
-              </label>
-
-              <label className="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={manualExitDialog.overrideExitPermit}
-                  onChange={(event) => setManualExitDialog((current) => ({ ...current, overrideExitPermit: event.target.checked }))}
-                />
-                <span>
-                  Подтвердить выезд без разрешения
-                  <span className="block text-xs text-muted-foreground">Нужно, если у визита ещё нет активного разрешения на выезд.</span>
-                </span>
-              </label>
-              {manualExitDialog.overrideExitPermit && (
-                <textarea
-                  className="min-h-14 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  value={manualExitDialog.overrideReason}
-                  onChange={(event) => setManualExitDialog((current) => ({ ...current, overrideReason: event.target.value }))}
-                  placeholder="Причина ручного выпуска без разрешения"
-                />
-              )}
-            </div>
-
-            {selectedManualExitVisitor && (
-              <div className="rounded-lg border bg-muted/30 p-2.5 text-sm text-muted-foreground">
-                <div>Выбранное ТС: {selectedManualExitVisitor.plate_number}</div>
-                <div>Въезд: {formatDateTime(selectedManualExitVisitor.entry_date)}</div>
-                <div>
-                  Статус выезда: {selectedManualExitVisitor.exit_permit_required
-                    ? selectedManualExitVisitor.has_active_exit_permit
-                      ? 'разрешение активно'
-                      : manualExitDialog.overrideExitPermit
-                        ? 'ручной выпуск с причиной'
-                        : 'нужно разрешение или ручной выпуск'
-                    : 'выезд свободный'}
-                </div>
+              <div className="space-y-1.5 rounded-lg border p-2">
+                <label className="flex cursor-pointer items-start gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-muted/30">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={manualExitDialog.openBarrier}
+                    onChange={(event) => setManualExitDialog((current) => ({ ...current, openBarrier: event.target.checked }))}
+                  />
+                  <span>Открыть шлагбаум <span className="text-muted-foreground">· после фиксации выезда</span></span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-muted/30">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={manualExitDialog.overrideExitPermit}
+                    onChange={(event) => setManualExitDialog((current) => ({ ...current, overrideExitPermit: event.target.checked }))}
+                  />
+                  <span>Выпустить без разрешения на выезд <span className="text-muted-foreground">· нужна причина</span></span>
+                </label>
+                {manualExitDialog.overrideExitPermit && (
+                  <textarea
+                    className="mt-1 min-h-12 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs"
+                    value={manualExitDialog.overrideReason}
+                    onChange={(event) => setManualExitDialog((current) => ({ ...current, overrideReason: event.target.value }))}
+                    placeholder="Причина выпуска без разрешения"
+                  />
+                )}
               </div>
-            )}
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 border-t pt-2">
-            <Button type="button" variant="outline" className="h-9" onClick={closeManualExitDialog}>Отмена</Button>
-            <Button type="button" className="h-9" onClick={handleManualExit} disabled={!manualExitDialog.selectedVisitorId || processingManualExitVisitorId === manualExitDialog.selectedVisitorId}>
+          <DialogFooter className="shrink-0 gap-2 border-t px-3 py-2">
+            <Button type="button" variant="outline" className="h-8" onClick={closeManualExitDialog}>Отмена</Button>
+            <Button type="button" className="h-8" onClick={handleManualExit} disabled={!manualExitDialog.selectedVisitorId || processingManualExitVisitorId === manualExitDialog.selectedVisitorId}>
               {processingManualExitVisitorId === manualExitDialog.selectedVisitorId ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
               Зафиксировать выезд
             </Button>
@@ -2347,62 +2341,68 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       </Dialog>
 
       <Dialog open={exitConfirmDialog.open} onOpenChange={(open) => !open && closeExitConfirmDialog()}>
-        <DialogContent className="max-h-[80vh] gap-3 overflow-y-auto p-3 sm:max-w-xl sm:p-4">
-          <DialogHeader className="gap-1 pr-8">
-            <DialogTitle>Подтверждение выезда</DialogTitle>
-            <DialogDescription className="text-xs leading-5">
-              Выберите активный визит, который нужно закрыть по текущему событию DSS.
-            </DialogDescription>
+        <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="shrink-0 gap-0 border-b px-3 py-2.5 pr-10">
+            <DialogTitle className="text-base">Подтверждение выезда</DialogTitle>
           </DialogHeader>
 
           {exitConfirmDialog.item && (
-            <div className="space-y-4">
-              <div className="rounded-xl border bg-muted/20 p-2.5">
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="break-all font-mono text-xl font-semibold tracking-[0.12em] text-foreground sm:text-[1.4rem]">{exitConfirmDialog.correctedPlate || exitConfirmDialog.item.plate_number}</span>
-                      <Badge className={getExitStatusBadgeClass(exitConfirmDialog.item.status)}>{getExitStatusLabel(exitConfirmDialog.item.status)}</Badge>
-                      <Badge variant={exitConfirmDialog.item.candidate_visitors.length > 0 ? 'default' : 'outline'}>
-                        {exitConfirmDialog.item.candidate_visitors.length > 0 ? 'Актуальный визит найден' : 'Нужно выбрать ТС'}
-                      </Badge>
-                      {exitConfirmDialog.item.recognition_confidence != null && <Badge className={getConfidenceBadgeClass(exitConfirmDialog.item.recognition_confidence)}>Точность {exitConfirmDialog.item.recognition_confidence}%</Badge>}
-                    </div>
-                    <div className="text-xs leading-5 text-muted-foreground">
-                      Если камера неверно распознала номер, измените поле поиска и выберите нужное ТС на территории.
-                    </div>
-                  </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="space-y-2 p-3">
 
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {renderSummaryTile('Разрешение на выезд', selectedExitSystemCandidate
+                {/* Плашка: номер + статусные бейджи */}
+                <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/20 px-2.5 py-2">
+                  <span className="mr-1 font-mono text-lg font-bold tracking-[0.12em]">{exitConfirmDialog.correctedPlate || exitConfirmDialog.item.plate_number}</span>
+                  <Badge className={getExitStatusBadgeClass(exitConfirmDialog.item.status)}>{getExitStatusLabel(exitConfirmDialog.item.status)}</Badge>
+                  <Badge variant={exitConfirmDialog.item.candidate_visitors.length > 0 ? 'default' : 'outline'} className="text-xs">
+                    {exitConfirmDialog.item.candidate_visitors.length > 0 ? 'Визит найден' : 'Нет кандидатов'}
+                  </Badge>
+                  {exitConfirmDialog.item.recognition_confidence != null && (
+                    <Badge className={`text-xs ${getConfidenceBadgeClass(exitConfirmDialog.item.recognition_confidence)}`}>
+                      {exitConfirmDialog.item.recognition_confidence}%
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Компактная сводка: 3 плитки */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {renderCompactSummaryTile('Разрешение',
+                    selectedExitSystemCandidate
                       ? (selectedExitSystemCandidate.exit_permit_required
-                        ? selectedExitSystemCandidate.has_active_exit_permit ? 'Разрешение активно' : 'Нужно разрешение'
-                        : 'Выезд свободный')
+                        ? selectedExitSystemCandidate.has_active_exit_permit ? 'Активно' : 'Нужно'
+                        : 'Свободный')
                       : selectedExitTerritoryVisitor
                         ? (selectedExitTerritoryVisitor.exit_permit_required
-                          ? selectedExitTerritoryVisitor.has_active_exit_permit ? 'Разрешение активно' : 'Нужно разрешение'
-                          : 'Выезд свободный')
-                        : 'Не выбрано', (selectedExitSystemCandidate?.has_active_exit_permit || selectedExitTerritoryVisitor?.has_active_exit_permit) ? 'text-emerald-700' : 'text-muted-foreground')}
-                    {renderSummaryTile('Шлагбаум', exitConfirmDialog.item.can_open_barrier ? (exitConfirmDialog.openBarrier ? 'Открыть после подтверждения' : 'Доступно') : 'Недоступно', exitConfirmDialog.item.can_open_barrier ? (exitConfirmDialog.openBarrier ? 'text-sky-700' : 'text-foreground') : 'text-muted-foreground')}
-                    {renderSummaryTile('Ручной override', exitConfirmDialog.overrideExitPermit ? 'Включён' : 'Не используется', exitConfirmDialog.overrideExitPermit ? 'text-amber-700' : 'text-muted-foreground')}
-                  </div>
+                          ? selectedExitTerritoryVisitor.has_active_exit_permit ? 'Активно' : 'Нужно'
+                          : 'Свободный')
+                        : '—',
+                    (selectedExitSystemCandidate?.has_active_exit_permit || selectedExitTerritoryVisitor?.has_active_exit_permit) ? 'text-emerald-700' : 'text-muted-foreground')}
+                  {renderCompactSummaryTile('Шлагбаум',
+                    exitConfirmDialog.item.can_open_barrier
+                      ? (exitConfirmDialog.openBarrier ? 'Открыть' : 'Доступен')
+                      : 'Нет',
+                    exitConfirmDialog.item.can_open_barrier ? (exitConfirmDialog.openBarrier ? 'text-sky-700' : 'text-foreground') : 'text-muted-foreground')}
+                  {renderCompactSummaryTile('Действие',
+                    exitConfirmDialog.releaseWithoutVisit ? 'Без визита' : exitConfirmDialog.overrideExitPermit ? 'Override' : 'Стандарт',
+                    exitConfirmDialog.releaseWithoutVisit ? 'text-red-700' : exitConfirmDialog.overrideExitPermit ? 'text-amber-700' : 'text-muted-foreground')}
                 </div>
-              </div>
 
-              <div className="rounded-xl border p-2.5">
-                <div className="mb-3 text-sm font-medium text-foreground">Поиск по номеру</div>
-                <Input className="h-9" value={exitConfirmDialog.correctedPlate} onChange={(event) => setExitConfirmDialog((current) => ({ ...current, correctedPlate: event.target.value.toUpperCase() }))} />
-              </div>
+                {/* Поиск по номеру */}
+                <Input
+                  className="h-8 text-sm"
+                  value={exitConfirmDialog.correctedPlate}
+                  onChange={(event) => setExitConfirmDialog((current) => ({ ...current, correctedPlate: event.target.value.toUpperCase() }))}
+                  placeholder="Поиск по номеру..."
+                />
 
-              <div className="space-y-3">
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-foreground">Подобранные системой визиты</div>
-                    {manualSearchLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  </div>
-
-                  {manualSearchResults.length > 0 ? (
-                    <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+                {/* Подобранные системой (только если есть) */}
+                {manualSearchResults.length > 0 && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/30">
+                    <div className="flex items-center justify-between border-b border-blue-200 px-2.5 py-1.5">
+                      <span className="text-xs font-medium text-blue-700">Подобранные системой</span>
+                      {manualSearchLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                    </div>
+                    <div className="max-h-36 space-y-px overflow-y-auto p-1">
                       {manualSearchResults.map((candidate) => {
                         const exitPermitComment = getExitPermitComment(candidate);
 
@@ -2411,43 +2411,38 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                             key={candidate.visitor_id}
                             type="button"
                             onClick={() => setExitConfirmDialog((current) => ({ ...current, selectedVisitorId: candidate.visitor_id }))}
-                            className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${exitConfirmDialog.selectedVisitorId === candidate.visitor_id ? 'border-orange-500 bg-orange-50' : 'hover:bg-muted/40'}`}
+                            className={`w-full rounded-md border px-2.5 py-1.5 text-left transition-colors ${exitConfirmDialog.selectedVisitorId === candidate.visitor_id ? 'border-orange-400 bg-orange-50' : 'hover:bg-white/80'}`}
                           >
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div className="space-y-1">
-                                <div className="font-mono text-base font-semibold tracking-wide text-foreground">{candidate.plate_number}</div>
-                                <div className="text-sm text-muted-foreground">Въезд: {formatDateTime(candidate.entry_date)}</div>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {candidate.task_name && <Badge variant="outline">{candidate.task_name}</Badge>}
-                                {candidate.exit_permit_required ? (
-                                  candidate.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение</Badge>
-                                ) : <Badge variant="outline">Выезд свободный</Badge>}
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-sm font-semibold">{candidate.plate_number}</span>
+                              <div className="flex shrink-0 gap-1.5">
+                                {candidate.task_name && <Badge variant="outline" className="text-[10px]">{candidate.task_name}</Badge>}
+                                {candidate.exit_permit_required
+                                  ? candidate.has_active_exit_permit
+                                    ? <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">Выезд ✓</Badge>
+                                    : <Badge variant="outline" className="border-amber-200 text-amber-700 text-[10px]">Нужно</Badge>
+                                  : <Badge variant="outline" className="text-[10px]">Свободный</Badge>}
                               </div>
                             </div>
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">Въезд {formatDateTime(candidate.entry_date)}</div>
                             {exitPermitComment && (
-                              <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-                                <div className="font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
-                                <div className="mt-1 whitespace-pre-wrap break-words">{exitPermitComment}</div>
-                              </div>
+                              <div className="mt-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">{exitPermitComment}</div>
                             )}
                           </button>
                         );
                       })}
                     </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Подходящих активных визитов не найдено.</div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-foreground">Все ТС на территории</div>
-                    {loadingExitTerritoryVisitors && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                   </div>
+                )}
 
+                {/* Все ТС на территории */}
+                <div className="rounded-lg border">
+                  <div className="flex items-center justify-between border-b px-2.5 py-1.5">
+                    <span className="text-xs font-medium">Все ТС на территории</span>
+                    {loadingExitTerritoryVisitors && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                  </div>
                   {prioritizedExitTerritoryVisitors.length > 0 ? (
-                    <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                    <div className="max-h-56 space-y-px overflow-y-auto p-1">
                       {prioritizedExitTerritoryVisitors.map((visitor) => {
                         const exitPermitComment = visitor.exit_permit?.comment?.trim();
                         const isPriorityMatch = normalizePlateNumber(exitConfirmDialog.correctedPlate)
@@ -2469,91 +2464,105 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                             key={visitor.id}
                             type="button"
                             onClick={() => setExitConfirmDialog((current) => ({ ...current, selectedVisitorId: visitor.id }))}
-                            className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${exitConfirmDialog.selectedVisitorId === visitor.id ? 'border-orange-500 bg-orange-50' : 'hover:bg-muted/40'} ${!isPriorityMatch ? 'opacity-75' : ''}`}
+                            className={`w-full rounded-md border px-2.5 py-1.5 text-left transition-colors ${exitConfirmDialog.selectedVisitorId === visitor.id ? 'border-orange-400 bg-orange-50' : 'hover:bg-muted/40'} ${!isPriorityMatch ? 'opacity-60' : ''}`}
                           >
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div className="space-y-1">
-                                <div className="font-mono text-base font-semibold tracking-wide text-foreground">{visitor.plate_number}</div>
-                                <div className="text-sm text-muted-foreground">
-                                  Въезд: {formatDateTime(visitor.entry_date)}
-                                  {visitor.user_name ? ` • ${visitor.user_name}` : ''}
-                                </div>
-                                {(visitor.name || visitor.truck_model_name) && (
-                                  <div className="text-xs text-muted-foreground">{visitor.name || visitor.truck_model_name}</div>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {!isPriorityMatch && normalizePlateNumber(exitConfirmDialog.correctedPlate) && <Badge variant="outline">Другие ТС</Badge>}
-                                {visitor.exit_permit_required ? (
-                                  visitor.has_active_exit_permit ? <Badge className="bg-emerald-100 text-emerald-700">Выезд разрешён</Badge> : <Badge variant="outline">Нужно разрешение</Badge>
-                                ) : <Badge variant="outline">Выезд свободный</Badge>}
-                                <Badge variant="outline">{visitor.status_name}</Badge>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-sm font-semibold">{visitor.plate_number}</span>
+                              <div className="flex shrink-0 flex-wrap gap-1">
+                                {!isPriorityMatch && normalizePlateNumber(exitConfirmDialog.correctedPlate) && <Badge variant="outline" className="text-[10px]">Другой</Badge>}
+                                {visitor.exit_permit_required
+                                  ? visitor.has_active_exit_permit
+                                    ? <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">Выезд ✓</Badge>
+                                    : <Badge variant="outline" className="border-amber-200 text-amber-700 text-[10px]">Нужно</Badge>
+                                  : <Badge variant="outline" className="text-[10px]">Свободный</Badge>}
                               </div>
                             </div>
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">
+                              Въезд {formatDateTime(visitor.entry_date)}
+                              {visitor.user_name ? ` · ${visitor.user_name}` : ''}
+                              {(visitor.name || visitor.truck_model_name) ? ` · ${visitor.name || visitor.truck_model_name}` : ''}
+                            </div>
                             {exitPermitComment && (
-                              <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-                                <div className="font-medium text-emerald-900">Комментарий к разрешению на выезд</div>
-                                <div className="mt-1 whitespace-pre-wrap break-words">{exitPermitComment}</div>
-                              </div>
+                              <div className="mt-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">{exitPermitComment}</div>
                             )}
                           </button>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">ТС на территории не найдено.</div>
+                    <div className="px-2.5 py-2 text-xs text-muted-foreground">ТС на территории не найдено.</div>
                   )}
                 </div>
 
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 text-sm font-medium text-foreground">Шлагбаум</div>
-                  <label className={`flex items-start gap-3 rounded-xl border px-3 py-2 text-sm ${exitConfirmDialog.item.can_open_barrier ? 'hover:bg-muted/30' : 'opacity-60'}`}>
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={exitConfirmDialog.openBarrier}
-                      onChange={(event) => setExitConfirmDialog((current) => ({ ...current, openBarrier: event.target.checked }))}
-                      disabled={!exitConfirmDialog.item.can_open_barrier}
-                    />
-                    <span>
-                      Открыть шлагбаум после подтверждения выезда
-                      <span className="block text-xs text-muted-foreground">Команда будет отправлена на выездное устройство текущего события DSS.</span>
-                    </span>
-                  </label>
-                </div>
-
-                <div className="rounded-xl border p-2.5">
-                  <div className="mb-3 text-sm font-medium text-foreground">Ручной выпуск без разрешения</div>
-                  <label className="flex items-start gap-3 rounded-xl border px-3 py-2 text-sm hover:bg-muted/30">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={exitConfirmDialog.overrideExitPermit}
-                      onChange={(event) => setExitConfirmDialog((current) => ({ ...current, overrideExitPermit: event.target.checked }))}
-                    />
-                    <span>
-                      Подтвердить выезд без разрешения
-                      <span className="block text-xs text-muted-foreground">Причина будет сохранена в событии выезда.</span>
-                    </span>
-                  </label>
-                  {exitConfirmDialog.overrideExitPermit && (
+                {/* Компактный блок действий */}
+                <div className="rounded-lg border p-2">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    <label className={`flex cursor-pointer items-center gap-1.5 text-xs ${exitConfirmDialog.item.can_open_barrier ? '' : 'cursor-not-allowed opacity-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={exitConfirmDialog.openBarrier}
+                        onChange={(event) => setExitConfirmDialog((current) => ({ ...current, openBarrier: event.target.checked }))}
+                        disabled={!exitConfirmDialog.item.can_open_barrier}
+                      />
+                      Открыть шлагбаум
+                    </label>
+                    <label className={`flex cursor-pointer items-center gap-1.5 text-xs ${exitConfirmDialog.releaseWithoutVisit ? 'pointer-events-none opacity-40' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={exitConfirmDialog.overrideExitPermit}
+                        onChange={(event) => setExitConfirmDialog((current) => ({ ...current, overrideExitPermit: event.target.checked }))}
+                        disabled={exitConfirmDialog.releaseWithoutVisit}
+                      />
+                      Без разрешения на выезд
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-red-700">
+                      <input
+                        type="checkbox"
+                        checked={exitConfirmDialog.releaseWithoutVisit}
+                        onChange={(event) => setExitConfirmDialog((current) => ({
+                          ...current,
+                          releaseWithoutVisit: event.target.checked,
+                          selectedVisitorId: event.target.checked ? null : current.selectedVisitorId,
+                        }))}
+                      />
+                      ТС без визита (въезд без камеры)
+                    </label>
+                  </div>
+                  {exitConfirmDialog.overrideExitPermit && !exitConfirmDialog.releaseWithoutVisit && (
                     <textarea
-                      className="mt-3 min-h-16 w-full rounded-xl border bg-background px-3 py-2 text-sm"
+                      className="mt-2 min-h-12 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs"
                       value={exitConfirmDialog.overrideReason}
                       onChange={(event) => setExitConfirmDialog((current) => ({ ...current, overrideReason: event.target.value }))}
-                      placeholder="Причина ручного выпуска без разрешения"
+                      placeholder="Причина выпуска без разрешения"
+                    />
+                  )}
+                  {exitConfirmDialog.releaseWithoutVisit && (
+                    <textarea
+                      className="mt-2 min-h-12 w-full rounded-md border border-red-200 bg-background px-2.5 py-1.5 text-xs"
+                      value={exitConfirmDialog.releaseReason}
+                      onChange={(event) => setExitConfirmDialog((current) => ({ ...current, releaseReason: event.target.value }))}
+                      placeholder="Причина: въезд через запасные ворота, нет камеры..."
                     />
                   )}
                 </div>
+
               </div>
             </div>
           )}
 
-          <DialogFooter className="gap-2 border-t pt-2 sm:justify-between">
-            <Button type="button" variant="outline" className="h-9 sm:min-w-28" onClick={closeExitConfirmDialog}>Отмена</Button>
-            <Button type="button" className="h-9 sm:min-w-40" onClick={handleConfirmExit} disabled={!exitConfirmDialog.selectedVisitorId || processingExitReviewId === exitConfirmDialog.item?.review_id}>
+          <DialogFooter className="shrink-0 gap-2 border-t px-3 py-2 sm:justify-between">
+            <Button type="button" variant="outline" className="h-8 sm:min-w-24" onClick={closeExitConfirmDialog}>Отмена</Button>
+            <Button
+              type="button"
+              className={`h-8 sm:min-w-36 ${exitConfirmDialog.releaseWithoutVisit ? 'bg-red-600 hover:bg-red-700' : ''}`}
+              onClick={handleConfirmExit}
+              disabled={
+                processingExitReviewId === exitConfirmDialog.item?.review_id ||
+                (!exitConfirmDialog.releaseWithoutVisit && !exitConfirmDialog.selectedVisitorId)
+              }
+            >
               {processingExitReviewId === exitConfirmDialog.item?.review_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Подтвердить выезд
+              {exitConfirmDialog.releaseWithoutVisit ? 'Выпустить без визита' : 'Подтвердить выезд'}
             </Button>
           </DialogFooter>
         </DialogContent>
