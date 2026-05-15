@@ -1957,15 +1957,6 @@ function TelegramMiniApp() {
         void loadSpectechRequests();
     }, [view, loadSpectechRequests]);
 
-    const handleSpectechCreated = useCallback(async () => {
-        await loadSpectechRequests();
-        if (session?.can_manage_spectech) {
-            await loadOperatorSpectechRequests();
-        }
-        setSelectedSpectechRequest(null);
-        setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');
-    }, [loadOperatorSpectechRequests, loadSpectechRequests, session?.can_manage_spectech, spectechEditSource]);
-
     const loadOperatorSpectechRequests = useCallback(async () => {
         if (!initData || !session?.can_manage_spectech) return;
         setOperatorSpectechLoading(true);
@@ -1986,6 +1977,15 @@ function TelegramMiniApp() {
             setOperatorSpectechLoading(false);
         }
     }, [initData, session?.can_manage_spectech, operatorSpectechStatusFilter]);
+
+    const handleSpectechCreated = useCallback(async () => {
+        await loadSpectechRequests();
+        if (session?.can_manage_spectech) {
+            await loadOperatorSpectechRequests();
+        }
+        setSelectedSpectechRequest(null);
+        setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');
+    }, [loadOperatorSpectechRequests, loadSpectechRequests, session?.can_manage_spectech, spectechEditSource]);
 
     useEffect(() => {
         if (view !== 'spectech-operator' || !initData || !session?.can_manage_spectech) return;
