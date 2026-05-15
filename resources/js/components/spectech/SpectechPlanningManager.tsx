@@ -326,92 +326,200 @@ const CreateForm: React.FC<CreateFormProps> = ({ equipmentTypes, onCreated, onCo
 
 // ─── Таймлайн (Gantt) ─────────────────────────────────────────────────────────
 
+type GanttRange = 'day' | 'week' | 'month';
+
 interface GanttProps {
     schedules: ScheduleItem[];
     equipmentTypes: EquipmentType[];
+    range: GanttRange;
 }
 
-const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes }) => {
-    const active = useMemo(
-        () => schedules.filter(s => s.status !== 'cancelled' && s.status !== 'done'),
-        [schedules],
+function getGanttBounds(range: GanttRange): { start: number; end: number } {
+    const now = new Date();
+    if (range === 'day') {
+        return {
+            start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime(),
+            end:   new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime(),
+        };
+    }
+    if (range === 'week') {
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+        monday.setHours(0, 0, 0, 0);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23, 59, 59, 999);
+        return { start: monday.getTime(), end: sunday.getTime() };
+    }
+    return {
+        start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0).getTime(),
+        end:   new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime(),
+    };
+}
+
+function getGanttTicks(range: GanttRange, rangeStart: number, rangeEnd: number) {
+    const total = rangeEnd - rangeStart;
+    const ticks: { pct: number; label: string; isDay?: boolean }[] = [];
+    if (range === 'day') {
+        for (let h = 0; h <= 24; h += 2) {
+            const t = new Date(rangeStart);
+            t.setHours(h, 0, 0, 0);
+            const pct = ((t.getTime() - rangeStart) / total) * 100;
+            if (pct >= 0 && pct <= 100.1)
+                ticks.push({ pct, label: `${String(h).padStart(2, '0')}:00` });
+        }
+    } else if (range === 'week') {
+        const DAYS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+        const cur = new Date(rangeStart);
+        while (cur.getTime() <= rangeEnd) {
+            ticks.push({ pct: ((cur.getTime() - rangeStart) / total) * 100, label: `${DAYS[cur.getDay()]} ${cur.getDate()}`, isDay: true });
+            cur.setDate(cur.getDate() + 1);
+        }
+    } else {
+        const cur = new Date(rangeStart);
+        while (cur.getTime() <= rangeEnd) {
+            ticks.push({ pct: ((cur.getTime() - rangeStart) / total) * 100, label: `${cur.getDate()}.${String(cur.getMonth() + 1).padStart(2, '0')}`, isDay: true });
+            cur.setDate(cur.getDate() + 7);
+        }
+    }
+    return ticks;
+}
+
+const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes, range }) => {
+    const [tooltip, setTooltip] = useState<{ lines: string[]; x: number; y: number } | null>(null);
+
+    const { start: rangeStart, end: rangeEnd } = useMemo(() => getGanttBounds(range), [range]);
+    const total = rangeEnd - rangeStart;
+    const nowPct = ((Date.now() - rangeStart) / total) * 100;
+    const ticks  = useMemo(() => getGanttTicks(range, rangeStart, rangeEnd), [range, rangeStart, rangeEnd]);
+
+    const inRange = (s: ScheduleItem) =>
+        new Date(s.scheduled_end).getTime() >= rangeStart && new Date(s.scheduled_start).getTime() <= rangeEnd;
+
+    const visible = useMemo(
+        () => schedules.filter(s => s.status !== 'cancelled' && inRange(s)),
+        [schedules, rangeStart, rangeEnd],
     );
 
-    if (active.length === 0) {
-        return <div className="py-8 text-center text-muted-foreground text-sm">Нет активных записей расписания</div>;
-    }
+    const clampLeft  = (iso: string) => Math.max(0, Math.min(100, ((new Date(iso).getTime() - rangeStart) / total) * 100));
+    const clampWidth = (s: string, e: string) => {
+        const l = (new Date(s).getTime() - rangeStart) / total * 100;
+        const r = (new Date(e).getTime() - rangeStart) / total * 100;
+        return Math.max(0.4, Math.min(100, r) - Math.max(0, l));
+    };
 
-    // Определяем временной диапазон
-    const starts = active.map(s => new Date(s.scheduled_start).getTime());
-    const ends   = active.map(s => new Date(s.scheduled_end).getTime());
-
-    const rangeStart = Math.min(...starts);
-    const rangeEnd   = Math.max(...ends);
-    const total      = rangeEnd - rangeStart || 1;
-
-    const getLeft  = (iso: string) => ((new Date(iso).getTime() - rangeStart) / total) * 100;
-    const getWidth = (s: string, e: string) => Math.max(((new Date(e).getTime() - new Date(s).getTime()) / total) * 100, 2);
-
-    // Группируем по типу техники
-    const grouped = useMemo(() => {
-        const map = new Map<string, ScheduleItem[]>();
-        for (const s of active) {
-            const arr = map.get(s.equipment_type_key) ?? [];
-            arr.push(s);
-            map.set(s.equipment_type_key, arr);
-        }
-        return map;
-    }, [active]);
+    const LABEL_W = 116;
+    const ROW_H   = 34;
 
     return (
-        <div className="overflow-x-auto">
-            <div className="min-w-[600px]">
-                {/* Заголовок шкалы: 5 меток */}
-                <div className="relative h-6 mb-1 ml-28 border-b border-border">
-                    {[0, 25, 50, 75, 100].map(pct => {
-                        const t = new Date(rangeStart + (total * pct) / 100);
-                        return (
-                            <span
-                                key={pct}
-                                className="absolute -translate-x-1/2 text-[10px] text-muted-foreground"
-                                style={{ left: `${pct}%` }}
-                            >
-                                {t.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}
-                            </span>
-                        );
-                    })}
+        <div className="relative select-none" onMouseLeave={() => setTooltip(null)}>
+            {/* Floating tooltip */}
+            {tooltip && (
+                <div
+                    className="fixed z-50 max-w-xs rounded-lg border border-border bg-white shadow-xl px-3 py-2 text-xs text-[#1A1A1A] pointer-events-none"
+                    style={{ left: tooltip.x + 14, top: tooltip.y - 6 }}
+                >
+                    {tooltip.lines.map((ln, i) => <div key={i} className={i === 0 ? 'font-semibold' : 'text-muted-foreground mt-0.5'}>{ln}</div>)}
                 </div>
+            )}
 
-                {/* Ряды по типам и единицам */}
-                {Array.from(grouped.entries()).map(([typeKey, items]) => {
-                    const typeLabel = items[0]?.equipment_type_label ?? typeKey;
+            <div className="overflow-x-auto">
+                <div style={{ minWidth: 640 }}>
+                    {/* Time axis */}
+                    <div className="flex" style={{ paddingLeft: LABEL_W }}>
+                        <div className="relative flex-1 border-b border-border" style={{ height: 26 }}>
+                            {ticks.map((tick, i) => (
+                                <span
+                                    key={i}
+                                    className="absolute -translate-x-1/2 bottom-1 text-[10px] text-muted-foreground whitespace-nowrap"
+                                    style={{ left: `${tick.pct}%` }}
+                                >
+                                    {tick.label}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
 
-                    // Собираем уникальные машины
-                    const trucks = equipmentTypes.find(t => t.key === typeKey)?.trucks ?? [];
+                    {/* Equipment rows */}
+                    {equipmentTypes.map(et => (
+                        <div key={et.key}>
+                            {/* Group header */}
+                            <div
+                                className="flex items-center gap-1.5 bg-muted/50 border-b border-t border-border/50"
+                                style={{ height: 22, paddingLeft: 8 }}
+                            >
+                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">{et.label}</span>
+                            </div>
 
-                    return (
-                        <div key={typeKey} className="mb-3">
-                            <div className="text-xs font-semibold text-muted-foreground mb-1">{typeLabel}</div>
-                            {trucks.map(truck => {
-                                const truckItems = items.filter(s => s.truck_id === truck.id);
+                            {et.trucks.map(truck => {
+                                const items = visible.filter(s => s.equipment_type_key === et.key && s.truck_id === truck.id);
                                 return (
-                                    <div key={truck.id} className="flex items-center mb-1 gap-2">
-                                        <div className="w-28 flex-shrink-0 text-[11px] text-right text-muted-foreground truncate pr-2">
-                                            {truck.name}
+                                    <div key={truck.id} className="flex items-center border-b border-border/20 hover:bg-muted/10 transition-colors">
+                                        {/* Truck label */}
+                                        <div
+                                            className="flex-shrink-0 px-2 text-[11px] text-right text-muted-foreground truncate"
+                                            style={{ width: LABEL_W }}
+                                            title={`${truck.name}${truck.plate_number ? ` · ${truck.plate_number}` : ''}`}
+                                        >
+                                            <div className="truncate">{truck.name}</div>
+                                            {truck.plate_number && (
+                                                <div className="text-[9px] text-muted-foreground/60 truncate">{truck.plate_number}</div>
+                                            )}
                                         </div>
-                                        <div className="flex-1 relative h-7 bg-muted/30 rounded overflow-hidden border border-border/50">
-                                            {truckItems.map(s => {
-                                                const left  = getLeft(s.scheduled_start);
-                                                const width = getWidth(s.scheduled_start, s.scheduled_end);
+
+                                        {/* Bar lane */}
+                                        <div className="relative flex-1 bg-muted/20" style={{ height: ROW_H }}>
+                                            {/* Grid verticals */}
+                                            {ticks.map((tick, i) => (
+                                                <div
+                                                    key={i}
+                                                    className="absolute inset-y-0 border-l"
+                                                    style={{ left: `${tick.pct}%`, borderColor: tick.isDay ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.05)' }}
+                                                />
+                                            ))}
+
+                                            {/* "Now" line */}
+                                            {nowPct >= 0 && nowPct <= 100 && (
+                                                <div
+                                                    className="absolute inset-y-0 w-0.5 bg-red-500/70 z-10"
+                                                    style={{ left: `${nowPct}%` }}
+                                                />
+                                            )}
+
+                                            {/* Bars */}
+                                            {items.map(s => {
+                                                const left  = clampLeft(s.scheduled_start);
+                                                const width = clampWidth(s.scheduled_start, s.scheduled_end);
                                                 const col   = STATUS_COLORS[s.status] ?? STATUS_COLORS.pending;
                                                 return (
                                                     <div
                                                         key={s.id}
-                                                        title={`${s.purpose}\n${fmtDt(s.scheduled_start)} – ${fmtDt(s.scheduled_end)}`}
-                                                        className="absolute top-0.5 bottom-0.5 rounded text-[10px] flex items-center px-1 overflow-hidden cursor-default"
-                                                        style={{ left: `${left}%`, width: `${width}%`, background: col.bg, color: col.text, borderLeft: `2px solid ${col.border}` }}
+                                                        className="absolute top-1.5 bottom-1.5 rounded flex items-center px-1.5 overflow-hidden cursor-pointer hover:brightness-95 transition-all"
+                                                        style={{
+                                                            left: `${left}%`,
+                                                            width: `${width}%`,
+                                                            background: col.bg,
+                                                            color: col.text,
+                                                            borderLeft: `3px solid ${col.border}`,
+                                                            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                                                        }}
+                                                        onMouseEnter={e => {
+                                                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                            setTooltip({
+                                                                x: r.left,
+                                                                y: r.top,
+                                                                lines: [
+                                                                    `#${s.id} · ${s.status_label}`,
+                                                                    s.purpose,
+                                                                    `${fmtDt(s.scheduled_start)} → ${fmtDt(s.scheduled_end)}`,
+                                                                    ...(s.address ? [`📍 ${s.address}`] : []),
+                                                                    ...(s.client_name ? [`👤 ${s.client_name}`] : []),
+                                                                ],
+                                                            });
+                                                        }}
+                                                        onMouseLeave={() => setTooltip(null)}
                                                     >
-                                                        <span className="truncate">{s.purpose}</span>
+                                                        <span className="truncate text-[10px] font-medium leading-none">{s.purpose}</span>
                                                     </div>
                                                 );
                                             })}
@@ -420,8 +528,26 @@ const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes }) => {
                                 );
                             })}
                         </div>
-                    );
-                })}
+                    ))}
+
+                    {visible.length === 0 && (
+                        <div className="py-10 text-center text-sm text-muted-foreground">Нет записей на выбранный период</div>
+                    )}
+                </div>
+            </div>
+
+            {/* Legend + now indicator */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px]">
+                {Object.entries(STATUS_COLORS).map(([key, col]) => (
+                    <div key={key} className="flex items-center gap-1">
+                        <div className="w-3 h-3 rounded-sm" style={{ background: col.bg, borderLeft: `2px solid ${col.border}` }} />
+                        <span className="text-muted-foreground">{STATUS_LABELS[key]}</span>
+                    </div>
+                ))}
+                <div className="flex items-center gap-1">
+                    <div className="w-0.5 h-3 bg-red-500/70 rounded-full" />
+                    <span className="text-muted-foreground">Сейчас</span>
+                </div>
             </div>
         </div>
     );
@@ -591,6 +717,7 @@ const SpectechPlanningManager: React.FC = () => {
     const [view, setView] = useState<'list' | 'gantt' | 'calendar'>('list');
     const [statusFilter, setStatusFilter] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [ganttRange, setGanttRange] = useState<GanttRange>('week');
     const [conflictResult, setConflictResult] = useState<BookingResult | null>(null);
     const [toast, setToast] = useState('');
 
@@ -787,11 +914,13 @@ const SpectechPlanningManager: React.FC = () => {
             )}
 
             {/* Статистика */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {stats.map(s => (
-                    <div key={s.label} className="rounded-lg border border-border bg-card p-3">
-                        <div className="text-[11px] text-muted-foreground">{s.label}</div>
-                        <div className={`mt-1 text-2xl font-semibold ${s.tone}`}>{s.value}</div>
+                    <div key={s.label} className="rounded-lg border border-border bg-card px-3 py-2 flex items-center gap-2.5">
+                        <div>
+                            <div className={`text-xl font-bold leading-none ${s.tone}`}>{s.value}</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{s.label}</div>
+                        </div>
                     </div>
                 ))}
             </div>
@@ -812,6 +941,20 @@ const SpectechPlanningManager: React.FC = () => {
                     </button>
                 ))}
                 <div className="ml-auto flex items-center gap-2">
+                    {/* Gantt range filter */}
+                    {view === 'gantt' && (
+                        <div className="flex rounded-md border border-border overflow-hidden">
+                            {(['day', 'week', 'month'] as GanttRange[]).map((r, i) => (
+                                <button
+                                    key={r}
+                                    onClick={() => setGanttRange(r)}
+                                    className={`h-7 px-3 text-xs ${i > 0 ? 'border-l border-border' : ''} ${ganttRange === r ? 'bg-red-600 text-white' : 'bg-background hover:bg-muted/50'}`}
+                                >
+                                    {{ day: 'День', week: 'Неделя', month: 'Месяц' }[r]}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <div className="relative">
                         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                         <input
@@ -852,7 +995,7 @@ const SpectechPlanningManager: React.FC = () => {
                 {loading && <p className="text-[12.5px] text-muted-foreground">Загрузка...</p>}
 
                 {!loading && view === 'gantt' && (
-                    <GanttView schedules={visible} equipmentTypes={equipmentTypes} />
+                    <GanttView schedules={visible} equipmentTypes={equipmentTypes} range={ganttRange} />
                 )}
 
                 {!loading && view === 'calendar' && (
