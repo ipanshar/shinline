@@ -1,4 +1,5 @@
 import PhotoGallery from '@/components/spectech/PhotoGallery';
+import NewRequestModal from '@/components/spectech/NewRequestModal';
 import { type SpectechRequestData } from '@/components/spectech/RequestCard';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
@@ -7,6 +8,8 @@ import { Head } from '@inertiajs/react';
 import axios from 'axios';
 import { ChevronDown, ChevronUp, LayoutDashboard, RefreshCw, Search, TimerReset } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { XCircle } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Спецтехника', href: '/spectech/dashboard' },
@@ -58,6 +61,83 @@ function getCurrentStage(request: SpectechRequestData): string {
     return done.length > 0 ? done[done.length - 1].title : 'Заявка';
 }
 
+// ─── Gantt для панели оператора (упрощённый, но информативный) ─────────────────
+const GanttView: React.FC<{ requests: SpectechRequestData[] }> = ({ requests }) => {
+    const active = useMemo(() => requests.filter(r => r.requested_start && r.requested_end), [requests]);
+    if (active.length === 0) return <div className="py-8 text-center text-muted-foreground text-sm">Нет записей для Gantt</div>;
+
+    const starts = active.map(r => new Date(r.requested_start!).getTime());
+    const ends = active.map(r => new Date(r.requested_end!).getTime());
+
+    const rangeStart = Math.min(...starts);
+    const rangeEnd = Math.max(...ends);
+    const total = rangeEnd - rangeStart || 1;
+
+    const getLeft = (iso: string) => ((new Date(iso).getTime() - rangeStart) / total) * 100;
+    const getWidth = (s: string, e: string) => Math.max(((new Date(e).getTime() - new Date(s).getTime()) / total) * 100, 2);
+
+    const grouped = useMemo(() => {
+        const map = new Map<number, SpectechRequestData[]>();
+        for (const r of active) {
+            const arr = map.get(r.equipment_id) ?? [];
+            arr.push(r);
+            map.set(r.equipment_id, arr);
+        }
+        return map;
+    }, [active]);
+
+    return (
+        <div className="overflow-x-auto">
+            <div className="min-w-[600px]">
+                <div className="relative h-6 mb-1 ml-28 border-b border-border">
+                    {[0, 25, 50, 75, 100].map(pct => {
+                        const t = new Date(rangeStart + (total * pct) / 100);
+                        return (
+                            <span
+                                key={pct}
+                                className="absolute -translate-x-1/2 text-[10px] text-muted-foreground"
+                                style={{ left: `${pct}%` }}
+                            >
+                                {t.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        );
+                    })}
+                </div>
+
+                {Array.from(grouped.entries()).map(([equipId, items]) => {
+                    const label = items[0].equipment_name;
+
+                    return (
+                        <div key={equipId} className="mb-3">
+                            <div className="text-xs font-semibold text-muted-foreground mb-1">{label}</div>
+                            {items.map(req => {
+                                const left = getLeft(req.requested_start!);
+                                const width = getWidth(req.requested_start!, req.requested_end!);
+                                const st = STATUS_STYLES[req.status] ?? STATUS_STYLES.new;
+
+                                return (
+                                    <div key={req.id} className="flex items-center mb-1 gap-2">
+                                        <div className="w-28 flex-shrink-0 text-[11px] text-right text-muted-foreground truncate pr-2">#{req.id}</div>
+                                        <div className="flex-1 relative h-7 bg-muted/30 rounded overflow-hidden border border-border/50">
+                                            <div
+                                                title={`#${req.id} ${req.equipment_name}\n${req.client_name ?? ''}\n${req.driver_name ?? ''} ${req.driver_phone ?? ''}\n${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}\n${req.address}\n${req.comment ?? ''}`}
+                                                className="absolute top-0.5 bottom-0.5 rounded text-[10px] flex items-center px-1 overflow-hidden cursor-default"
+                                                style={{ left: `${left}%`, width: `${width}%`, background: st.bg, color: st.text, borderLeft: `2px solid ${st.border}` }}
+                                            >
+                                                <span className="truncate">{req.client_name ? `${req.client_name}` : req.equipment_name}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 export default function SpectechDashboard() {
     const [requests, setRequests] = useState<SpectechRequestData[]>([]);
     const [loading, setLoading] = useState(true);
@@ -66,6 +146,7 @@ export default function SpectechDashboard() {
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('');
+    const [viewMode, setViewMode] = useState<'list'|'gantt'>('gantt');
 
     const fetchRequests = useCallback(async () => {
         setLoading(true);
@@ -101,6 +182,55 @@ export default function SpectechDashboard() {
             setUpdatingId(null);
         }
     };
+
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editingRequest, setEditingRequest] = useState<SpectechRequestData | null>(null);
+
+    const handleSaved = async (saved?: SpectechRequestData) => {
+        const wasEditing = editingRequest !== null;
+
+        if (saved) {
+            setRequests((prev) => {
+                const exists = prev.some((item) => item.id === saved.id);
+                return exists ? prev.map((i) => (i.id === saved.id ? saved : i)) : [saved, ...prev];
+            });
+            setExpandedId(saved.id);
+        }
+
+        setEditingRequest(null);
+        setModalOpen(false);
+        await fetchRequests();
+    };
+
+    const openCreateModal = () => { setEditingRequest(null); setModalOpen(true); };
+    const openEditModal = (request: SpectechRequestData) => { setEditingRequest(request); setModalOpen(true); };
+
+    const [cancelModalOpen, setCancelModalOpen] = useState(false);
+    const [cancellingRequest, setCancellingRequest] = useState<SpectechRequestData | null>(null);
+    const [cancelLoading, setCancelLoading] = useState(false);
+
+    const openCancelModal = (request: SpectechRequestData) => {
+        setCancellingRequest(request);
+        setCancelModalOpen(true);
+    };
+
+    const handleCancel = async (reason: string) => {
+        if (!cancellingRequest) return;
+        setCancelLoading(true);
+        setUpdatingId(cancellingRequest.id);
+        try {
+            await axios.patch(`/spectech/api/requests/${cancellingRequest.id}/cancel`, { reason });
+            await fetchRequests();
+            setCancelModalOpen(false);
+            setCancellingRequest(null);
+        } catch (e: any) {
+            setMessage(e?.response?.data?.message || 'Ошибка при отмене');
+        } finally {
+            setUpdatingId(null);
+            setCancelLoading(false);
+        }
+    };
+
 
     const stats = [
         { label: 'Всего', value: requests.length, color: 'text-foreground' },
@@ -145,6 +275,20 @@ export default function SpectechDashboard() {
                             <Button variant="outline" size="sm" onClick={() => void fetchRequests()} disabled={loading}>
                                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                             </Button>
+                            <div className="flex rounded-md border border-[#E0E0E0] overflow-hidden">
+                                <button
+                                    onClick={() => setViewMode('list')}
+                                    className={`h-8 px-2.5 flex items-center gap-1 text-xs transition-colors ${viewMode === 'list' ? 'bg-red-600 text-white' : 'bg-white text-[#555] hover:bg-[#F5F5F5]'}`}
+                                >
+                                    Список
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('gantt')}
+                                    className={`h-8 px-2.5 flex items-center gap-1 text-xs border-l border-[#E0E0E0] transition-colors ${viewMode === 'gantt' ? 'bg-red-600 text-white' : 'bg-white text-[#555] hover:bg-[#F5F5F5]'}`}
+                                >
+                                    Gantt
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -194,7 +338,13 @@ export default function SpectechDashboard() {
                         </div>
                     )}
 
-                    {!loading && filteredRequests.length > 0 && (
+                    {!loading && viewMode === 'gantt' && (
+                        <div className="mb-3">
+                            <GanttView requests={filteredRequests} />
+                        </div>
+                    )}
+
+                    {!loading && viewMode === 'list' && filteredRequests.length > 0 && (
                         <div className="overflow-x-auto">
                             <table className="min-w-full border-collapse text-left text-[12.5px]">
                                 <thead>
@@ -321,6 +471,24 @@ export default function SpectechDashboard() {
                                                                     )}
                                                                     <p className="mb-2 text-xs text-[#2C2C2C]">{req.comment || 'Без комментария'}</p>
                                                                     <PhotoGallery photos={req.photos ?? []} compact />
+
+                                                                    <div className="mt-3 flex gap-2">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => openEditModal(req)}
+                                                                            className="h-8 rounded-md border px-3 text-[12px]"
+                                                                        >
+                                                                            Редактировать
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => openCancelModal(req)}
+                                                                            className="h-8 rounded-md bg-red-600 px-3 text-[12px] text-white hover:bg-red-700"
+                                                                        >
+                                                                            Отменить заявку
+                                                                        </button>
+                                                                    </div>
+
                                                                 </div>
                                                             </div>
                                                         </td>
@@ -334,6 +502,51 @@ export default function SpectechDashboard() {
                         </div>
                     )}
                 </section>
+
+                <NewRequestModal
+                    open={modalOpen}
+                    onClose={() => setModalOpen(false)}
+                    onSaved={handleSaved}
+                    initialRequest={editingRequest}
+                    isOperator
+                />
+
+                <Dialog open={cancelModalOpen} onOpenChange={(v) => !v && setCancelModalOpen(false)}>
+                    <DialogContent className="max-w-md p-0 gap-0">
+                        <DialogHeader className="border-b px-5 py-4">
+                            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+                                <XCircle className="h-4 w-4 text-red-600" />
+                                Отмена заявки
+                            </DialogTitle>
+                        </DialogHeader>
+                        <div className="px-5 py-4 flex flex-col gap-3">
+                            <p className="text-xs text-[#666]">Укажите причину отмены. Это поможет улучшить работу сервиса.</p>
+                            <textarea
+                                value={cancellingRequest?.cancellation_reason ?? ''}
+                                onChange={(e) => {/* local only - store in temp via state if needed */}}
+                                rows={3}
+                                placeholder="Причина отмены..."
+                                className="w-full rounded-lg border border-[#E0E0E0] px-3 py-2 text-sm focus:border-red-300 focus:ring-2 focus:ring-red-100 outline-none resize-none"
+                                id="dashboard-cancel-reason"
+                            />
+                            <div className="flex gap-2 justify-end">
+                                <Button variant="outline" size="sm" onClick={() => setCancelModalOpen(false)} disabled={cancelLoading}>Назад</Button>
+                                <Button
+                                    size="sm"
+                                    className="bg-red-600 hover:bg-red-700 text-white"
+                                    onClick={() => {
+                                        const reason = (document.getElementById('dashboard-cancel-reason') as HTMLTextAreaElement)?.value || '';
+                                        if (!reason.trim()) return;
+                                        void handleCancel(reason.trim());
+                                    }}
+                                    disabled={cancelLoading}
+                                >
+                                    {cancelLoading ? 'Отмена...' : 'Отменить заявку'}
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
             </div>
         </AppLayout>
     );

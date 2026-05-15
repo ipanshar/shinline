@@ -318,6 +318,7 @@ Route::get('/spectech/api/requests',                      [SpectechRequestContro
 Route::post('/spectech/api/requests',                     [SpectechRequestController::class, 'store'])->middleware('permission:spectech.view');
 Route::put('/spectech/api/requests/{id}',                 [SpectechRequestController::class, 'update'])->middleware('permission:spectech.view');
 Route::patch('/spectech/api/requests/{id}/status',        [SpectechRequestController::class, 'updateStatus'])->middleware('permission:spectech.manage');
+Route::patch('/spectech/api/requests/{id}/cancel',         [SpectechRequestController::class, 'cancel'])->middleware('permission:spectech.view');
 Route::post('/spectech/api/requests/from-schedule',       [SpectechRequestController::class, 'createFromSchedule'])->middleware('permission:spectech.view');
 Route::get('/spectech/api/requests/check-availability',   [SpectechRequestController::class, 'checkAvailability'])->middleware('permission:spectech.view');
 

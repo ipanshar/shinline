@@ -1216,11 +1216,13 @@ function SpectechCreateForm({
     onDone,
     onCancel,
     request,
+    isOperator = false,
 }: {
     initData: string;
     onDone: () => void | Promise<void>;
     onCancel: () => void;
     request?: SpectechRequestItem | null;
+    isOperator?: boolean;
 }) {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [truckId, setTruckId] = useState<number | ''>(request?.equipment_id ?? '');
@@ -1419,11 +1421,9 @@ function SpectechCreateForm({
         setBusy(true);
         setErr(null);
         try {
-            const payload = {
+            const payload: any = {
                 init_data: initData,
                 truck_id: truckId,
-                driver_name: driverName.trim() || null,
-                driver_phone: driverPhone.trim() || null,
                 requested_start: requestedStart,
                 requested_end: requestedEnd,
                 terminal: normalizedTerminal,
@@ -1433,6 +1433,11 @@ function SpectechCreateForm({
                 comment: comment.trim() || null,
                 photos,
             };
+
+            if (isOperator) {
+                payload.driver_name = driverName.trim() || null;
+                payload.driver_phone = driverPhone.trim() || null;
+            }
 
             if (request) {
                 await axios.put(`/api/telegram/miniapp/spectech/requests/${request.id}`, payload, {
@@ -1471,11 +1476,15 @@ function SpectechCreateForm({
                 ))}
             </select>
 
-            <label>Имя водителя</label>
-            <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Необязательно" />
+            {isOperator && (
+                <>
+                    <label>Имя водителя</label>
+                    <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Необязательно" />
 
-            <label>Телефон водителя</label>
-            <input style={inputStyle} type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+7..." />
+                    <label>Телефон водителя</label>
+                    <input style={inputStyle} type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+7..." />
+                </>
+            )}
 
             <label>Дата и время начала</label>
             <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
@@ -1618,11 +1627,13 @@ function SpectechRequestList({
     onCreate,
     onEdit,
     onBack,
+    onCancel,
 }: {
     requests: SpectechRequestItem[];
     onCreate: () => void;
     onEdit: (request: SpectechRequestItem) => void;
     onBack: () => void;
+    onCancel: (request: SpectechRequestItem) => void;
 }) {
     return (
         <>
@@ -1647,9 +1658,14 @@ function SpectechRequestList({
                     {request.comment && <div>Комментарий: {request.comment}</div>}
                     {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
-                    <button type="button" style={{ ...btnSecondary, marginTop: 8, marginBottom: 0 }} onClick={() => onEdit(request)}>
-                        Изменить заявку
-                    </button>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button type="button" style={{ ...btnSecondary, marginBottom: 0 }} onClick={() => onEdit(request)}>
+                            Изменить заявку
+                        </button>
+                        <button type="button" style={{ ...btnDanger, marginBottom: 0 }} onClick={() => onCancel(request)}>
+                            Отменить заявку
+                        </button>
+                    </div>
                 </div>
             ))}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
@@ -1764,6 +1780,33 @@ function TelegramMiniApp() {
     const [operatorSpectechLoading, setOperatorSpectechLoading] = useState(false);
     const [operatorSpectechError, setOperatorSpectechError] = useState<string | null>(null);
     const [operatorSpectechStatusFilter, setOperatorSpectechStatusFilter] = useState('');
+
+    // ── Cancel modal for spectech requests (Telegram) ──
+    const [tgCancelModalOpen, setTgCancelModalOpen] = useState(false);
+    const [tgCancellingRequest, setTgCancellingRequest] = useState<SpectechRequestItem | null>(null);
+    const [tgCancelLoading, setTgCancelLoading] = useState(false);
+    const [tgCancelReason, setTgCancelReason] = useState('');
+
+    const openTgCancel = (request: SpectechRequestItem) => {
+        setTgCancellingRequest(request);
+        setTgCancelReason('');
+        setTgCancelModalOpen(true);
+    };
+
+    const handleTgCancel = async () => {
+        if (!tgCancellingRequest || !tgCancelReason.trim()) return;
+        setTgCancelLoading(true);
+        try {
+            await axios.patch(`/api/telegram/miniapp/spectech/requests/${tgCancellingRequest.id}/cancel`, { init_data: initData, reason: tgCancelReason.trim() }, { headers: { 'X-Telegram-Init-Data': initData } });
+            setTgCancelModalOpen(false);
+            setTgCancellingRequest(null);
+            await loadSpectechRequests();
+        } catch (e: any) {
+            alert(e?.response?.data?.message || e?.message || 'Не удалось отменить заявку');
+        } finally {
+            setTgCancelLoading(false);
+        }
+    };
 
     useEffect(() => {
         const run = async () => {
@@ -2035,6 +2078,7 @@ function TelegramMiniApp() {
                     initData={initData}
                     onDone={handleSpectechCreated}
                     request={null}
+                    isOperator={session?.can_manage_spectech}
                     onCancel={() => {
                         setSelectedSpectechRequest(null);
                         setView('home');
@@ -2046,6 +2090,7 @@ function TelegramMiniApp() {
                     initData={initData}
                     onDone={handleSpectechCreated}
                     request={selectedSpectechRequest}
+                    isOperator={session?.can_manage_spectech}
                     onCancel={() => {
                         setSelectedSpectechRequest(null);
                         setView('spectech-requests');
@@ -2063,6 +2108,7 @@ function TelegramMiniApp() {
                         setSelectedSpectechRequest(request);
                         setView('spectech-edit');
                     }}
+                    onCancel={(request) => openTgCancel(request)}
                     onBack={() => setView('home')}
                 />
             )}
@@ -2139,9 +2185,23 @@ function TelegramMiniApp() {
                     onBack={() => setView('home')}
                 />
             )}
-        </Wrap>
-    );
-}
+                {/* Cancel modal (simple) */}
+                {tgCancelModalOpen && (
+                    <div style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                        <div style={{ width: 'min(520px, calc(100% - 32px))', background: '#fff', borderRadius: 12, padding: 16 }}>
+                            <h3 style={{ marginTop: 0 }}>Отмена заявки #{tgCancellingRequest?.id}</h3>
+                            <p style={{ color: '#666', fontSize: 13 }}>Укажите причину отмены. Эта информация будет сохранена.</p>
+                            <textarea value={tgCancelReason} onChange={(e) => setTgCancelReason(e.target.value)} rows={4} style={{ width: '100%', padding: 8, marginTop: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                <button style={{ ...btnSecondary, flex: 1 }} onClick={() => { setTgCancelModalOpen(false); setTgCancellingRequest(null); }} disabled={tgCancelLoading}>Отмена</button>
+                                <button style={{ ...btnDanger, flex: 1 }} onClick={() => void handleTgCancel()} disabled={tgCancelLoading || !tgCancelReason.trim()}>{tgCancelLoading ? 'Отмена…' : 'Отменить'}</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Wrap>
+        );
+    }
 
 // ── Монтирование без Inertia ──────────────────────────────────────────────────
 

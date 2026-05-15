@@ -29,6 +29,8 @@ export interface SpectechRequestData {
     from_scheduling?: boolean;
     status_frozen?: boolean;
     status_frozen_reason?: string | null;
+    cancellation_reason?: string | null;
+    cancelled_by?: 'customer' | 'operator' | null;
     created_at: string;
 }
 

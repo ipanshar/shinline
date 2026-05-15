@@ -428,8 +428,6 @@ class TelegramMiniAppController extends Controller
 
         $validated = $request->validate([
             'truck_id' => ['required', 'integer', 'exists:trucks,id'],
-            'driver_name' => ['nullable', 'string', 'max:160'],
-            'driver_phone' => ['nullable', 'string', 'max:20'],
             'requested_start' => ['required', 'date', 'after_or_equal:now'],
             'requested_end' => ['required', 'date', 'after:requested_start'],
             'terminal' => ['required', 'string', 'max:50'],
@@ -484,8 +482,6 @@ class TelegramMiniAppController extends Controller
         $spectechRequest = SpectechRequest::query()->create([
             'user_id'         => $user->id,
             'truck_id'        => $truck->id,
-            'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
-            'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
             'start_date'      => $startCarbon->toDateString(),
             'end_date'        => $endCarbon->toDateString(),
             'requested_start' => $startCarbon,
@@ -645,6 +641,45 @@ class TelegramMiniAppController extends Controller
 
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
+        ]);
+    }
+
+    public function cancelSpectechRequest(Request $request, int $id): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+        $user = $this->resolveApprovedUser($chat);
+
+        $spectechRequest = SpectechRequest::query()
+            ->with(['truck:id,name,plate_number', 'user:id,name'])
+            ->findOrFail($id);
+
+        $isOperator = $user->canManageSpectech();
+
+        if ($spectechRequest->user_id !== $user->id && ! $isOperator) {
+            abort(403, 'Доступ запрещён.');
+        }
+
+        if ($spectechRequest->status === SpectechRequest::STATUS_CANCELLED) {
+            return response()->json(['status' => false, 'message' => 'Заявка уже отменена'], 409);
+        }
+
+        if (in_array($spectechRequest->status, [SpectechRequest::STATUS_COMPLETED, SpectechRequest::STATUS_RETURNED])) {
+            return response()->json(['status' => false, 'message' => 'Нельзя отменить завершённую заявку'], 409);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $spectechRequest->forceFill([
+            'status'              => SpectechRequest::STATUS_CANCELLED,
+            'cancellation_reason' => trim($validated['reason']),
+            'cancelled_by'        => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
+        ])->save();
+
+        return response()->json([
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name'])),
         ]);
     }
 
@@ -891,6 +926,8 @@ class TelegramMiniAppController extends Controller
             'source_label' => $item->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id' => $item->schedule_id,
             'from_scheduling' => (bool) $item->from_scheduling,
+            'cancellation_reason' => $item->cancellation_reason,
+            'cancelled_by'        => $item->cancelled_by,
             'created_at' => $item->created_at?->toIso8601String(),
         ];
     }
