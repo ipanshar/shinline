@@ -649,13 +649,6 @@ class TelegramMiniAppController extends Controller
 
     public function cancelSpectechRequest(Request $request, int $id): JsonResponse
     {
-        if (! Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by'])) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Функция отмены ещё не активирована на сервере. Нужно применить миграции.',
-            ], 500);
-        }
-
         $chat = $this->authChat($request);
         $this->ensureApproved($chat);
         $user = $this->resolveApprovedUser($chat);
@@ -682,17 +675,27 @@ class TelegramMiniAppController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        DB::transaction(function () use ($spectechRequest, $validated, $isOperator) {
-            $spectechRequest->forceFill([
-                'status'              => SpectechRequest::STATUS_CANCELLED,
-                'cancellation_reason' => trim($validated['reason']),
-                'cancelled_by'        => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
-            ])->save();
+        $hasCancellationColumns = Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by']);
+
+        DB::transaction(function () use ($spectechRequest, $validated, $isOperator, $hasCancellationColumns) {
+            $payload = [
+                'status' => SpectechRequest::STATUS_CANCELLED,
+            ];
+
+            if ($hasCancellationColumns) {
+                $payload['cancellation_reason'] = trim($validated['reason']);
+                $payload['cancelled_by'] = $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER;
+            }
+
+            $spectechRequest->forceFill($payload)->save();
 
             $spectechRequest->syncScheduleStatus();
         });
 
         return response()->json([
+            'message' => $hasCancellationColumns
+                ? 'Заявка отменена'
+                : 'Заявка отменена. Причина отмены не сохранена: на сервере ещё не обновлена схема БД.',
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name'])),
         ]);
     }

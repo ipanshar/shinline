@@ -377,13 +377,6 @@ class SpectechRequestController extends Controller
      */
     public function cancel(Request $request, int $id): JsonResponse
     {
-        if (! Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by'])) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Функция отмены ещё не активирована на сервере. Нужно применить миграции.',
-            ], 500);
-        }
-
         $spectechRequest = SpectechRequest::findOrFail($id);
         $user = Auth::user();
         $isOperator = $this->canManageSpectechRequests();
@@ -404,12 +397,19 @@ class SpectechRequestController extends Controller
             'reason' => 'required|string|max:1000',
         ]);
 
-        DB::transaction(function () use ($spectechRequest, $validated, $isOperator) {
-            $spectechRequest->update([
-                'status'               => SpectechRequest::STATUS_CANCELLED,
-                'cancellation_reason'  => trim($validated['reason']),
-                'cancelled_by'         => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
-            ]);
+        $hasCancellationColumns = Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by']);
+
+        DB::transaction(function () use ($spectechRequest, $validated, $isOperator, $hasCancellationColumns) {
+            $payload = [
+                'status' => SpectechRequest::STATUS_CANCELLED,
+            ];
+
+            if ($hasCancellationColumns) {
+                $payload['cancellation_reason'] = trim($validated['reason']);
+                $payload['cancelled_by'] = $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER;
+            }
+
+            $spectechRequest->update($payload);
 
             $spectechRequest->syncScheduleStatus();
         });
@@ -418,7 +418,9 @@ class SpectechRequestController extends Controller
 
         return response()->json([
             'status'  => true,
-            'message' => 'Заявка отменена',
+            'message' => $hasCancellationColumns
+                ? 'Заявка отменена'
+                : 'Заявка отменена. Причина отмены не сохранена: на сервере ещё не обновлена схема БД.',
             'data'    => $this->formatRequest($spectechRequest),
         ]);
     }
