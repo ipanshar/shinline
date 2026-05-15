@@ -23,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -648,6 +649,13 @@ class TelegramMiniAppController extends Controller
 
     public function cancelSpectechRequest(Request $request, int $id): JsonResponse
     {
+        if (! Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by'])) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Функция отмены ещё не активирована на сервере. Нужно применить миграции.',
+            ], 500);
+        }
+
         $chat = $this->authChat($request);
         $this->ensureApproved($chat);
         $user = $this->resolveApprovedUser($chat);

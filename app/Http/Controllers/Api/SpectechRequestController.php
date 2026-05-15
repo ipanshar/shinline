@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class SpectechRequestController extends Controller
@@ -376,6 +377,13 @@ class SpectechRequestController extends Controller
      */
     public function cancel(Request $request, int $id): JsonResponse
     {
+        if (! Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by'])) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Функция отмены ещё не активирована на сервере. Нужно применить миграции.',
+            ], 500);
+        }
+
         $spectechRequest = SpectechRequest::findOrFail($id);
         $user = Auth::user();
         $isOperator = $this->canManageSpectechRequests();
