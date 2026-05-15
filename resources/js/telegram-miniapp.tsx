@@ -137,6 +137,10 @@ interface SpectechRequestItem {
     photos?: string[];
     photo_urls?: string[];
     schedule_id?: number | null;
+    client_name?: string | null;
+    source_label?: string | null;
+    cancellation_reason?: string | null;
+    cancelled_by?: string | null;
     created_at?: string | null;
 }
 
@@ -225,6 +229,7 @@ const spectechStatusLabels: Record<string, string> = {
     work_started: 'Работы начаты',
     completed: 'Выполнено',
     returned: 'Возврат',
+    cancelled: 'Отменена',
 };
 
 const spectechStatusOptions = [
@@ -235,6 +240,7 @@ const spectechStatusOptions = [
     { value: 'work_started', label: 'Работы начаты' },
     { value: 'completed', label: 'Выполнено' },
     { value: 'returned', label: 'Возврат' },
+    { value: 'cancelled', label: 'Отменённые' },
 ];
 
 const nextSpectechStatus: Record<string, string> = {
@@ -1682,6 +1688,8 @@ function SpectechOperatorList({
     onStatusFilterChange,
     onRefresh,
     onAdvanceStatus,
+    onEdit,
+    onCancel,
     onBack,
 }: {
     requests: SpectechRequestItem[];
@@ -1691,6 +1699,8 @@ function SpectechOperatorList({
     onStatusFilterChange: (value: string) => void;
     onRefresh: () => void;
     onAdvanceStatus: (requestId: number, status: string) => Promise<void>;
+    onEdit: (request: SpectechRequestItem) => void;
+    onCancel: (request: SpectechRequestItem) => void;
     onBack: () => void;
 }) {
     const [busyId, setBusyId] = useState<number | null>(null);
@@ -1747,16 +1757,24 @@ function SpectechOperatorList({
                     <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
                     <div>Адрес: {request.address}</div>
                     {request.comment && <div>Комментарий: {request.comment}</div>}
+                    {request.client_name && <div>Инициатор: {request.client_name} {request.source_label ? `· ${request.source_label}` : ''}</div>}
+                    {request.cancellation_reason && <div>Причина отмены: {request.cancellation_reason}</div>}
+                    {request.cancelled_by && <div>Кто отменил: {request.cancelled_by === 'operator' ? 'Оператор' : 'Заказчик'}</div>}
                     {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString('ru-RU')}</div>}
-                    {nextSpectechStatus[request.status] && (
-                        <button
-                            style={{ ...btn, marginTop: 8 }}
-                            disabled={busyId === request.id}
-                            onClick={() => handleAdvance(request)}
-                        >
-                            {busyId === request.id ? 'Сохранение…' : `→ ${spectechStatusLabels[nextSpectechStatus[request.status]]}`}
-                        </button>
-                    )}
+
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        {nextSpectechStatus[request.status] && (
+                            <button
+                                style={{ ...btn }}
+                                disabled={busyId === request.id}
+                                onClick={() => handleAdvance(request)}
+                            >
+                                {busyId === request.id ? 'Сохранение…' : `→ ${spectechStatusLabels[nextSpectechStatus[request.status]]}`}
+                            </button>
+                        )}
+                        <button type="button" style={{ ...btnSecondary }} onClick={() => onEdit(request)}>Изменить</button>
+                        <button type="button" style={{ ...btnDanger }} onClick={() => onCancel(request)}>Отменить</button>
+                    </div>
                 </div>
             ))}
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
@@ -1776,6 +1794,7 @@ function TelegramMiniApp() {
     const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
     const [selectedSpectechRequest, setSelectedSpectechRequest] = useState<SpectechRequestItem | null>(null);
+    const [spectechEditSource, setSpectechEditSource] = useState<'requests' | 'operator'>('requests');
     const [operatorSpectechRequests, setOperatorSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [operatorSpectechLoading, setOperatorSpectechLoading] = useState(false);
     const [operatorSpectechError, setOperatorSpectechError] = useState<string | null>(null);
@@ -1801,6 +1820,9 @@ function TelegramMiniApp() {
             setTgCancelModalOpen(false);
             setTgCancellingRequest(null);
             await loadSpectechRequests();
+            if (session?.can_manage_spectech) {
+                await loadOperatorSpectechRequests();
+            }
         } catch (e: any) {
             alert(e?.response?.data?.message || e?.message || 'Не удалось отменить заявку');
         } finally {
@@ -1937,9 +1959,12 @@ function TelegramMiniApp() {
 
     const handleSpectechCreated = useCallback(async () => {
         await loadSpectechRequests();
+        if (session?.can_manage_spectech) {
+            await loadOperatorSpectechRequests();
+        }
         setSelectedSpectechRequest(null);
-        setView('spectech-requests');
-    }, [loadSpectechRequests]);
+        setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');
+    }, [loadOperatorSpectechRequests, loadSpectechRequests, session?.can_manage_spectech, spectechEditSource]);
 
     const loadOperatorSpectechRequests = useCallback(async () => {
         if (!initData || !session?.can_manage_spectech) return;
@@ -1968,12 +1993,16 @@ function TelegramMiniApp() {
     }, [view, initData, session?.can_manage_spectech, loadOperatorSpectechRequests]);
 
     const advanceSpectechStatus = useCallback(async (requestId: number, status: string) => {
-        await axios.patch(
-            `/api/telegram/miniapp/operator/spectech/requests/${requestId}/status`,
-            { init_data: initData, status },
-            { headers: { 'X-Telegram-Init-Data': initData } }
-        );
-        await loadOperatorSpectechRequests();
+        try {
+            await axios.patch(
+                `/api/telegram/miniapp/operator/spectech/requests/${requestId}/status`,
+                { init_data: initData, status },
+                { headers: { 'X-Telegram-Init-Data': initData } }
+            );
+            await loadOperatorSpectechRequests();
+        } catch (e: any) {
+            alert(e?.response?.data?.message || e?.message || 'Не удалось изменить статус заявки');
+        }
     }, [initData, loadOperatorSpectechRequests]);
 
     const loadUtilizationRequests = useCallback(() => {
@@ -2093,7 +2122,7 @@ function TelegramMiniApp() {
                     isOperator={session?.can_manage_spectech}
                     onCancel={() => {
                         setSelectedSpectechRequest(null);
-                        setView('spectech-requests');
+                        setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');
                     }}
                 />
             )}
@@ -2101,10 +2130,12 @@ function TelegramMiniApp() {
                 <SpectechRequestList
                     requests={spectechRequests}
                     onCreate={() => {
+                        setSpectechEditSource('requests');
                         setSelectedSpectechRequest(null);
                         setView('spectech-create');
                     }}
                     onEdit={(request) => {
+                        setSpectechEditSource('requests');
                         setSelectedSpectechRequest(request);
                         setView('spectech-edit');
                     }}
@@ -2122,6 +2153,12 @@ function TelegramMiniApp() {
                     onStatusFilterChange={setOperatorSpectechStatusFilter}
                     onRefresh={() => void loadOperatorSpectechRequests()}
                     onAdvanceStatus={advanceSpectechStatus}
+                    onEdit={(request) => {
+                        setSpectechEditSource('operator');
+                        setSelectedSpectechRequest(request);
+                        setView('spectech-edit');
+                    }}
+                    onCancel={(request) => openTgCancel(request)}
                     onBack={() => setView('home')}
                 />
             )}
