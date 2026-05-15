@@ -76,6 +76,10 @@ class RouteController extends Controller
         return Inertia::render('references');
     }
 
+    public function adminCommands(){
+        return Inertia::render('admin/commands');
+    }
+
     public function referencesEmpty(){
         return Inertia::render('references_empty');
     }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminCommandsController;
 use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\UsersController;
 use Illuminate\Support\Facades\Route;
@@ -52,6 +53,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 Route::get('/integration_whatsapp_business', [RouteController::class, 'whatsappBusinessSettings']);
 Route::get('/roles_permissions', [RouteController::class, 'rolespermissions']);//Админка
+Route::get('/admin/commands', [RouteController::class, 'adminCommands']);
+Route::post('/admin/commands/run', [AdminCommandsController::class, 'run']);
+Route::get('/admin/commands/list', [AdminCommandsController::class, 'index']);
 Route::get('/trucks', [RouteController::class, 'trucks']);
 Route::get('/tasks', [RouteController::class, 'tasks'])->middleware('permission:tasks.view');
 Route::get('/tasks/scheduling', [RouteController::class, 'taskHourlySchedule'])->middleware('permission:tasks.schedule');
