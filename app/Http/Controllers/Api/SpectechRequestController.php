@@ -162,8 +162,6 @@ class SpectechRequestController extends Controller
     {
         $validated = $request->validate([
             'truck_id'    => 'required|exists:trucks,id',
-            'driver_name' => 'nullable|string|max:160',
-            'driver_phone' => 'nullable|string|max:20',
             'start_date'  => 'nullable|date',
             'end_date'    => 'required_without:requested_end|nullable|date|after_or_equal:today',
             'requested_start' => 'nullable|date',
@@ -241,8 +239,6 @@ class SpectechRequestController extends Controller
             return SpectechRequest::create([
                 'user_id'         => Auth::id(),
                 'truck_id'        => $validated['truck_id'],
-                'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
-                'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
                 'start_date'      => $startDate->toDateString(),
                 'end_date'        => $endDate->toDateString(),
                 'terminal'        => trim((string) $validated['terminal']),
@@ -375,6 +371,47 @@ class SpectechRequestController extends Controller
     }
 
     /**
+     * Отмена заявки с указанием причины
+     * PATCH /spectech/api/requests/{id}/cancel
+     */
+    public function cancel(Request $request, int $id): JsonResponse
+    {
+        $spectechRequest = SpectechRequest::findOrFail($id);
+        $user = Auth::user();
+        $isOperator = $this->canManageSpectechRequests();
+
+        if ($spectechRequest->user_id !== $user->id && ! $isOperator) {
+            return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
+        }
+
+        if ($spectechRequest->status === SpectechRequest::STATUS_CANCELLED) {
+            return response()->json(['status' => false, 'message' => 'Заявка уже отменена'], 409);
+        }
+
+        if (in_array($spectechRequest->status, [SpectechRequest::STATUS_COMPLETED, SpectechRequest::STATUS_RETURNED])) {
+            return response()->json(['status' => false, 'message' => 'Нельзя отменить завершённую заявку'], 409);
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        $spectechRequest->update([
+            'status'               => SpectechRequest::STATUS_CANCELLED,
+            'cancellation_reason'  => trim($validated['reason']),
+            'cancelled_by'         => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
+        ]);
+
+        $spectechRequest->load(['truck', 'user']);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Заявка отменена',
+            'data'    => $this->formatRequest($spectechRequest),
+        ]);
+    }
+
+    /**
      * Обновить статус заявки (только оператор/администратор)
      */
     public function updateStatus(Request $request, int $id): JsonResponse
@@ -499,6 +536,8 @@ class SpectechRequestController extends Controller
             'schedule_id'    => $r->schedule_id,
             'from_scheduling'=> (bool) $r->from_scheduling,
             'conflict_info'  => $r->conflict_info ?? [],
+            'cancellation_reason' => $r->cancellation_reason,
+            'cancelled_by'        => $r->cancelled_by,
             'created_at'     => $r->created_at?->toIso8601String(),
         ];
     }

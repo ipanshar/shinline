@@ -28,6 +28,8 @@ class SpectechRequest extends Model
         'requested_end',
         'from_scheduling',
         'conflict_info',
+        'cancellation_reason',
+        'cancelled_by',
     ];
 
     protected $casts = [
@@ -48,6 +50,10 @@ class SpectechRequest extends Model
     const STATUS_WORK_STARTED = 'work_started';
     const STATUS_COMPLETED    = 'completed';
     const STATUS_RETURNED     = 'returned';
+    const STATUS_CANCELLED    = 'cancelled';
+
+    const CANCELLED_BY_CUSTOMER = 'customer';
+    const CANCELLED_BY_OPERATOR = 'operator';
 
     const STATUS_LABELS = [
         'new'          => 'Новая',
@@ -56,6 +62,7 @@ class SpectechRequest extends Model
         'work_started' => 'Работы начаты',
         'completed'    => 'Выполнено',
         'returned'     => 'Возврат',
+        'cancelled'    => 'Отменена',
     ];
 
     public function user(): BelongsTo

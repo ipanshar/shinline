@@ -52,6 +52,7 @@ interface Props {
     onClose: () => void;
     onSaved: (request?: SpectechRequestData) => void;
     initialRequest?: SpectechRequestData | null;
+    isOperator?: boolean;
 }
 
 const today = new Date().toISOString().split('T')[0];
@@ -89,7 +90,7 @@ function resolveLocation(terminal: string, zone?: string, gate?: string | null):
     )) ?? null;
 }
 
-const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialRequest = null }) => {
+const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialRequest = null, isOperator = false }) => {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [loadingTrucks, setLoadingTrucks] = useState(false);
     const [trucksError, setTrucksError] = useState<string>('');
@@ -585,7 +586,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                             {checkingAvailability && <span className="text-xs text-gray-500">Проверка доступности...</span>}
                         </div>
 
-                        {/* Водитель */}
+                        {/* Водитель — только оператор */}
+                        {isOperator && (
                         <div className="grid grid-cols-2 gap-3">
                             <div className="flex flex-col gap-1">
                                 <label className="text-xs font-medium">Имя водителя</label>
@@ -608,6 +610,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                                 />
                             </div>
                         </div>
+                        )}
 
                         {/* Выбор терминала */}
                         <div className="flex flex-col gap-1">
