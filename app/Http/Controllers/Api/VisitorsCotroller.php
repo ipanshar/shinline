@@ -11,6 +11,7 @@ use App\Models\EntryPermit;
 use App\Models\ExitPermit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Models\TaskWeighing;
 use App\Models\Truck;
 use App\Models\TruckModel;
 use App\Models\VehicleCapture;
@@ -168,6 +169,13 @@ class VisitorsCotroller extends Controller
                     'yard_id' => $Visitor->yard_id,
                     'yard_weighing_required' => $Visitor->yard?->weighing_required,
                 ]);
+            }
+
+            // Привязываем TaskWeighing записи задания к конкретному визиту
+            if ($task) {
+                TaskWeighing::where('task_id', $task->id)
+                    ->whereNull('visitor_id')
+                    ->update(['visitor_id' => $Visitor->id]);
             }
 
             if ($task) {
@@ -2674,6 +2682,13 @@ class VisitorsCotroller extends Controller
 
         // Создаём требование на взвешивание (если нужно)
         $this->weighingService->createRequirement($visitor);
+
+        // Привязываем TaskWeighing записи задания к конкретному визиту
+        if ($visitor->task_id) {
+            TaskWeighing::where('task_id', $visitor->task_id)
+                ->whereNull('visitor_id')
+                ->update(['visitor_id' => $visitor->id]);
+        }
     }
 
     /**

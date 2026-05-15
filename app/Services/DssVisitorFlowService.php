@@ -9,6 +9,7 @@ use App\Models\EntryPermit;
 use App\Models\GuestVisit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Models\TaskWeighing;
 use App\Models\Truck;
 use App\Models\User;
 use App\Models\VehicleCapture;
@@ -349,6 +350,13 @@ class DssVisitorFlowService
             $this->notifyGuestVisitArrival($visitor, $guestVisitId);
             $this->createAutomaticExitPermitForIntegrationPermit($visitor, $permit);
             $this->weighingService->createRequirement($visitor);
+
+            // Привязываем TaskWeighing записи задания к конкретному визиту
+            if ($visitor->task_id) {
+                TaskWeighing::where('task_id', $visitor->task_id)
+                    ->whereNull('visitor_id')
+                    ->update(['visitor_id' => $visitor->id]);
+            }
 
             // self_barrier_mode: нестрогий двор — открываем шлагбаум въезда автоматически
             if ($this->shouldAutoOpenBarrier($yard, $autoConfirm)) {
