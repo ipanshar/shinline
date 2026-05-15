@@ -80,6 +80,40 @@ class SpectechRequest extends Model
         return $this->belongsTo(SpectechSchedule::class);
     }
 
+    public static function scheduleStatusForRequestStatus(string $status): ?string
+    {
+        return match ($status) {
+            self::STATUS_NEW,
+            self::STATUS_DEPARTURE,
+            self::STATUS_ON_LOCATION => SpectechSchedule::STATUS_PENDING,
+            self::STATUS_WORK_STARTED => SpectechSchedule::STATUS_IN_PROGRESS,
+            self::STATUS_COMPLETED,
+            self::STATUS_RETURNED => SpectechSchedule::STATUS_DONE,
+            self::STATUS_CANCELLED => SpectechSchedule::STATUS_CANCELLED,
+            default => null,
+        };
+    }
+
+    public function syncScheduleStatus(): void
+    {
+        if (! $this->schedule_id) {
+            return;
+        }
+
+        $scheduleStatus = self::scheduleStatusForRequestStatus($this->status);
+        if ($scheduleStatus === null) {
+            return;
+        }
+
+        $schedule = $this->relationLoaded('schedule')
+            ? $this->schedule
+            : $this->schedule()->first();
+
+        if ($schedule && $schedule->status !== $scheduleStatus) {
+            $schedule->update(['status' => $scheduleStatus]);
+        }
+    }
+
     public function getEffectiveEndAt(): ?Carbon
     {
         if ($this->requested_end instanceof Carbon) {

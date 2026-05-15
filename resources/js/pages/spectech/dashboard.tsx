@@ -24,6 +24,7 @@ const STATUS_FILTERS = [
     { value: 'work_started', label: 'Работы' },
     { value: 'completed', label: 'Выполнено' },
     { value: 'returned', label: 'Возврат' },
+    { value: 'cancelled', label: 'Отменено' },
 ];
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
@@ -33,6 +34,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }
     work_started: { bg: '#E8F0FF', text: '#0051B3', border: '#B3D9FF' },
     completed: { bg: '#E8F5E9', text: '#27AE60', border: '#A8D5BA' },
     returned: { bg: '#D4EDDA', text: '#1B5E20', border: '#A3D5A8' },
+    cancelled: { bg: '#FEF2F2', text: '#B91C1C', border: '#FECACA' },
 };
 
 const NEXT_STATUS: Record<string, { value: string; label: string }> = {
@@ -63,7 +65,7 @@ function getCurrentStage(request: SpectechRequestData): string {
 
 // ─── Gantt для панели оператора (упрощённый, но информативный) ─────────────────
 const GanttView: React.FC<{ requests: SpectechRequestData[] }> = ({ requests }) => {
-    const active = useMemo(() => requests.filter(r => r.requested_start && r.requested_end), [requests]);
+    const active = useMemo(() => requests.filter(r => r.requested_start && r.requested_end && r.status !== 'cancelled'), [requests]);
     if (active.length === 0) return <div className="py-8 text-center text-muted-foreground text-sm">Нет записей для Gantt</div>;
 
     const starts = active.map(r => new Date(r.requested_start!).getTime());
@@ -208,9 +210,11 @@ export default function SpectechDashboard() {
     const [cancelModalOpen, setCancelModalOpen] = useState(false);
     const [cancellingRequest, setCancellingRequest] = useState<SpectechRequestData | null>(null);
     const [cancelLoading, setCancelLoading] = useState(false);
+    const [cancelReason, setCancelReason] = useState('');
 
     const openCancelModal = (request: SpectechRequestData) => {
         setCancellingRequest(request);
+        setCancelReason('');
         setCancelModalOpen(true);
     };
 
@@ -223,6 +227,7 @@ export default function SpectechDashboard() {
             await fetchRequests();
             setCancelModalOpen(false);
             setCancellingRequest(null);
+            setCancelReason('');
         } catch (e: any) {
             setMessage(e?.response?.data?.message || 'Ошибка при отмене');
         } finally {
@@ -236,11 +241,12 @@ export default function SpectechDashboard() {
         { label: 'Всего', value: requests.length, color: 'text-foreground' },
         {
             label: 'Активных',
-            value: requests.filter((r) => !['completed', 'returned'].includes(r.status)).length,
+            value: requests.filter((r) => !['completed', 'returned', 'cancelled'].includes(r.status)).length,
             color: 'text-red-600',
         },
         { label: 'Выполнено', value: requests.filter((r) => r.status === 'completed').length, color: 'text-green-700' },
         { label: 'Возвращено', value: requests.filter((r) => r.status === 'returned').length, color: 'text-gray-500' },
+        { label: 'Отменено', value: requests.filter((r) => r.status === 'cancelled').length, color: 'text-red-700' },
     ];
 
     const sorted = useMemo(() => [...requests].sort((a, b) => b.id - a.id), [requests]);
@@ -511,7 +517,13 @@ export default function SpectechDashboard() {
                     isOperator
                 />
 
-                <Dialog open={cancelModalOpen} onOpenChange={(v) => !v && setCancelModalOpen(false)}>
+                <Dialog open={cancelModalOpen} onOpenChange={(v) => {
+                    if (!v) {
+                        setCancelModalOpen(false);
+                        setCancellingRequest(null);
+                        setCancelReason('');
+                    }
+                }}>
                     <DialogContent className="max-w-md p-0 gap-0">
                         <DialogHeader className="border-b px-5 py-4">
                             <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
@@ -522,24 +534,26 @@ export default function SpectechDashboard() {
                         <div className="px-5 py-4 flex flex-col gap-3">
                             <p className="text-xs text-[#666]">Укажите причину отмены. Это поможет улучшить работу сервиса.</p>
                             <textarea
-                                value={cancellingRequest?.cancellation_reason ?? ''}
-                                onChange={(e) => {/* local only - store in temp via state if needed */}}
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
                                 rows={3}
                                 placeholder="Причина отмены..."
                                 className="w-full rounded-lg border border-[#E0E0E0] px-3 py-2 text-sm focus:border-red-300 focus:ring-2 focus:ring-red-100 outline-none resize-none"
-                                id="dashboard-cancel-reason"
                             />
                             <div className="flex gap-2 justify-end">
-                                <Button variant="outline" size="sm" onClick={() => setCancelModalOpen(false)} disabled={cancelLoading}>Назад</Button>
+                                <Button variant="outline" size="sm" onClick={() => {
+                                    setCancelModalOpen(false);
+                                    setCancellingRequest(null);
+                                    setCancelReason('');
+                                }} disabled={cancelLoading}>Назад</Button>
                                 <Button
                                     size="sm"
                                     className="bg-red-600 hover:bg-red-700 text-white"
                                     onClick={() => {
-                                        const reason = (document.getElementById('dashboard-cancel-reason') as HTMLTextAreaElement)?.value || '';
-                                        if (!reason.trim()) return;
-                                        void handleCancel(reason.trim());
+                                        if (!cancelReason.trim()) return;
+                                        void handleCancel(cancelReason.trim());
                                     }}
-                                    disabled={cancelLoading}
+                                    disabled={cancelLoading || !cancelReason.trim()}
                                 >
                                     {cancelLoading ? 'Отмена...' : 'Отменить заявку'}
                                 </Button>
