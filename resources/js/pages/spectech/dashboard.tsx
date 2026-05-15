@@ -200,7 +200,7 @@ export default function SpectechDashboard() {
                                 <thead>
                                     <tr className="border-b border-[#E8E8E8] text-[#6B6B6B]">
                                         <th className="px-3 py-2">ID</th>
-                                        <th className="px-3 py-2">Клиент</th>
+                                        <th className="px-3 py-2">Инициатор заказа</th>
                                         <th className="px-3 py-2">Техника</th>
                                         <th className="px-3 py-2">Период</th>
                                         <th className="px-3 py-2">Этап</th>
