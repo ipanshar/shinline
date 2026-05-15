@@ -41,6 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
     work_started: 'bg-yellow-100 text-yellow-800 border-yellow-200',
     completed:    'bg-green-100 text-green-800 border-green-200',
     returned:     'bg-gray-100 text-gray-600 border-gray-200',
+    cancelled:    'bg-red-100 text-red-800 border-red-200',
 };
 
 interface Props {
@@ -148,4 +149,3 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
 };
 
 export default RequestCard;
-

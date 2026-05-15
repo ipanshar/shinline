@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class SpectechRequestController extends Controller
@@ -376,6 +377,13 @@ class SpectechRequestController extends Controller
      */
     public function cancel(Request $request, int $id): JsonResponse
     {
+        if (! Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by'])) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Функция отмены ещё не активирована на сервере. Нужно применить миграции.',
+            ], 500);
+        }
+
         $spectechRequest = SpectechRequest::findOrFail($id);
         $user = Auth::user();
         $isOperator = $this->canManageSpectechRequests();
@@ -396,11 +404,15 @@ class SpectechRequestController extends Controller
             'reason' => 'required|string|max:1000',
         ]);
 
-        $spectechRequest->update([
-            'status'               => SpectechRequest::STATUS_CANCELLED,
-            'cancellation_reason'  => trim($validated['reason']),
-            'cancelled_by'         => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
-        ]);
+        DB::transaction(function () use ($spectechRequest, $validated, $isOperator) {
+            $spectechRequest->update([
+                'status'               => SpectechRequest::STATUS_CANCELLED,
+                'cancellation_reason'  => trim($validated['reason']),
+                'cancelled_by'         => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
+            ]);
+
+            $spectechRequest->syncScheduleStatus();
+        });
 
         $spectechRequest->load(['truck', 'user']);
 
@@ -459,6 +471,8 @@ class SpectechRequestController extends Controller
             'status'   => $newStatus,
             'timeline' => $timeline,
         ]);
+
+        $spectechRequest->syncScheduleStatus();
 
         $spectechRequest->load(['truck', 'user']);
 

@@ -23,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -639,6 +640,8 @@ class TelegramMiniAppController extends Controller
             'timeline' => $timeline,
         ])->save();
 
+        $spectechRequest->syncScheduleStatus();
+
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
         ]);
@@ -646,6 +649,13 @@ class TelegramMiniAppController extends Controller
 
     public function cancelSpectechRequest(Request $request, int $id): JsonResponse
     {
+        if (! Schema::hasColumns('spectech_requests', ['cancellation_reason', 'cancelled_by'])) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Функция отмены ещё не активирована на сервере. Нужно применить миграции.',
+            ], 500);
+        }
+
         $chat = $this->authChat($request);
         $this->ensureApproved($chat);
         $user = $this->resolveApprovedUser($chat);
@@ -672,11 +682,15 @@ class TelegramMiniAppController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        $spectechRequest->forceFill([
-            'status'              => SpectechRequest::STATUS_CANCELLED,
-            'cancellation_reason' => trim($validated['reason']),
-            'cancelled_by'        => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
-        ])->save();
+        DB::transaction(function () use ($spectechRequest, $validated, $isOperator) {
+            $spectechRequest->forceFill([
+                'status'              => SpectechRequest::STATUS_CANCELLED,
+                'cancellation_reason' => trim($validated['reason']),
+                'cancelled_by'        => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
+            ])->save();
+
+            $spectechRequest->syncScheduleStatus();
+        });
 
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name'])),
