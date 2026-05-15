@@ -6,7 +6,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
-import { ChevronDown, ChevronUp, LayoutDashboard, RefreshCw, Search, TimerReset } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LayoutDashboard, RefreshCw, Search, TimerReset } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { XCircle } from 'lucide-react';
@@ -63,78 +63,215 @@ function getCurrentStage(request: SpectechRequestData): string {
     return done.length > 0 ? done[done.length - 1].title : 'Заявка';
 }
 
-// ─── Gantt для панели оператора (упрощённый, но информативный) ─────────────────
-const GanttView: React.FC<{ requests: SpectechRequestData[] }> = ({ requests }) => {
-    const active = useMemo(() => requests.filter(r => r.requested_start && r.requested_end && r.status !== 'cancelled'), [requests]);
-    if (active.length === 0) return <div className="py-8 text-center text-muted-foreground text-sm">Нет записей для Gantt</div>;
+// ─── Gantt для панели оператора ─────────────────────────────────────────────
 
-    const starts = active.map(r => new Date(r.requested_start!).getTime());
-    const ends = active.map(r => new Date(r.requested_end!).getTime());
+type GanttRange = 'day' | 'week' | 'month';
 
-    const rangeStart = Math.min(...starts);
-    const rangeEnd = Math.max(...ends);
-    const total = rangeEnd - rangeStart || 1;
+function getGanttBounds(range: GanttRange, anchor: Date): { start: number; end: number } {
+    if (range === 'day') {
+        return {
+            start: new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 0, 0, 0).getTime(),
+            end:   new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 23, 59, 59).getTime(),
+        };
+    }
+    if (range === 'week') {
+        const mon = new Date(anchor);
+        mon.setDate(anchor.getDate() - ((anchor.getDay() + 6) % 7));
+        mon.setHours(0, 0, 0, 0);
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        sun.setHours(23, 59, 59, 999);
+        return { start: mon.getTime(), end: sun.getTime() };
+    }
+    return {
+        start: new Date(anchor.getFullYear(), anchor.getMonth(), 1, 0, 0, 0).getTime(),
+        end:   new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 23, 59, 59).getTime(),
+    };
+}
 
-    const getLeft = (iso: string) => ((new Date(iso).getTime() - rangeStart) / total) * 100;
-    const getWidth = (s: string, e: string) => Math.max(((new Date(e).getTime() - new Date(s).getTime()) / total) * 100, 2);
+function getGanttTicks(range: GanttRange, rangeStart: number, rangeEnd: number) {
+    const total = rangeEnd - rangeStart;
+    const ticks: { pct: number; label: string }[] = [];
+    if (range === 'day') {
+        for (let h = 0; h <= 24; h += 3) {
+            const pct = ((new Date(rangeStart).setHours(h, 0, 0, 0) - rangeStart) / total) * 100;
+            if (pct >= 0 && pct <= 100.1) ticks.push({ pct, label: `${String(h).padStart(2, '0')}:00` });
+        }
+    } else if (range === 'week') {
+        const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+        const cur = new Date(rangeStart);
+        while (cur.getTime() <= rangeEnd) {
+            ticks.push({ pct: ((cur.getTime() - rangeStart) / total) * 100, label: `${DAYS[cur.getDay()]} ${cur.getDate()}` });
+            cur.setDate(cur.getDate() + 1);
+        }
+    } else {
+        const cur = new Date(rangeStart);
+        while (cur.getTime() <= rangeEnd) {
+            ticks.push({ pct: ((cur.getTime() - rangeStart) / total) * 100, label: `${cur.getDate()}` });
+            cur.setDate(cur.getDate() + 7);
+        }
+    }
+    return ticks;
+}
+
+const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; anchor: Date }> = ({ requests, range, anchor }) => {
+    const [tooltip, setTooltip] = useState<{ lines: string[]; x: number; y: number } | null>(null);
+
+    const { start: rangeStart, end: rangeEnd } = useMemo(() => getGanttBounds(range, anchor), [range, anchor]);
+    const total = rangeEnd - rangeStart;
+    const nowPct = ((Date.now() - rangeStart) / total) * 100;
+    const ticks = useMemo(() => getGanttTicks(range, rangeStart, rangeEnd), [range, rangeStart, rangeEnd]);
+
+    const inRange = (r: SpectechRequestData) =>
+        r.requested_start && r.requested_end &&
+        r.status !== 'cancelled' &&
+        new Date(r.requested_end).getTime() >= rangeStart &&
+        new Date(r.requested_start).getTime() <= rangeEnd;
+
+    const active = useMemo(() => requests.filter(inRange), [requests, rangeStart, rangeEnd]);
+
+    const clampLeft  = (iso: string) => Math.max(0, Math.min(100, ((new Date(iso).getTime() - rangeStart) / total) * 100));
+    const clampWidth = (s: string, e: string) => {
+        const l = (new Date(s).getTime() - rangeStart) / total * 100;
+        const r = (new Date(e).getTime() - rangeStart) / total * 100;
+        return Math.max(0.5, Math.min(100, r) - Math.max(0, l));
+    };
 
     const grouped = useMemo(() => {
-        const map = new Map<number, SpectechRequestData[]>();
+        const map = new Map<number, { label: string; items: SpectechRequestData[] }>();
         for (const r of active) {
-            const arr = map.get(r.equipment_id) ?? [];
-            arr.push(r);
-            map.set(r.equipment_id, arr);
+            const entry = map.get(r.equipment_id) ?? { label: r.equipment_name, items: [] };
+            entry.items.push(r);
+            map.set(r.equipment_id, entry);
         }
         return map;
     }, [active]);
 
+    const LABEL_W = 112;
+    const ROW_H = 36;
+
     return (
-        <div className="overflow-x-auto">
-            <div className="min-w-[600px]">
-                <div className="relative h-6 mb-1 ml-28 border-b border-border">
-                    {[0, 25, 50, 75, 100].map(pct => {
-                        const t = new Date(rangeStart + (total * pct) / 100);
-                        return (
-                            <span
-                                key={pct}
-                                className="absolute -translate-x-1/2 text-[10px] text-muted-foreground"
-                                style={{ left: `${pct}%` }}
-                            >
-                                {t.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                        );
-                    })}
+        <div className="relative select-none" onMouseLeave={() => setTooltip(null)}>
+            {tooltip && (
+                <div
+                    className="fixed z-50 max-w-[240px] rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-xs pointer-events-none"
+                    style={{ left: tooltip.x + 14, top: tooltip.y - 6 }}
+                >
+                    {tooltip.lines.map((ln, i) => (
+                        <div key={i} className={i === 0 ? 'font-semibold text-slate-800' : 'text-slate-500 mt-0.5'}>{ln}</div>
+                    ))}
                 </div>
+            )}
 
-                {Array.from(grouped.entries()).map(([equipId, items]) => {
-                    const label = items[0].equipment_name;
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <div style={{ minWidth: 600 }}>
+                    {/* Time axis */}
+                    <div className="flex border-b border-slate-200 bg-slate-50" style={{ paddingLeft: LABEL_W }}>
+                        <div className="relative flex-1" style={{ height: 28 }}>
+                            {ticks.map((tick, i) => (
+                                <span
+                                    key={i}
+                                    className="absolute bottom-1 text-[10px] text-slate-400 whitespace-nowrap -translate-x-1/2"
+                                    style={{ left: `${tick.pct}%` }}
+                                >
+                                    {tick.label}
+                                </span>
+                            ))}
+                            {nowPct >= 0 && nowPct <= 100 && (
+                                <div className="absolute inset-y-0 w-px bg-red-400" style={{ left: `${nowPct}%` }} />
+                            )}
+                        </div>
+                    </div>
 
-                    return (
-                        <div key={equipId} className="mb-3">
-                            <div className="text-xs font-semibold text-muted-foreground mb-1">{label}</div>
-                            {items.map(req => {
-                                const left = getLeft(req.requested_start!);
-                                const width = getWidth(req.requested_start!, req.requested_end!);
+                    {active.length === 0 && (
+                        <div className="py-10 text-center text-sm text-slate-400">Нет заявок на выбранный период</div>
+                    )}
+
+                    {Array.from(grouped.entries()).map(([equipId, { label, items }]) => (
+                        <div key={equipId}>
+                            <div className="flex items-center gap-2 bg-slate-50/80 border-b border-t border-slate-100 px-2" style={{ height: 22 }}>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{label}</span>
+                            </div>
+                            {items.map((req) => {
                                 const st = STATUS_STYLES[req.status] ?? STATUS_STYLES.new;
-
+                                const left  = clampLeft(req.requested_start!);
+                                const width = clampWidth(req.requested_start!, req.requested_end!);
                                 return (
-                                    <div key={req.id} className="flex items-center mb-1 gap-2">
-                                        <div className="w-28 flex-shrink-0 text-[11px] text-right text-muted-foreground truncate pr-2">#{req.id}</div>
-                                        <div className="flex-1 relative h-7 bg-muted/30 rounded overflow-hidden border border-border/50">
+                                    <div
+                                        key={req.id}
+                                        className="flex items-center border-b border-slate-100 hover:bg-blue-50/20 transition-colors"
+                                        style={{ minHeight: ROW_H }}
+                                    >
+                                        <div
+                                            className="flex-shrink-0 px-2 text-[11px] text-slate-500 text-right border-r border-slate-100"
+                                            style={{ width: LABEL_W }}
+                                        >
+                                            #{req.id}
+                                        </div>
+                                        <div className="relative flex-1" style={{ minHeight: ROW_H }}>
+                                            {ticks.map((tick, i) => (
+                                                <div
+                                                    key={i}
+                                                    className="absolute inset-y-0 border-l border-slate-100"
+                                                    style={{ left: `${tick.pct}%` }}
+                                                />
+                                            ))}
+                                            {nowPct >= 0 && nowPct <= 100 && (
+                                                <div className="absolute inset-y-0 w-px bg-red-400/50 z-10" style={{ left: `${nowPct}%` }} />
+                                            )}
                                             <div
-                                                title={`#${req.id} ${req.equipment_name}\n${req.client_name ?? ''}\n${req.driver_name ?? ''} ${req.driver_phone ?? ''}\n${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}\n${req.address}\n${req.comment ?? ''}`}
-                                                className="absolute top-0.5 bottom-0.5 rounded text-[10px] flex items-center px-1 overflow-hidden cursor-default"
-                                                style={{ left: `${left}%`, width: `${width}%`, background: st.bg, color: st.text, borderLeft: `2px solid ${st.border}` }}
+                                                className="absolute top-2 bottom-2 rounded-md flex items-center px-2 overflow-hidden cursor-pointer hover:brightness-95 transition-all"
+                                                style={{
+                                                    left: `${left}%`,
+                                                    width: `${width}%`,
+                                                    background: st.bg,
+                                                    color: st.text,
+                                                    borderLeft: `3px solid ${st.border}`,
+                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
+                                                }}
+                                                onMouseEnter={e => {
+                                                    const r = e.currentTarget.getBoundingClientRect();
+                                                    setTooltip({
+                                                        x: r.left, y: r.top,
+                                                        lines: [
+                                                            `#${req.id} · ${req.status_label}`,
+                                                            req.client_name ?? req.equipment_name,
+                                                            `${formatDateTime(req.requested_start)} → ${formatDateTime(req.requested_end)}`,
+                                                            ...(req.address ? [`📍 ${req.address}`] : []),
+                                                            ...(req.driver_name ? [`👤 ${req.driver_name}`] : []),
+                                                        ],
+                                                    });
+                                                }}
+                                                onMouseLeave={() => setTooltip(null)}
                                             >
-                                                <span className="truncate">{req.client_name ? `${req.client_name}` : req.equipment_name}</span>
+                                                <span className="truncate text-[10px] font-semibold">
+                                                    {req.client_name ?? req.equipment_name}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Legend */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                {Object.entries(STATUS_STYLES).map(([key, col]) => {
+                    const lbl = STATUS_FILTERS.find(f => f.value === key)?.label ?? key;
+                    return (
+                        <div key={key} className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded-sm" style={{ background: col.bg, borderLeft: `2px solid ${col.border}` }} />
+                            <span>{lbl}</span>
+                        </div>
                     );
                 })}
+                <div className="flex items-center gap-1">
+                    <div className="w-0.5 h-3 bg-red-400 rounded-full" />
+                    <span>Сейчас</span>
+                </div>
             </div>
         </div>
     );
@@ -149,6 +286,8 @@ export default function SpectechDashboard() {
     const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('');
     const [viewMode, setViewMode] = useState<'list'|'gantt'>('gantt');
+    const [ganttRange, setGanttRange] = useState<GanttRange>('week');
+    const [ganttAnchor, setGanttAnchor] = useState<Date>(new Date());
 
     const fetchRequests = useCallback(async () => {
         setLoading(true);
@@ -264,6 +403,19 @@ export default function SpectechDashboard() {
         });
     }, [searchQuery, sorted]);
 
+    const periodLabel = useMemo(() => {
+        if (ganttRange === 'day') return ganttAnchor.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+        if (ganttRange === 'week') {
+            const mon = new Date(ganttAnchor);
+            mon.setDate(ganttAnchor.getDate() - ((ganttAnchor.getDay() + 6) % 7));
+            mon.setHours(0,0,0,0);
+            const sun = new Date(mon);
+            sun.setDate(mon.getDate() + 6);
+            return `${mon.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} — ${sun.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}`;
+        }
+        return ganttAnchor.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    }, [ganttRange, ganttAnchor]);
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Панель оператора - Спецтехника" />
@@ -281,6 +433,7 @@ export default function SpectechDashboard() {
                             <Button variant="outline" size="sm" onClick={() => void fetchRequests()} disabled={loading}>
                                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                             </Button>
+                            <div className="flex items-center gap-2">
                             <div className="flex rounded-md border border-[#E0E0E0] overflow-hidden">
                                 <button
                                     onClick={() => setViewMode('list')}
@@ -295,6 +448,35 @@ export default function SpectechDashboard() {
                                     Gantt
                                 </button>
                             </div>
+
+                            {viewMode === 'gantt' && (
+                                <div className="flex items-center gap-2 ml-2">
+                                    <button
+                                        onClick={() => setGanttRange('day')}
+                                        className={`h-8 px-2 text-xs ${ganttRange === 'day' ? 'bg-red-600 text-white' : 'bg-white hover:bg-slate-50'}`}
+                                    >День</button>
+                                    <button
+                                        onClick={() => setGanttRange('week')}
+                                        className={`h-8 px-2 text-xs ${ganttRange === 'week' ? 'bg-red-600 text-white' : 'bg-white hover:bg-slate-50'}`}
+                                    >Неделя</button>
+                                    <button
+                                        onClick={() => setGanttRange('month')}
+                                        className={`h-8 px-2 text-xs ${ganttRange === 'month' ? 'bg-red-600 text-white' : 'bg-white hover:bg-slate-50'}`}
+                                    >Месяц</button>
+
+                                    <div className="flex items-center gap-1 ml-3">
+                                        <button onClick={() => { const d = new Date(ganttAnchor); if (ganttRange === 'day') d.setDate(d.getDate()-1); if (ganttRange === 'week') d.setDate(d.getDate()-7); if (ganttRange === 'month') d.setMonth(d.getMonth()-1); setGanttAnchor(d); }} className="h-8 w-8 rounded-md border border-slate-200 bg-white">
+                                            <ChevronLeft size={14} />
+                                        </button>
+                                                    <div className="text-sm font-medium text-slate-700 px-2">{periodLabel}</div>
+                                        <button onClick={() => { const d = new Date(ganttAnchor); if (ganttRange === 'day') d.setDate(d.getDate()+1); if (ganttRange === 'week') d.setDate(d.getDate()+7); if (ganttRange === 'month') d.setMonth(d.getMonth()+1); setGanttAnchor(d); }} className="h-8 w-8 rounded-md border border-slate-200 bg-white">
+                                            <ChevronRight size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
                         </div>
                     </div>
                 </section>
@@ -346,7 +528,7 @@ export default function SpectechDashboard() {
 
                     {!loading && viewMode === 'gantt' && (
                         <div className="mb-3">
-                            <GanttView requests={filteredRequests} />
+                            <GanttView requests={filteredRequests} range={ganttRange} anchor={ganttAnchor} />
                         </div>
                     )}
 
