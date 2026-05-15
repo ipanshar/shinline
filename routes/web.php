@@ -322,6 +322,15 @@ Route::patch('/spectech/api/requests/{id}/cancel',         [SpectechRequestContr
 Route::post('/spectech/api/requests/from-schedule',       [SpectechRequestController::class, 'createFromSchedule'])->middleware('permission:spectech.view');
 Route::get('/spectech/api/requests/check-availability',   [SpectechRequestController::class, 'checkAvailability'])->middleware('permission:spectech.view');
 
+// Legacy aliases for older frontend bundles still using /api/requests/*
+Route::get('/api/requests',                               [SpectechRequestController::class, 'index'])->middleware('permission:spectech.view');
+Route::post('/api/requests',                              [SpectechRequestController::class, 'store'])->middleware('permission:spectech.view');
+Route::put('/api/requests/{id}',                          [SpectechRequestController::class, 'update'])->middleware('permission:spectech.view');
+Route::patch('/api/requests/{id}/status',                 [SpectechRequestController::class, 'updateStatus'])->middleware('permission:spectech.manage');
+Route::patch('/api/requests/{id}/cancel',                 [SpectechRequestController::class, 'cancel'])->middleware('permission:spectech.view');
+Route::post('/api/requests/from-schedule',                [SpectechRequestController::class, 'createFromSchedule'])->middleware('permission:spectech.view');
+Route::get('/api/requests/check-availability',            [SpectechRequestController::class, 'checkAvailability'])->middleware('permission:spectech.view');
+
 // API справочника спецтехники (фильтр по категории «Спец техника» на бэкенде)
 Route::get('/spectech/api/trucks',          [SpectechRequestController::class, 'trucksList']);
 Route::post('/spectech/api/trucks',         [SpectechRequestController::class, 'truckCreate'])->middleware('permission:spectech.manage');
