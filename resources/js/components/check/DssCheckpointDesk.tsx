@@ -501,6 +501,8 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
   const [exitQueuesByCheckpoint, setExitQueuesByCheckpoint] = useState<Record<number, ExitReviewItem[]>>({});
   const [loadingEntryByCheckpoint, setLoadingEntryByCheckpoint] = useState<Record<number, boolean>>({});
   const [loadingExitByCheckpoint, setLoadingExitByCheckpoint] = useState<Record<number, boolean>>({});
+  const [pinnedEntryVisitorId, setPinnedEntryVisitorId] = useState<number | null>(null);
+  const [pinnedExitReviewId, setPinnedExitReviewId] = useState<number | null>(null);
   const [processingVisitorId, setProcessingVisitorId] = useState<number | null>(null);
   const [processingExitReviewId, setProcessingExitReviewId] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<SimilarPlate[]>([]);
@@ -1445,6 +1447,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         }
 
         dismissEntryContext(item);
+        setPinnedEntryVisitorId(null);
         closeConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
       } else {
@@ -1474,6 +1477,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       if (response.data?.status) {
         toast.success('Въезд отклонён');
         dismissEntryContext(item);
+        setPinnedEntryVisitorId(null);
         await refreshCheckpointContext(item.checkpoint_id);
       }
     } catch (error: unknown) {
@@ -1539,6 +1543,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
         }
 
         dismissExitContext(item);
+        setPinnedExitReviewId(null);
         closeExitConfirmDialog();
         await refreshCheckpointContext(item.checkpoint_id);
       } else {
@@ -1568,6 +1573,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
       if (response.data?.status) {
         toast.success('Выезд отклонён');
         dismissExitContext(item);
+        setPinnedExitReviewId(null);
         await refreshCheckpointContext(item.checkpoint_id);
       }
     } catch (error: unknown) {
@@ -1648,7 +1654,9 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
   const renderEntryCard = () => {
     const event = displayedEntryEvent;
-    const item = entryReviewItem;
+    const item = pinnedEntryVisitorId !== null
+      ? (Object.values(pendingEntryQueuesByCheckpoint).flat().find(i => i.visitor_id === pinnedEntryVisitorId) ?? entryReviewItem)
+      : entryReviewItem;
     const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
 
     if (!event && !item) {
@@ -1761,7 +1769,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                 <button
                   key={queueItem.visitor_id}
                   type="button"
-                  onClick={() => openConfirmDialog(queueItem)}
+                  onClick={() => setPinnedEntryVisitorId(queueItem.visitor_id)}
                   className="shrink-0 rounded-lg border bg-white px-2.5 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-amber-50 dark:bg-background dark:hover:bg-amber-950/30"
                 >
                   <div className="font-mono font-semibold tracking-wide">{queueItem.plate_number}</div>
@@ -1799,7 +1807,9 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
 
   const renderExitCard = () => {
     const event = displayedExitEvent;
-    const item = exitReviewItem;
+    const item = pinnedExitReviewId !== null
+      ? (Object.values(pendingExitQueuesByCheckpoint).flat().find(i => i.review_id === pinnedExitReviewId) ?? exitReviewItem)
+      : exitReviewItem;
     const selectedCheckpoint = selectedCheckpointId ? checkpoints.find((checkpoint) => checkpoint.id === selectedCheckpointId) ?? null : null;
     const exitPermitComments = item ? getExitPermitComments(item.candidate_visitors) : [];
 
@@ -1902,7 +1912,7 @@ export default function DssCheckpointDesk({ checkpoints, selectedCheckpointKey, 
                 <button
                   key={queueItem.review_id}
                   type="button"
-                  onClick={() => openExitConfirmDialog(queueItem)}
+                  onClick={() => setPinnedExitReviewId(queueItem.review_id)}
                   className="shrink-0 rounded-lg border bg-white px-2.5 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-orange-50 dark:bg-background dark:hover:bg-orange-950/30"
                 >
                   <div className="font-mono font-semibold tracking-wide">{queueItem.plate_number}</div>
