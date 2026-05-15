@@ -639,6 +639,8 @@ class TelegramMiniAppController extends Controller
             'timeline' => $timeline,
         ])->save();
 
+        $spectechRequest->syncScheduleStatus();
+
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
         ]);
@@ -672,11 +674,15 @@ class TelegramMiniAppController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        $spectechRequest->forceFill([
-            'status'              => SpectechRequest::STATUS_CANCELLED,
-            'cancellation_reason' => trim($validated['reason']),
-            'cancelled_by'        => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
-        ])->save();
+        DB::transaction(function () use ($spectechRequest, $validated, $isOperator) {
+            $spectechRequest->forceFill([
+                'status'              => SpectechRequest::STATUS_CANCELLED,
+                'cancellation_reason' => trim($validated['reason']),
+                'cancelled_by'        => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
+            ])->save();
+
+            $spectechRequest->syncScheduleStatus();
+        });
 
         return response()->json([
             'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name'])),

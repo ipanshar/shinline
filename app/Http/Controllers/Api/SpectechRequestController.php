@@ -396,11 +396,15 @@ class SpectechRequestController extends Controller
             'reason' => 'required|string|max:1000',
         ]);
 
-        $spectechRequest->update([
-            'status'               => SpectechRequest::STATUS_CANCELLED,
-            'cancellation_reason'  => trim($validated['reason']),
-            'cancelled_by'         => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
-        ]);
+        DB::transaction(function () use ($spectechRequest, $validated, $isOperator) {
+            $spectechRequest->update([
+                'status'               => SpectechRequest::STATUS_CANCELLED,
+                'cancellation_reason'  => trim($validated['reason']),
+                'cancelled_by'         => $isOperator ? SpectechRequest::CANCELLED_BY_OPERATOR : SpectechRequest::CANCELLED_BY_CUSTOMER,
+            ]);
+
+            $spectechRequest->syncScheduleStatus();
+        });
 
         $spectechRequest->load(['truck', 'user']);
 
@@ -459,6 +463,8 @@ class SpectechRequestController extends Controller
             'status'   => $newStatus,
             'timeline' => $timeline,
         ]);
+
+        $spectechRequest->syncScheduleStatus();
 
         $spectechRequest->load(['truck', 'user']);
 
