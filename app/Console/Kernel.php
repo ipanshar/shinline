@@ -17,6 +17,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\CleanupOldTasksAndPermits::class,
         \App\Console\Commands\ForceCloseVisitors::class,
         \App\Console\Commands\DssPurgeVehicleSyncCommand::class,
+        \App\Console\Commands\CleanupGarbageTrucks::class,
         \App\Console\Commands\AutoSkipStaleWeighingCommand::class,
         \App\Console\Commands\AutoClosePendingVisitorsCommand::class,
     ];
