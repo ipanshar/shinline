@@ -78,6 +78,42 @@ class SpectechRequestStatusUpdateTest extends TestCase
         $this->assertSame(SpectechRequest::STATUS_RETURNED, $request->fresh()->status);
     }
 
+    public function test_owner_can_cancel_spectech_request_with_reason(): void
+    {
+        [$owner, $request] = $this->makeFrozenRequest();
+
+        $this->actingAs($owner)
+            ->patchJson("/spectech/api/requests/{$request->id}/cancel", [
+                'reason' => 'Работы перенесены',
+            ])
+            ->assertOk()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.status', SpectechRequest::STATUS_CANCELLED)
+            ->assertJsonPath('data.cancellation_reason', 'Работы перенесены')
+            ->assertJsonPath('data.cancelled_by', SpectechRequest::CANCELLED_BY_OPERATOR);
+
+        $request->refresh();
+
+        $this->assertSame(SpectechRequest::STATUS_CANCELLED, $request->status);
+        $this->assertSame('Работы перенесены', $request->cancellation_reason);
+        $this->assertSame(SpectechRequest::CANCELLED_BY_OPERATOR, $request->cancelled_by);
+    }
+
+    public function test_completed_spectech_request_cannot_be_cancelled(): void
+    {
+        [$owner, $request] = $this->makeFrozenRequest();
+        $request->update(['status' => SpectechRequest::STATUS_COMPLETED]);
+
+        $this->actingAs($owner)
+            ->patchJson("/spectech/api/requests/{$request->id}/cancel", [
+                'reason' => 'Не нужно',
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath('status', false);
+
+        $this->assertSame(SpectechRequest::STATUS_COMPLETED, $request->fresh()->status);
+    }
+
     private function makeFrozenRequest(): array
     {
         $operator = User::query()->create([
