@@ -440,25 +440,15 @@ class TelegramMiniAppController extends Controller
             'photos.*' => ['nullable', 'string'],
         ]);
 
-        // Проверить доступность техники перед созданием заявки
+        // Проверить доступность техники, но не блокировать создание заявки.
+        // Диспетчер увидит конфликт и скорректирует планирование.
         $availabilityService = new SpectechAvailabilityService();
         $startCarbon = Carbon::parse($validated['requested_start']);
         $endCarbon   = Carbon::parse($validated['requested_end']);
+        $conflictInfo = [];
 
         if (! $availabilityService->isTruckAvailable($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String())) {
-            $freeTruck    = $availabilityService->findFreeAlternativeTruck($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String());
             $conflictInfo = $availabilityService->getTypeConflictInfo($validated['truck_id'], $startCarbon->toIso8601String(), $endCarbon->toIso8601String());
-
-            return response()->json([
-                'available'        => false,
-                'message'          => 'Техника занята на указанный период',
-                'free_alternative' => $freeTruck ? [
-                    'id'           => $freeTruck->id,
-                    'name'         => $freeTruck->name,
-                    'plate_number' => $freeTruck->plate_number,
-                ] : null,
-                'conflict_info' => $conflictInfo,
-            ], 409);
         }
 
         $photoPaths = $this->prepareSpectechPhotoPaths($validated['photos'] ?? []);
@@ -497,6 +487,7 @@ class TelegramMiniAppController extends Controller
             'timeline'        => SpectechRequest::buildInitialTimeline(),
             'schedule_id'     => $schedule->id,
             'from_scheduling' => false,
+            'conflict_info'    => $conflictInfo,
         ]);
 
         $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name']);
@@ -540,6 +531,7 @@ class TelegramMiniAppController extends Controller
         [$startCarbon, $endCarbon] = $this->resolveSpectechWindow($validated);
         $availabilityService = new SpectechAvailabilityService();
         $excludeScheduleId = $spectechRequest->schedule_id;
+        $conflictInfo = [];
 
         if (! $availabilityService->isTruckAvailable(
             (int) $validated['truck_id'],
@@ -547,29 +539,12 @@ class TelegramMiniAppController extends Controller
             $endCarbon->toIso8601String(),
             $excludeScheduleId,
         )) {
-            $freeTruck = $availabilityService->findFreeAlternativeTruck(
-                (int) $validated['truck_id'],
-                $startCarbon->toIso8601String(),
-                $endCarbon->toIso8601String(),
-                $excludeScheduleId,
-            );
             $conflictInfo = $availabilityService->getTypeConflictInfo(
                 (int) $validated['truck_id'],
                 $startCarbon->toIso8601String(),
                 $endCarbon->toIso8601String(),
                 $excludeScheduleId,
             );
-
-            return response()->json([
-                'available' => false,
-                'message' => 'Техника занята на указанный период',
-                'free_alternative' => $freeTruck ? [
-                    'id' => $freeTruck->id,
-                    'name' => $freeTruck->name,
-                    'plate_number' => $freeTruck->plate_number,
-                ] : null,
-                'conflict_info' => $conflictInfo,
-            ], 409);
         }
 
         $truck = Truck::findOrFail((int) $validated['truck_id']);
@@ -577,7 +552,7 @@ class TelegramMiniAppController extends Controller
             ? $this->prepareSpectechPhotoPaths($validated['photos'] ?? [])
             : ($spectechRequest->photos ?? []);
 
-        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths) {
+        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths, $conflictInfo) {
             $scheduleId = $this->syncTelegramSpectechSchedule($spectechRequest, $truck, $startCarbon, $endCarbon, $validated);
 
             $spectechRequest->forceFill([
@@ -595,6 +570,7 @@ class TelegramMiniAppController extends Controller
                 'comment' => isset($validated['comment']) && trim((string) $validated['comment']) !== '' ? trim((string) $validated['comment']) : null,
                 'photos' => $photoPaths,
                 'schedule_id' => $scheduleId,
+                'conflict_info' => $conflictInfo,
             ])->save();
         });
 
@@ -943,6 +919,7 @@ class TelegramMiniAppController extends Controller
             'source_label' => $item->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id' => $item->schedule_id,
             'from_scheduling' => (bool) $item->from_scheduling,
+            'conflict_info' => $item->conflict_info ?? [],
             'cancellation_reason' => $item->cancellation_reason,
             'cancelled_by'        => $item->cancelled_by,
             'created_at' => $item->created_at?->toIso8601String(),

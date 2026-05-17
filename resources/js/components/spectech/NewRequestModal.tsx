@@ -300,22 +300,10 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
             return;
         }
 
-        // Если техника занята и нет свободной альтернативы — не отправляем
-        if (availabilityResult && !availabilityResult.available && !availabilityResult.free_alternative) {
-            setErrors({ global: 'Выбранная техника полностью занята. Выберите другую дату или технику.' });
-            return;
-        }
-
-        // Если выбрали свободную альтернативу — используем её ID
-        const finalTruckId =
-            availabilityResult && !availabilityResult.available && availabilityResult.free_alternative
-                ? availabilityResult.free_alternative.id
-                : parseInt(truckId);
-
         setSubmitting(true);
         try {
             const payload = {
-                truck_id: finalTruckId,
+                truck_id: parseInt(truckId),
                 driver_name: driverName.trim() || null,
                 driver_phone: driverPhone.trim() || null,
                 start_date: startDateTime ? startDateTime.split('T')[0] : today,
@@ -534,9 +522,12 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                                                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-600" />
                                                 <div className="flex-1 text-xs text-orange-700">
                                                     <div className="font-medium">{availabilityResult.message}</div>
+                                                    <div className="mt-1">
+                                                        Заявку можно отправить. Диспетчер увидит конфликт и скорректирует планирование.
+                                                    </div>
                                                     {availabilityResult.free_alternative && (
                                                         <div className="mt-1 font-medium text-green-700">
-                                                            💡 Доступна альтернатива: <strong>{availabilityResult.free_alternative.name}</strong>
+                                                            Доступна альтернатива: <strong>{availabilityResult.free_alternative.name}</strong>
                                                         </div>
                                                     )}
                                                 </div>

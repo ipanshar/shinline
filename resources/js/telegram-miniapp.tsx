@@ -137,6 +137,12 @@ interface SpectechRequestItem {
     photos?: string[];
     photo_urls?: string[];
     schedule_id?: number | null;
+    conflict_info?: Array<{
+        truck_name: string;
+        plate_number?: string | null;
+        free_at?: string;
+        conflicts?: Array<{ from: string; to: string; purpose: string }>;
+    }>;
     client_name?: string | null;
     source_label?: string | null;
     cancellation_reason?: string | null;
@@ -1528,6 +1534,9 @@ function SpectechCreateForm({
             {availabilityWarn && (
                 <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 13 }}>
                     <strong>⚠️ {availabilityWarn}</strong>
+                    <div style={{ marginTop: 6 }}>
+                        Заявку можно отправить. Диспетчер увидит конфликт и скорректирует планирование.
+                    </div>
                     {freeAlternative && (
                         <div style={{ marginTop: 6 }}>
                             Свободна альтернатива:{' '}
@@ -1709,6 +1718,12 @@ function SpectechRequestList({
                                 <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
                             </div>
                         )}
+                        {(request.conflict_info ?? []).length > 0 && (
+                            <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
+                                <strong>Техника занята на выбранный период</strong>
+                                <div style={{ marginTop: 4 }}>Заявка принята, диспетчер скорректирует планирование.</div>
+                            </div>
+                        )}
                         {canModify && (
                             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                 <button type="button" style={{ ...btnSecondary, marginBottom: 0 }} onClick={() => onEdit(request)}>
@@ -1814,6 +1829,12 @@ function SpectechOperatorList({
                             <div style={{ marginTop: 8, border: '1px solid #f4b8b3', borderRadius: 8, padding: 8, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
                                 <strong>Заявка отменена{request.cancelled_by ? `: ${request.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}</strong>
                                 <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
+                            </div>
+                        )}
+                        {(request.conflict_info ?? []).length > 0 && (
+                            <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
+                                <strong>Техника занята на выбранный период</strong>
+                                <div style={{ marginTop: 4 }}>Заявка принята, требуется регулировка диспетчером.</div>
                             </div>
                         )}
 
