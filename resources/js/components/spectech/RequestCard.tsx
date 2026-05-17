@@ -27,6 +27,12 @@ export interface SpectechRequestData {
     source_label?: string;
     schedule_id?: number | null;
     from_scheduling?: boolean;
+    conflict_info?: Array<{
+        truck_name: string;
+        plate_number?: string | null;
+        free_at?: string;
+        conflicts?: Array<{ from: string; to: string; purpose: string }>;
+    }>;
     status_frozen?: boolean;
     status_frozen_reason?: string | null;
     cancellation_reason?: string | null;

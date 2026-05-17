@@ -138,16 +138,23 @@ const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; 
     };
 
     const grouped = useMemo(() => {
-        const map = new Map<number, { label: string; items: SpectechRequestData[] }>();
+        const map = new Map<number, { label: string; plateNumber: string | null; items: SpectechRequestData[] }>();
         for (const r of active) {
-            const entry = map.get(r.equipment_id) ?? { label: r.equipment_name, items: [] };
+            const entry = map.get(r.equipment_id) ?? {
+                label: r.equipment_name,
+                plateNumber: r.plate_number ?? null,
+                items: [],
+            };
+            if (!entry.plateNumber && r.plate_number) {
+                entry.plateNumber = r.plate_number;
+            }
             entry.items.push(r);
             map.set(r.equipment_id, entry);
         }
         return map;
     }, [active]);
 
-    const LABEL_W = 112;
+    const LABEL_W = 132;
     const ROW_H = 36;
 
     return (
@@ -187,10 +194,15 @@ const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; 
                         <div className="py-10 text-center text-sm text-slate-400">Нет заявок на выбранный период</div>
                     )}
 
-                    {Array.from(grouped.entries()).map(([equipId, { label, items }]) => (
+                    {Array.from(grouped.entries()).map(([equipId, { label, plateNumber, items }]) => (
                         <div key={equipId}>
-                            <div className="flex items-center gap-2 bg-slate-50/80 border-b border-t border-slate-100 px-2" style={{ height: 22 }}>
+                            <div className="flex items-center gap-2 bg-slate-50/80 border-b border-t border-slate-100 px-2" style={{ minHeight: 28 }}>
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{label}</span>
+                                {plateNumber && (
+                                    <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                                        {plateNumber}
+                                    </span>
+                                )}
                             </div>
                             {items.map((req) => {
                                 const st = STATUS_STYLES[req.status] ?? STATUS_STYLES.new;
@@ -203,10 +215,14 @@ const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; 
                                         style={{ minHeight: ROW_H }}
                                     >
                                         <div
-                                            className="flex-shrink-0 px-2 text-[11px] text-slate-500 text-right border-r border-slate-100"
+                                            className="flex-shrink-0 px-2 text-right border-r border-slate-100"
                                             style={{ width: LABEL_W }}
+                                            title={`${req.equipment_name}${req.plate_number ? ` · ${req.plate_number}` : ''}`}
                                         >
-                                            #{req.id}
+                                            <div className="text-[11px] text-slate-500">#{req.id}</div>
+                                            {req.plate_number && (
+                                                <div className="truncate text-[10px] font-semibold text-slate-700">{req.plate_number}</div>
+                                            )}
                                         </div>
                                         <div className="relative flex-1" style={{ minHeight: ROW_H }}>
                                             {ticks.map((tick, i) => (
@@ -235,6 +251,7 @@ const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; 
                                                         x: r.left, y: r.top,
                                                         lines: [
                                                             `#${req.id} · ${req.status_label}`,
+                                                            `${req.equipment_name}${req.plate_number ? ` · ${req.plate_number}` : ''}`,
                                                             req.client_name ?? req.equipment_name,
                                                             `${formatDateTime(req.requested_start)} → ${formatDateTime(req.requested_end)}`,
                                                             ...(req.address ? [`📍 ${req.address}`] : []),
@@ -245,7 +262,7 @@ const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; 
                                                 onMouseLeave={() => setTooltip(null)}
                                             >
                                                 <span className="truncate text-[10px] font-semibold">
-                                                    {req.client_name ?? req.equipment_name}
+                                                    {req.plate_number ? `${req.plate_number} · ` : ''}{req.client_name ?? req.equipment_name}
                                                 </span>
                                             </div>
                                         </div>
@@ -557,6 +574,7 @@ export default function SpectechDashboard() {
                                         const isFinalStatus = req.status === 'returned';
                                         const isCancelled = req.status === 'cancelled';
                                         const canEditOrCancel = !['completed', 'returned', 'cancelled'].includes(req.status);
+                                        const hasPlanningConflict = (req.conflict_info ?? []).length > 0;
 
                                         return (
                                             <React.Fragment key={req.id}>
@@ -582,6 +600,11 @@ export default function SpectechDashboard() {
                                                             <span className="text-[11px] text-[#6B6B6B]">{getCurrentStage(req)}</span>
                                                             {req.cancellation_reason && (
                                                                 <span className="text-[11px] text-red-700">Причина: {req.cancellation_reason}</span>
+                                                            )}
+                                                            {hasPlanningConflict && (
+                                                                <span className="w-fit rounded border border-orange-200 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-700">
+                                                                    Конфликт планирования
+                                                                </span>
                                                             )}
                                                             {isFrozen && (
                                                                 <span className="w-fit rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
@@ -678,6 +701,23 @@ export default function SpectechDashboard() {
                                                                                 Заявка отменена{req.cancelled_by ? `: ${req.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}
                                                                             </div>
                                                                             <div className="mt-1">{req.cancellation_reason || 'Причина не указана'}</div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {hasPlanningConflict && (
+                                                                        <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                                                                            <div className="font-semibold">Техника занята на выбранный период</div>
+                                                                            <div className="mt-1">Заявка принята, требуется регулировка диспетчером.</div>
+                                                                            <div className="mt-2 space-y-1">
+                                                                                {(req.conflict_info ?? []).map((conflict, idx) => (
+                                                                                    <div key={`${conflict.truck_name}-${idx}`}>
+                                                                                        <span className="font-medium">
+                                                                                            {conflict.truck_name}{conflict.plate_number ? ` (${conflict.plate_number})` : ''}
+                                                                                        </span>
+                                                                                        {conflict.free_at && <span> · свободна с {conflict.free_at}</span>}
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
                                                                         </div>
                                                                     )}
 

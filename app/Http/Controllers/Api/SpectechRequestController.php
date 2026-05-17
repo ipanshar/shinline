@@ -180,7 +180,10 @@ class SpectechRequestController extends Controller
         $photoPaths = $this->preparePhotoPaths($validated['photos'] ?? []);
         [$startDate, $endDate] = $this->resolveRequestedWindow($validated);
 
-        // Проверяем доступность техники, если запрашивается
+        $conflictInfo = [];
+
+        // Проверяем доступность техники, но не блокируем создание заявки.
+        // Диспетчер увидит конфликт и скорректирует планирование.
         $availabilityService = new SpectechAvailabilityService();
         if ($validated['check_availability'] ?? false) {
             $isAvailable = $availabilityService->isTruckAvailable(
@@ -190,39 +193,18 @@ class SpectechRequestController extends Controller
             );
 
             if (!$isAvailable) {
-                // Ищем свободный аналог
-                $freeTruck = $availabilityService->findFreeAlternativeTruck(
-                    $validated['truck_id'],
-                    $startDate->toIso8601String(),
-                    $endDate->toIso8601String()
-                );
-
-                // Собираем информацию о конфликтах
                 $conflictInfo = $availabilityService->getTypeConflictInfo(
                     $validated['truck_id'],
                     $startDate->toIso8601String(),
                     $endDate->toIso8601String()
                 );
-
-                return response()->json([
-                    'status'        => false,
-                    'conflict'      => true,
-                    'message'       => 'Выбранная техника занята на указанный период',
-                    'free_alternative' => $freeTruck ? [
-                        'id'            => $freeTruck->id,
-                        'name'          => $freeTruck->name,
-                        'plate_number'  => $freeTruck->plate_number,
-                        'message'       => "Предложена свободная техника: {$freeTruck->name}",
-                    ] : null,
-                    'conflict_info' => $conflictInfo,
-                ], 409);
             }
         }
 
         $truck = Truck::findOrFail($validated['truck_id']);
         $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
 
-        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey) {
+        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey, $conflictInfo) {
             $schedule = SpectechSchedule::create([
                 'user_id'              => Auth::id(),
                 'truck_id'             => $truck->id,
@@ -254,6 +236,7 @@ class SpectechRequestController extends Controller
                 'requested_start' => $startDate,
                 'requested_end'   => $endDate,
                 'from_scheduling' => false,
+                'conflict_info'    => $conflictInfo,
             ]);
         });
 
@@ -296,6 +279,7 @@ class SpectechRequestController extends Controller
 
         [$startDate, $endDate] = $this->resolveRequestedWindow($validated);
         $availabilityService = new SpectechAvailabilityService();
+        $conflictInfo = [];
 
         if ($validated['check_availability'] ?? false) {
             $excludeScheduleId = $spectechRequest->schedule_id;
@@ -307,32 +291,12 @@ class SpectechRequestController extends Controller
             );
 
             if (! $isAvailable) {
-                $freeTruck = $availabilityService->findFreeAlternativeTruck(
-                    (int) $validated['truck_id'],
-                    $startDate->toIso8601String(),
-                    $endDate->toIso8601String(),
-                    $excludeScheduleId,
-                );
-
                 $conflictInfo = $availabilityService->getTypeConflictInfo(
                     (int) $validated['truck_id'],
                     $startDate->toIso8601String(),
                     $endDate->toIso8601String(),
                     $excludeScheduleId,
                 );
-
-                return response()->json([
-                    'status'        => false,
-                    'conflict'      => true,
-                    'message'       => 'Выбранная техника занята на указанный период',
-                    'free_alternative' => $freeTruck ? [
-                        'id'           => $freeTruck->id,
-                        'name'         => $freeTruck->name,
-                        'plate_number' => $freeTruck->plate_number,
-                        'message'      => "Предложена свободная техника: {$freeTruck->name}",
-                    ] : null,
-                    'conflict_info' => $conflictInfo,
-                ], 409);
             }
         }
 
@@ -341,7 +305,7 @@ class SpectechRequestController extends Controller
             ? $this->preparePhotoPaths($validated['photos'] ?? [])
             : ($spectechRequest->photos ?? []);
 
-        DB::transaction(function () use ($spectechRequest, $validated, $truck, $startDate, $endDate, $photoPaths) {
+        DB::transaction(function () use ($spectechRequest, $validated, $truck, $startDate, $endDate, $photoPaths, $conflictInfo) {
             $scheduleId = $this->syncScheduleForRequest($spectechRequest, $truck, $startDate, $endDate, $validated);
 
             $spectechRequest->update([
@@ -359,6 +323,7 @@ class SpectechRequestController extends Controller
                 'comment'         => isset($validated['comment']) && trim((string) $validated['comment']) !== '' ? trim((string) $validated['comment']) : null,
                 'photos'          => $photoPaths,
                 'schedule_id'     => $scheduleId,
+                'conflict_info'    => $conflictInfo,
             ]);
         });
 
