@@ -251,6 +251,33 @@ const nextSpectechStatus: Record<string, string> = {
     completed: 'returned',
 };
 
+const finalSpectechStatuses = ['completed', 'returned', 'cancelled'];
+
+const spectechStatusStyles: Record<string, { bg: string; color: string; border: string }> = {
+    new: { bg: '#f5f5f5', color: '#555', border: '#ddd' },
+    departure: { bg: '#fff4e6', color: '#a45a00', border: '#f5d08a' },
+    on_location: { bg: '#eaf4ff', color: '#1663b7', border: '#bfdcff' },
+    work_started: { bg: '#f2edff', color: '#6541b4', border: '#d7ccff' },
+    completed: { bg: '#e9f8ee', color: '#1f7a3a', border: '#b9e6c6' },
+    returned: { bg: '#eef7f0', color: '#226b35', border: '#abdcb8' },
+    cancelled: { bg: '#fff1f1', color: '#b42318', border: '#f4b8b3' },
+};
+
+function formatSpectechDateTime(value?: string | null): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+        ? value
+        : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatSpectechPeriod(request: SpectechRequestItem): string {
+    const start = request.requested_start ? formatSpectechDateTime(request.requested_start) : request.start_date || '—';
+    const end = request.requested_end ? formatSpectechDateTime(request.requested_end) : request.end_date || '—';
+
+    return `${start} — ${end}`;
+}
+
 const utilizationStatusLabels: Record<string, string> = {
     new: 'На рассмотрении',
     reviewing: 'На рассмотрении',
@@ -1645,35 +1672,56 @@ function SpectechRequestList({
         <>
             <h3>Мои заявки на спецтехнику</h3>
             {requests.length === 0 && <p>Заявок пока нет.</p>}
-            {requests.map((request) => (
-                <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
-                    <strong>#{request.id} {request.equipment_name}</strong>
-                    <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
-                    <div>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
-                    <div>Период: {
-                        request.requested_start
-                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.start_date
-                    } — {
-                        request.requested_end
-                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.end_date
-                    }</div>
-                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
-                    <div>Адрес: {request.address}</div>
-                    {request.comment && <div>Комментарий: {request.comment}</div>}
-                    {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
-                    {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                        <button type="button" style={{ ...btnSecondary, marginBottom: 0 }} onClick={() => onEdit(request)}>
-                            Изменить заявку
-                        </button>
-                        <button type="button" style={{ ...btnDanger, marginBottom: 0 }} onClick={() => onCancel(request)}>
-                            Отменить заявку
-                        </button>
+            {requests.map((request) => {
+                const statusStyle = spectechStatusStyles[request.status] ?? spectechStatusStyles.new;
+                const canModify = !finalSpectechStatuses.includes(request.status);
+
+                return (
+                    <div
+                        key={request.id}
+                        style={{
+                            border: `1px solid ${statusStyle.border}`,
+                            borderRadius: 8,
+                            padding: 10,
+                            margin: '8px 0',
+                            background: request.status === 'cancelled' ? '#fffafa' : '#fff',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <strong>#{request.id} {request.equipment_name}</strong>
+                            <span style={{ border: `1px solid ${statusStyle.border}`, borderRadius: 999, padding: '3px 8px', background: statusStyle.bg, color: statusStyle.color, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {request.status_label || spectechStatusLabels[request.status] || request.status}
+                            </span>
+                        </div>
+                        {request.plate_number && <div style={{ color: '#666', fontSize: 13 }}>Номер: {request.plate_number}</div>}
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            <div><strong>Период:</strong> {formatSpectechPeriod(request)}</div>
+                            <div><strong>Локация:</strong> {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+                            <div><strong>Адрес:</strong> {request.address || '—'}</div>
+                            <div><strong>Водитель:</strong> {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
+                            {request.comment && <div><strong>Комментарий:</strong> {request.comment}</div>}
+                            {request.photo_urls && request.photo_urls.length > 0 && <div><strong>Фото:</strong> {request.photo_urls.length}</div>}
+                            {request.created_at && <div><strong>Создана:</strong> {formatSpectechDateTime(request.created_at)}</div>}
+                        </div>
+                        {request.status === 'cancelled' && (
+                            <div style={{ marginTop: 8, border: '1px solid #f4b8b3', borderRadius: 8, padding: 8, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
+                                <strong>Заявка отменена{request.cancelled_by ? `: ${request.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}</strong>
+                                <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
+                            </div>
+                        )}
+                        {canModify && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                <button type="button" style={{ ...btnSecondary, marginBottom: 0 }} onClick={() => onEdit(request)}>
+                                    Изменить заявку
+                                </button>
+                                <button type="button" style={{ ...btnDanger, marginBottom: 0 }} onClick={() => onCancel(request)}>
+                                    Отменить заявку
+                                </button>
+                            </div>
+                        )}
                     </div>
-                </div>
-            ))}
+                );
+            })}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
@@ -1730,53 +1778,65 @@ function SpectechOperatorList({
             </button>
             {error && <p style={{ color: 'crimson' }}>{error}</p>}
             {!loading && requests.length === 0 && <p>Заявок пока нет.</p>}
-            {requests.map((request) => (
-                <div
-                    key={request.id}
-                    style={{
-                        border: '1px solid #ddd',
-                        borderRadius: 8,
-                        padding: 10,
-                        margin: '8px 0',
-                        opacity: busyId === request.id ? 0.65 : 1,
-                    }}
-                >
-                    <strong>#{request.id} {request.equipment_name}</strong>
-                    {request.plate_number && <div>Номер: {request.plate_number}</div>}
-                    <div>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
-                    <div>Статус: <strong>{request.status_label || spectechStatusLabels[request.status] || request.status}</strong></div>
-                    <div>Период: {
-                        request.requested_start
-                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.start_date
-                    } — {
-                        request.requested_end
-                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.end_date
-                    }</div>
-                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
-                    <div>Адрес: {request.address}</div>
-                    {request.comment && <div>Комментарий: {request.comment}</div>}
-                    {request.client_name && <div>Инициатор: {request.client_name} {request.source_label ? `· ${request.source_label}` : ''}</div>}
-                    {request.cancellation_reason && <div>Причина отмены: {request.cancellation_reason}</div>}
-                    {request.cancelled_by && <div>Кто отменил: {request.cancelled_by === 'operator' ? 'Оператор' : 'Заказчик'}</div>}
-                    {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString('ru-RU')}</div>}
+            {requests.map((request) => {
+                const statusStyle = spectechStatusStyles[request.status] ?? spectechStatusStyles.new;
+                const canModify = !finalSpectechStatuses.includes(request.status);
 
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                        {nextSpectechStatus[request.status] && (
-                            <button
-                                style={{ ...btn }}
-                                disabled={busyId === request.id}
-                                onClick={() => handleAdvance(request)}
-                            >
-                                {busyId === request.id ? 'Сохранение…' : `→ ${spectechStatusLabels[nextSpectechStatus[request.status]]}`}
-                            </button>
+                return (
+                    <div
+                        key={request.id}
+                        style={{
+                            border: `1px solid ${statusStyle.border}`,
+                            borderRadius: 8,
+                            padding: 10,
+                            margin: '8px 0',
+                            opacity: busyId === request.id ? 0.65 : 1,
+                            background: request.status === 'cancelled' ? '#fffafa' : '#fff',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <strong>#{request.id} {request.equipment_name}</strong>
+                            <span style={{ border: `1px solid ${statusStyle.border}`, borderRadius: 999, padding: '3px 8px', background: statusStyle.bg, color: statusStyle.color, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {request.status_label || spectechStatusLabels[request.status] || request.status}
+                            </span>
+                        </div>
+                        {request.plate_number && <div style={{ color: '#666', fontSize: 13 }}>Номер: {request.plate_number}</div>}
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            {request.client_name && <div><strong>Инициатор:</strong> {request.client_name} {request.source_label ? `· ${request.source_label}` : ''}</div>}
+                            <div><strong>Период:</strong> {formatSpectechPeriod(request)}</div>
+                            <div><strong>Локация:</strong> {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+                            <div><strong>Адрес:</strong> {request.address || '—'}</div>
+                            <div><strong>Водитель:</strong> {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
+                            {request.comment && <div><strong>Комментарий:</strong> {request.comment}</div>}
+                            {request.created_at && <div><strong>Создана:</strong> {formatSpectechDateTime(request.created_at)}</div>}
+                        </div>
+                        {request.status === 'cancelled' && (
+                            <div style={{ marginTop: 8, border: '1px solid #f4b8b3', borderRadius: 8, padding: 8, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
+                                <strong>Заявка отменена{request.cancelled_by ? `: ${request.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}</strong>
+                                <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
+                            </div>
                         )}
-                        <button type="button" style={{ ...btnSecondary }} onClick={() => onEdit(request)}>Изменить</button>
-                        <button type="button" style={{ ...btnDanger }} onClick={() => onCancel(request)}>Отменить</button>
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            {nextSpectechStatus[request.status] && (
+                                <button
+                                    style={{ ...btn }}
+                                    disabled={busyId === request.id}
+                                    onClick={() => handleAdvance(request)}
+                                >
+                                    {busyId === request.id ? 'Сохранение…' : `→ ${spectechStatusLabels[nextSpectechStatus[request.status]]}`}
+                                </button>
+                            )}
+                            {canModify && (
+                                <>
+                                    <button type="button" style={{ ...btnSecondary }} onClick={() => onEdit(request)}>Изменить</button>
+                                    <button type="button" style={{ ...btnDanger }} onClick={() => onCancel(request)}>Отменить</button>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
     );

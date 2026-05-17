@@ -285,7 +285,7 @@ export default function SpectechDashboard() {
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('');
-    const [viewMode, setViewMode] = useState<'list'|'gantt'>('gantt');
+    const [viewMode, setViewMode] = useState<'list'|'gantt'>('list');
     const [ganttRange, setGanttRange] = useState<GanttRange>('week');
     const [ganttAnchor, setGanttAnchor] = useState<Date>(new Date());
 
@@ -541,7 +541,7 @@ export default function SpectechDashboard() {
                                         <th className="px-3 py-2">Инициатор заказа</th>
                                         <th className="px-3 py-2">Техника</th>
                                         <th className="px-3 py-2">Период</th>
-                                        <th className="px-3 py-2">Этап</th>
+                                        <th className="px-3 py-2">Статус</th>
                                         <th className="px-3 py-2">Действие</th>
                                         <th className="px-3 py-2">Детали</th>
                                     </tr>
@@ -555,6 +555,8 @@ export default function SpectechDashboard() {
                                         const canFinalizeFrozen =
                                             isFrozen && ['new', 'departure', 'on_location', 'work_started'].includes(req.status);
                                         const isFinalStatus = req.status === 'returned';
+                                        const isCancelled = req.status === 'cancelled';
+                                        const canEditOrCancel = !['completed', 'returned', 'cancelled'].includes(req.status);
 
                                         return (
                                             <React.Fragment key={req.id}>
@@ -570,15 +572,19 @@ export default function SpectechDashboard() {
                                                             : `${formatDate(req.start_date)} — ${formatDate(req.end_date)}`}
                                                     </td>
                                                     <td className="px-3 py-2">
-                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                        <div className="flex flex-col gap-1">
                                                             <span
-                                                                className="rounded border px-2 py-1 text-[11px] font-medium"
+                                                                className="w-fit rounded border px-2 py-1 text-[11px] font-medium"
                                                                 style={{ background: st.bg, color: st.text, borderColor: st.border }}
                                                             >
-                                                                {getCurrentStage(req)}
+                                                                {req.status_label}
                                                             </span>
+                                                            <span className="text-[11px] text-[#6B6B6B]">{getCurrentStage(req)}</span>
+                                                            {req.cancellation_reason && (
+                                                                <span className="text-[11px] text-red-700">Причина: {req.cancellation_reason}</span>
+                                                            )}
                                                             {isFrozen && (
-                                                                <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+                                                                <span className="w-fit rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                                                                     Заморожено
                                                                 </span>
                                                             )}
@@ -594,6 +600,8 @@ export default function SpectechDashboard() {
                                                             >
                                                                 Завершить как возврат
                                                             </button>
+                                                        ) : isCancelled ? (
+                                                            <span className="text-xs text-red-700">Отменена</span>
                                                         ) : isFinalStatus ? (
                                                             <span className="text-xs text-[#6B6B6B]">Готово</span>
                                                         ) : isFrozen ? (
@@ -620,7 +628,7 @@ export default function SpectechDashboard() {
                                                             className="inline-flex h-8 items-center gap-1 rounded-md border border-[#E0E0E0] bg-white px-3 text-[12px] text-[#1A1A1A] hover:bg-[#FAFAFA]"
                                                         >
                                                             {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                                            Лента
+                                                            Открыть
                                                         </button>
                                                     </td>
                                                 </tr>
@@ -628,9 +636,52 @@ export default function SpectechDashboard() {
                                                 {isExpanded && (
                                                     <tr className="border-b border-[#E8E8E8] bg-[#FCFCFC]">
                                                         <td className="px-3 py-3" colSpan={7}>
-                                                            <div className="grid gap-4 md:grid-cols-2">
+                                                            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
                                                                 <div>
-                                                                    <div className="mb-2 text-xs font-semibold text-[#1A1A1A]">Лента времени</div>
+                                                                    <div className="mb-2 text-xs font-semibold text-[#1A1A1A]">Информация по заявке</div>
+                                                                    <div className="grid gap-2 text-xs text-[#2C2C2C] sm:grid-cols-2">
+                                                                        <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">
+                                                                            <div className="text-[11px] text-[#888]">Инициатор</div>
+                                                                            <div className="font-medium">{req.client_name || '—'}</div>
+                                                                            {req.source_label && <div className="mt-0.5 text-[11px] text-blue-700">{req.source_label}</div>}
+                                                                        </div>
+                                                                        <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">
+                                                                            <div className="text-[11px] text-[#888]">Техника</div>
+                                                                            <div className="font-medium">{req.equipment_name}</div>
+                                                                            {req.plate_number && <div className="mt-0.5 text-[11px] text-[#666]">{req.plate_number}</div>}
+                                                                        </div>
+                                                                        <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">
+                                                                            <div className="text-[11px] text-[#888]">Период</div>
+                                                                            <div className="font-medium">
+                                                                                {req.requested_start && req.requested_end
+                                                                                    ? `${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}`
+                                                                                    : `${formatDate(req.start_date)} — ${formatDate(req.end_date)}`}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">
+                                                                            <div className="text-[11px] text-[#888]">Водитель</div>
+                                                                            <div className="font-medium">{req.driver_name || '—'}</div>
+                                                                            {req.driver_phone && <div className="mt-0.5 text-[11px] text-[#666]">{req.driver_phone}</div>}
+                                                                        </div>
+                                                                        <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2 sm:col-span-2">
+                                                                            <div className="text-[11px] text-[#888]">Локация</div>
+                                                                            <div className="font-medium">
+                                                                                {req.terminal} / {req.zone}{req.gate ? ` / ${req.gate}` : ''}
+                                                                            </div>
+                                                                            <div className="mt-0.5 text-[11px] text-[#666]">{req.address || '—'}</div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {req.status === 'cancelled' && (
+                                                                        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                                                                            <div className="font-semibold">
+                                                                                Заявка отменена{req.cancelled_by ? `: ${req.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}
+                                                                            </div>
+                                                                            <div className="mt-1">{req.cancellation_reason || 'Причина не указана'}</div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    <div className="mt-4 mb-2 text-xs font-semibold text-[#1A1A1A]">Лента времени</div>
                                                                     <div className="space-y-1.5">
                                                                         {(req.timeline ?? []).map((step, idx) => (
                                                                             <div
@@ -660,22 +711,24 @@ export default function SpectechDashboard() {
                                                                     <p className="mb-2 text-xs text-[#2C2C2C]">{req.comment || 'Без комментария'}</p>
                                                                     <PhotoGallery photos={req.photos ?? []} compact />
 
-                                                                    <div className="mt-3 flex gap-2">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => openEditModal(req)}
-                                                                            className="h-8 rounded-md border px-3 text-[12px]"
-                                                                        >
-                                                                            Редактировать
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => openCancelModal(req)}
-                                                                            className="h-8 rounded-md bg-red-600 px-3 text-[12px] text-white hover:bg-red-700"
-                                                                        >
-                                                                            Отменить заявку
-                                                                        </button>
-                                                                    </div>
+                                                                    {canEditOrCancel && (
+                                                                        <div className="mt-3 flex gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => openEditModal(req)}
+                                                                                className="h-8 rounded-md border px-3 text-[12px]"
+                                                                            >
+                                                                                Редактировать
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => openCancelModal(req)}
+                                                                                className="h-8 rounded-md bg-red-600 px-3 text-[12px] text-white hover:bg-red-700"
+                                                                            >
+                                                                                Отменить заявку
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
 
                                                                 </div>
                                                             </div>
