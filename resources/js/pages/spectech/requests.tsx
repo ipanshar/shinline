@@ -118,13 +118,14 @@ const RequestItem: React.FC<{
     const timeline = req.timeline ?? [];
     const doneCount = timeline.filter(s => s.time).length;
     const progressPct = timeline.length > 0 ? Math.round((doneCount / timeline.length) * 100) : 0;
+    const isCancelled = req.status === 'cancelled';
 
     const period = req.requested_start && req.requested_end
         ? `${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}`
         : `${formatDate(req.start_date)} — ${formatDate(req.end_date)}`;
 
     return (
-        <div className="rounded-xl border border-[#E8E8E8] bg-white shadow-sm hover:shadow-md transition-shadow">
+        <div className={`rounded-xl border bg-white shadow-sm hover:shadow-md transition-shadow ${isCancelled ? 'border-red-200' : 'border-[#E8E8E8]'}`}>
             {/* ── Шапка карточки ── */}
             <div className="flex items-start gap-3 p-4">
                 {/* Иконка статуса */}
@@ -172,6 +173,20 @@ const RequestItem: React.FC<{
                             </span>
                         )}
                     </div>
+                    {isCancelled && (
+                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-red-700">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                Заявка отменена
+                                {req.cancelled_by && (
+                                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px]">
+                                        {req.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="mt-1 text-[12px] text-red-800">{req.cancellation_reason || 'Причина не указана'}</div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -184,7 +199,7 @@ const RequestItem: React.FC<{
                         style={{ width: `${progressPct}%`, background: st.dot }}
                     />
                 </div>
-                <span className="text-[11px] text-[#888] flex-shrink-0">{getCurrentStage(req)}</span>
+                <span className="text-[11px] text-[#888] flex-shrink-0">{isCancelled ? 'Отменена' : getCurrentStage(req)}</span>
                 {!['completed', 'returned', 'cancelled'].includes(req.status) && (
                     <button
                         type="button"
@@ -247,10 +262,14 @@ const RequestItem: React.FC<{
                             </div>
                         </div>
 
-                        {/* Комментарий + фото */}
+                        {/* Детали + фото */}
                         <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Комментарий</p>
-                            <p className="text-[12.5px] text-[#444] mb-3">{req.comment || '—'}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Детали заявки</p>
+                            <div className="mb-3 grid gap-2 text-[12px] text-[#444]">
+                                <div><span className="font-medium">Локация:</span> {req.terminal} / {req.zone}{req.gate ? ` / ${req.gate}` : ''}</div>
+                                <div><span className="font-medium">Адрес:</span> {req.address || '—'}</div>
+                                <div><span className="font-medium">Комментарий:</span> {req.comment || '—'}</div>
+                            </div>
                             {(req.driver_name || req.driver_phone) && (
                                 <p className="text-[12px] text-[#444] mb-2">
                                     <span className="font-medium">Водитель:</span> {req.driver_name || '—'}{req.driver_phone ? ` · ${req.driver_phone}` : ''}
