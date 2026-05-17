@@ -26,6 +26,7 @@ return new class extends Migration
                 'work_started',
                 'completed',
                 'returned',
+                'cancelled',
             ])->default('new');
             $table->json('photos')->nullable();   // массив путей к файлам
             $table->json('timeline')->nullable(); // история смены статусов
@@ -38,4 +39,3 @@ return new class extends Migration
         Schema::dropIfExists('spectech_requests');
     }
 };
-
