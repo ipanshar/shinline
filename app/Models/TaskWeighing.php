@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Visitor;
 
 class TaskWeighing extends Model
 {
         protected $fillable = [
         'task_id',
+        'visitor_id',
         'weight',
         'description',
         'sort_order',
@@ -18,6 +20,10 @@ class TaskWeighing extends Model
     public function task()
     {
         return $this->belongsTo(Task::class);
+    }
+    public function visitor()
+    {
+        return $this->belongsTo(Visitor::class);
     }
     public function statuseWeighing()
     {

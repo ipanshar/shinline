@@ -5,9 +5,10 @@ import { Head } from '@inertiajs/react';
 import { type BreadcrumbItem } from '@/types';
 import {
     Plus, ClipboardList, RefreshCw, ChevronDown, ChevronUp,
-    Search, Truck, MapPin, Calendar, Link2, CheckCircle2, Clock,
+    Search, Truck, MapPin, Calendar, CheckCircle2, Clock, Pencil, Phone, XCircle, AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { type SpectechRequestData } from '@/components/spectech/RequestCard';
 import PhotoGallery from '@/components/spectech/PhotoGallery';
 import NewRequestModal from '@/components/spectech/NewRequestModal';
@@ -25,6 +26,7 @@ const STATUS_FILTERS = [
     { value: 'work_started', label: 'Работы начаты' },
     { value: 'completed', label: 'Выполнено' },
     { value: 'returned', label: 'Возврат' },
+    { value: 'cancelled', label: 'Отменено' },
 ];
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; border: string; dot: string }> = {
@@ -34,7 +36,9 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; border: string; 
     work_started: { bg: '#F5F3FF', text: '#6D28D9', border: '#DDD6FE', dot: '#7C3AED' },
     completed:    { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0', dot: '#22C55E' },
     returned:     { bg: '#F0FDF4', text: '#166534', border: '#86EFAC', dot: '#16A34A' },
+    cancelled:    { bg: '#FEF2F2', text: '#991B1B', border: '#FECACA', dot: '#EF4444' },
 };
+
 
 function formatDate(v?: string | null): string {
     if (!v) return '—';
@@ -53,24 +57,75 @@ function getCurrentStage(request: SpectechRequestData): string {
     return done.length > 0 ? done[done.length - 1].title : 'Заявка создана';
 }
 
+// ─── Модал отмены заявки ──────────────────────────────────────────────────────
+
+const CancelModal: React.FC<{
+    open: boolean;
+    onClose: () => void;
+    onConfirm: (reason: string) => void;
+    loading: boolean;
+}> = ({ open, onClose, onConfirm, loading }) => {
+    const [reason, setReason] = useState('');
+
+    useEffect(() => { if (!open) setReason(''); }, [open]);
+
+    return (
+        <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+            <DialogContent className="max-w-md p-0 gap-0">
+                <DialogHeader className="border-b px-5 py-4">
+                    <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+                        <XCircle className="h-4 w-4 text-red-600" />
+                        Отмена заявки
+                    </DialogTitle>
+                </DialogHeader>
+                <div className="px-5 py-4 flex flex-col gap-3">
+                    <p className="text-xs text-[#666]">Укажите причину отмены. Это поможет улучшить работу сервиса.</p>
+                    <textarea
+                        value={reason}
+                        onChange={e => setReason(e.target.value)}
+                        rows={3}
+                        placeholder="Причина отмены..."
+                        className="w-full rounded-lg border border-[#E0E0E0] px-3 py-2 text-sm focus:border-red-300 focus:ring-2 focus:ring-red-100 outline-none resize-none"
+                    />
+                    <div className="flex gap-2 justify-end">
+                        <Button variant="outline" size="sm" onClick={onClose} disabled={loading}>Назад</Button>
+                        <Button
+                            size="sm"
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            onClick={() => reason.trim() && onConfirm(reason.trim())}
+                            disabled={loading || !reason.trim()}
+                        >
+                            {loading ? 'Отмена...' : 'Отменить заявку'}
+                        </Button>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+
 // ─── Карточка заявки ──────────────────────────────────────────────────────────
 
 const RequestItem: React.FC<{
     req: SpectechRequestData;
     expanded: boolean;
     onToggle: () => void;
-}> = ({ req, expanded, onToggle }) => {
+    onEdit: () => void;
+    onCancel: () => void;
+}> = ({ req, expanded, onToggle, onEdit, onCancel }) => {
     const st = STATUS_STYLES[req.status] ?? STATUS_STYLES.new;
     const timeline = req.timeline ?? [];
     const doneCount = timeline.filter(s => s.time).length;
     const progressPct = timeline.length > 0 ? Math.round((doneCount / timeline.length) * 100) : 0;
+    const isCancelled = req.status === 'cancelled';
 
     const period = req.requested_start && req.requested_end
         ? `${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}`
         : `${formatDate(req.start_date)} — ${formatDate(req.end_date)}`;
 
     return (
-        <div className="rounded-xl border border-[#E8E8E8] bg-white shadow-sm hover:shadow-md transition-shadow">
+        <div className={`rounded-xl border bg-white shadow-sm hover:shadow-md transition-shadow ${isCancelled ? 'border-red-200' : 'border-[#E8E8E8]'}`}>
             {/* ── Шапка карточки ── */}
             <div className="flex items-start gap-3 p-4">
                 {/* Иконка статуса */}
@@ -107,32 +162,54 @@ const RequestItem: React.FC<{
                             <Calendar className="h-3 w-3 flex-shrink-0" />
                             {period}
                         </span>
+                        <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3 flex-shrink-0" />
+                            {req.driver_phone ? `${req.driver_name || 'Водитель'} · ${req.driver_phone}` : `Водитель: ${req.driver_name || '—'}`}
+                        </span>
                         {req.address && (
                             <span className="flex items-center gap-1 truncate max-w-[260px]">
                                 <MapPin className="h-3 w-3 flex-shrink-0" />
                                 {req.address}
                             </span>
                         )}
-                        {req.schedule_id && (
-                            <span className="flex items-center gap-1">
-                                <Link2 className="h-3 w-3 flex-shrink-0 text-blue-500" />
-                                <span className="text-blue-600">Планирование #{req.schedule_id}</span>
-                            </span>
-                        )}
                     </div>
+                    {isCancelled && (
+                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-red-700">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                Заявка отменена
+                                {req.cancelled_by && (
+                                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px]">
+                                        {req.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="mt-1 text-[12px] text-red-800">{req.cancellation_reason || 'Причина не указана'}</div>
+                        </div>
+                    )}
                 </div>
             </div>
 
             {/* ── Прогресс и ID ── */}
-            <div className="px-4 pb-3 flex items-center gap-3">
+            <div className="px-4 pb-3 flex flex-wrap items-center gap-2">
                 <span className="text-[11px] text-[#AAA] flex-shrink-0">#{req.id}</span>
-                <div className="flex-1 relative h-1.5 rounded-full bg-[#F0F0F0] overflow-hidden">
+                <div className="flex-1 relative h-1.5 rounded-full bg-[#F0F0F0] overflow-hidden min-w-[60px]">
                     <div
                         className="absolute left-0 top-0 h-full rounded-full transition-all"
                         style={{ width: `${progressPct}%`, background: st.dot }}
                     />
                 </div>
-                <span className="text-[11px] text-[#888] flex-shrink-0">{getCurrentStage(req)}</span>
+                <span className="text-[11px] text-[#888] flex-shrink-0">{isCancelled ? 'Отменена' : getCurrentStage(req)}</span>
+                {!['completed', 'returned', 'cancelled'].includes(req.status) && (
+                    <button
+                        type="button"
+                        onClick={onEdit}
+                        className="flex-shrink-0 flex items-center gap-1 text-[11px] text-[#666] hover:text-[#1A1A1A] border border-[#E8E8E8] rounded-md px-2 py-1 hover:bg-[#FAFAFA]"
+                    >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Изменить
+                    </button>
+                )}
                 <button
                     type="button"
                     onClick={onToggle}
@@ -141,6 +218,16 @@ const RequestItem: React.FC<{
                     {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     Детали
                 </button>
+                {!['completed', 'returned', 'cancelled'].includes(req.status) && (
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="flex-shrink-0 flex items-center gap-1 text-[11px] text-red-600 hover:text-red-800 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
+                    >
+                        <XCircle className="h-3.5 w-3.5" />
+                        Отменить
+                    </button>
+                )}
             </div>
 
             {/* ── Раскрытые детали ── */}
@@ -175,12 +262,32 @@ const RequestItem: React.FC<{
                             </div>
                         </div>
 
-                        {/* Комментарий + фото */}
+                        {/* Детали + фото */}
                         <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Комментарий</p>
-                            <p className="text-[12.5px] text-[#444] mb-3">{req.comment || '—'}</p>
-                            {req.driver_name && (
-                                <p className="text-[12px] text-[#444] mb-2">Водитель: {req.driver_name}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Детали заявки</p>
+                            <div className="mb-3 grid gap-2 text-[12px] text-[#444]">
+                                <div><span className="font-medium">Локация:</span> {req.terminal} / {req.zone}{req.gate ? ` / ${req.gate}` : ''}</div>
+                                <div><span className="font-medium">Адрес:</span> {req.address || '—'}</div>
+                                <div><span className="font-medium">Комментарий:</span> {req.comment || '—'}</div>
+                            </div>
+                            {(req.driver_name || req.driver_phone) && (
+                                <p className="text-[12px] text-[#444] mb-2">
+                                    <span className="font-medium">Водитель:</span> {req.driver_name || '—'}{req.driver_phone ? ` · ${req.driver_phone}` : ''}
+                                </p>
+                            )}
+                            {req.status === 'cancelled' && req.cancellation_reason && (
+                                <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                                    <p className="text-[11px] font-semibold text-red-700 mb-0.5 flex items-center gap-1">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        Причина отмены
+                                        {req.cancelled_by && (
+                                            <span className="ml-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px]">
+                                                {req.cancelled_by === 'operator' ? 'оператор' : 'заказчик'}
+                                            </span>
+                                        )}
+                                    </p>
+                                    <p className="text-[12px] text-red-800">{req.cancellation_reason}</p>
+                                </div>
                             )}
                             {req.source_label && (
                                 <div className="mb-3">
@@ -214,9 +321,13 @@ export default function SpectechRequests() {
     const [statusFilter, setStatusFilter] = useState('');
     const [telegramOnly, setTelegramOnly] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
+    const [editingRequest, setEditingRequest] = useState<SpectechRequestData | null>(null);
     const [toast, setToast] = useState('');
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [cancelModalOpen, setCancelModalOpen] = useState(false);
+    const [cancellingRequest, setCancellingRequest] = useState<SpectechRequestData | null>(null);
+    const [cancelLoading, setCancelLoading] = useState(false);
 
     const fetchRequests = useCallback(async () => {
         setLoading(true);
@@ -240,7 +351,7 @@ export default function SpectechRequests() {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return base;
         return base.filter(req =>
-            [String(req.id), req.equipment_name, req.address, req.comment ?? '', req.status_label, req.driver_name ?? '', req.source_label ?? '']
+            [String(req.id), req.equipment_name, req.address, req.comment ?? '', req.status_label, req.driver_name ?? '', req.driver_phone ?? '', req.source_label ?? '']
                 .join(' ').toLowerCase().includes(q)
         );
     }, [searchQuery, sorted, telegramOnly]);
@@ -248,12 +359,10 @@ export default function SpectechRequests() {
     const stats = useMemo(() => {
         const active    = requests.filter(r => !['completed', 'returned'].includes(r.status)).length;
         const completed = requests.filter(r => r.status === 'completed').length;
-        const linked    = requests.filter(r => r.schedule_id).length;
         return [
-            { label: 'Всего заявок',   value: requests.length, color: 'text-[#1A1A1A]', bg: 'bg-white' },
-            { label: 'В работе',       value: active,          color: 'text-red-600',    bg: 'bg-red-50' },
-            { label: 'Из планирования',value: linked,          color: 'text-blue-700',   bg: 'bg-blue-50' },
-            { label: 'Выполнено',      value: completed,       color: 'text-green-700',  bg: 'bg-green-50' },
+            { label: 'Всего заявок', value: requests.length, color: 'text-[#1A1A1A]', bg: 'bg-white' },
+            { label: 'В работе',     value: active,          color: 'text-red-600',    bg: 'bg-red-50' },
+            { label: 'Выполнено',    value: completed,       color: 'text-green-700',  bg: 'bg-green-50' },
         ];
     }, [requests]);
 
@@ -262,14 +371,62 @@ export default function SpectechRequests() {
         window.setTimeout(() => setToast(''), 2500);
     };
 
-    const handleCreated = async (newRequest?: any) => {
-        // Сразу добавляем в список (оптимистичное обновление)
-        if (newRequest) {
-            setRequests(prev => [newRequest, ...prev]);
+    const openCreateModal = () => {
+        setEditingRequest(null);
+        setModalOpen(true);
+    };
+
+    const openEditModal = (request: SpectechRequestData) => {
+        setEditingRequest(request);
+        setModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setModalOpen(false);
+        setEditingRequest(null);
+    };
+
+    const handleSaved = async (savedRequest?: SpectechRequestData) => {
+        const wasEditing = editingRequest !== null;
+
+        if (savedRequest) {
+            setRequests((prev) => {
+                const exists = prev.some((item) => item.id === savedRequest.id);
+
+                return exists
+                    ? prev.map((item) => item.id === savedRequest.id ? savedRequest : item)
+                    : [savedRequest, ...prev];
+            });
+            setExpandedId(savedRequest.id);
         }
-        showToast('Заявка успешно создана');
-        // Фоновое обновление для синхронизации с сервером
+
+        showToast(wasEditing ? 'Заявка обновлена' : 'Заявка успешно создана');
+        closeModal();
         fetchRequests();
+    };
+
+    const openCancelModal = (req: SpectechRequestData) => {
+        setCancellingRequest(req);
+        setCancelModalOpen(true);
+    };
+
+    const handleCancel = async (reason: string) => {
+        if (!cancellingRequest) return;
+        setCancelLoading(true);
+        try {
+            const res = await axios.patch(`/spectech/api/requests/${cancellingRequest.id}/cancel`, { reason });
+            const updated = res.data?.data;
+            if (updated) {
+                setRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
+            }
+            showToast('Заявка отменена');
+            setCancelModalOpen(false);
+            setCancellingRequest(null);
+        } catch (err: any) {
+            showToast(err.response?.data?.message ?? 'Ошибка при отмене');
+        } finally {
+            setCancelLoading(false);
+        }
     };
 
     return (
@@ -291,7 +448,7 @@ export default function SpectechRequests() {
                             <Button variant="outline" size="sm" onClick={fetchRequests} disabled={loading}>
                                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                             </Button>
-                            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={() => setModalOpen(true)}>
+                            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={openCreateModal}>
                                 <Plus className="h-4 w-4 mr-1" />
                                 Новая заявка
                             </Button>
@@ -300,7 +457,7 @@ export default function SpectechRequests() {
                 </section>
 
                 {/* ── Статистика ── */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-3 gap-3">
                     {stats.map(s => (
                         <div key={s.label} className={`rounded-xl border border-[#E8E8E8] ${s.bg} p-3`}>
                             <div className="text-[11px] text-[#888] mb-1">{s.label}</div>
@@ -355,7 +512,7 @@ export default function SpectechRequests() {
                     </div>
                 </div>
 
-                {/* ── Список ── */}
+                {/* ── Контент ── */}
                 {loading && (
                     <div className="flex items-center justify-center py-16 text-sm text-[#888]">
                         <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Загрузка...
@@ -379,19 +536,27 @@ export default function SpectechRequests() {
                                 req={req}
                                 expanded={expandedId === req.id}
                                 onToggle={() => setExpandedId(expandedId === req.id ? null : req.id)}
+                                onEdit={() => openEditModal(req)}
+                                onCancel={() => openCancelModal(req)}
                             />
                         ))}
                     </div>
                 )}
 
-                {/* ── Модал ── */}
+                {/* ── Модалы ── */}
                 <NewRequestModal
                     open={modalOpen}
-                    onClose={() => setModalOpen(false)}
-                    onCreated={handleCreated}
+                    onClose={closeModal}
+                    onSaved={handleSaved}
+                    initialRequest={editingRequest}
+                />
+                <CancelModal
+                    open={cancelModalOpen}
+                    onClose={() => { setCancelModalOpen(false); setCancellingRequest(null); }}
+                    onConfirm={handleCancel}
+                    loading={cancelLoading}
                 />
             </div>
         </AppLayout>
     );
 }
-

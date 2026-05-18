@@ -1,10 +1,42 @@
+export const KNOWN_TERMINALS = ['T1', 'T2', 'T3', 'T4'] as const;
+
+export type KnownTerminal = (typeof KNOWN_TERMINALS)[number];
+
 export interface Location {
     id: number;
-    terminal: 'T1' | 'T2' | 'T3' | 'T4';
+    terminal: KnownTerminal;
     building: string;
     gate: string;
     purpose: string;
     status: 'active' | 'pending' | 'empty';
+}
+
+export function isKnownTerminal(value: string): value is KnownTerminal {
+    return KNOWN_TERMINALS.includes(value.trim().toUpperCase() as KnownTerminal);
+}
+
+export function formatLocationStatus(status: Location['status']): string {
+    if (status === 'active') return 'Активен';
+    if (status === 'pending') return 'Строится';
+    return 'Пустой';
+}
+
+export function buildSpectechAddress(
+    terminal: string,
+    zone: string,
+    gate?: string | null,
+    status?: string | null,
+    purpose?: string | null,
+): string {
+    return [
+        terminal ? `Терминал: ${terminal}` : null,
+        zone ? `Здание: ${zone}` : null,
+        gate ? `Гейт: ${gate}` : null,
+        status ? `Статус: ${status}` : null,
+        purpose ? `Назначение: ${purpose}` : null,
+    ]
+        .filter(Boolean)
+        .join(' | ');
 }
 
 export const MOCK_LOCATIONS: Location[] = [
@@ -51,4 +83,3 @@ export const TERMINAL_INFO: Record<string, { label: string; description: string;
     T3: { label: 'Терминал 3', description: 'Строится — данные уточняются',     color: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
     T4: { label: 'Терминал 4', description: 'Пустой терминал',                  color: 'bg-gray-100 text-gray-500 border-gray-200' },
 };
-
