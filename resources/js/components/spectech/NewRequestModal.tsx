@@ -2,9 +2,17 @@ import { type SpectechRequestData } from '@/components/spectech/RequestCard';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import axios from 'axios';
-import { AlertTriangle, CheckCircle2, MapPin, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, MapPin, Pencil, Upload, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { MOCK_LOCATIONS, TERMINAL_INFO, type Location } from './MOCK_LOCATIONS';
+import {
+    buildSpectechAddress,
+    formatLocationStatus,
+    isKnownTerminal,
+    KNOWN_TERMINALS,
+    MOCK_LOCATIONS,
+    TERMINAL_INFO,
+    type Location,
+} from './MOCK_LOCATIONS';
 
 type SpectechTruckOption = {
     id: number;
@@ -42,10 +50,10 @@ interface ActiveRequestConflict {
 interface Props {
     open: boolean;
     onClose: () => void;
-    onCreated: (newRequest?: any) => void;
+    onSaved: (request?: SpectechRequestData) => void;
+    initialRequest?: SpectechRequestData | null;
+    isOperator?: boolean;
 }
-
-const TERMINALS = ['T1', 'T2', 'T3', 'T4'] as const;
 
 const today = new Date().toISOString().split('T')[0];
 
@@ -57,11 +65,32 @@ function nowLocalMin(): string {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function buildAddress(terminal: string, zone: string, gate: string, status: string, purpose: string): string {
-    return `Терминал: ${terminal} | Здание: ${zone} | Гейт: ${gate} | Статус: ${status} | Назначение: ${purpose}`;
+function toDateTimeLocal(value?: string | null): string {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    const pad = (part: number) => String(part).padStart(2, '0');
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
+function resolveLocation(terminal: string, zone?: string, gate?: string | null): Location | null {
+    if (!isKnownTerminal(terminal)) {
+        return null;
+    }
+
+    return MOCK_LOCATIONS.find((location) => (
+        location.terminal === terminal
+        && location.building === (zone ?? '')
+        && (gate ? location.gate === gate : true)
+    )) ?? null;
+}
+
+const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialRequest = null, isOperator = false }) => {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [loadingTrucks, setLoadingTrucks] = useState(false);
     const [trucksError, setTrucksError] = useState<string>('');
@@ -74,6 +103,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     const [endDateTime, setEndDateTime] = useState('');
     const [selectedTerminal, setSelectedTerminal] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+    const [manualZone, setManualZone] = useState('');
+    const [manualGate, setManualGate] = useState('');
     const [comment, setComment] = useState('');
     const [photos, setPhotos] = useState<string[]>([]);
     const [submitting, setSubmitting] = useState(false);
@@ -87,6 +118,21 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
     const fileRef = useRef<HTMLInputElement>(null);
     const availabilityRequestSeq = useRef(0);
+    const isEditing = initialRequest !== null;
+    const normalizedTerminal = selectedTerminal.trim().toUpperCase();
+    const hasPresetLocations = isKnownTerminal(normalizedTerminal);
+    const filteredLocations = hasPresetLocations
+        ? MOCK_LOCATIONS.filter((location) => location.terminal === normalizedTerminal)
+        : [];
+    const effectiveZone = hasPresetLocations ? (selectedLocation?.building ?? '') : manualZone.trim();
+    const effectiveGate = hasPresetLocations ? (selectedLocation?.gate ?? '') : manualGate.trim();
+    const effectiveAddress = buildSpectechAddress(
+        normalizedTerminal || selectedTerminal.trim(),
+        effectiveZone,
+        effectiveGate || null,
+        hasPresetLocations && selectedLocation ? formatLocationStatus(selectedLocation.status) : null,
+        hasPresetLocations ? selectedLocation?.purpose ?? null : null,
+    );
 
     // Загрузка техники
     useEffect(() => {
@@ -111,7 +157,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             .finally(() => setLoadingTrucks(false));
     }, [open]);
 
-    // Сброс формы при закрытии
+    // Инициализация формы при открытии / редактировании
     useEffect(() => {
         if (!open) {
             setTruckId('');
@@ -121,14 +167,55 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             setEndDateTime('');
             setSelectedTerminal('');
             setSelectedLocation(null);
+            setManualZone('');
+            setManualGate('');
             setComment('');
             setPhotos([]);
             setErrors({});
             setAvailabilityResult(null);
             setShowConflictDetails(false);
             setActiveRequestConflict(null);
+            return;
         }
-    }, [open]);
+
+        if (!initialRequest) {
+            setTruckId('');
+            setDriverName('');
+            setDriverPhone('');
+            setStartDateTime('');
+            setEndDateTime('');
+            setSelectedTerminal('');
+            setSelectedLocation(null);
+            setManualZone('');
+            setManualGate('');
+            setComment('');
+            setPhotos([]);
+            setErrors({});
+            setAvailabilityResult(null);
+            setShowConflictDetails(false);
+            setActiveRequestConflict(null);
+            return;
+        }
+
+        const terminal = initialRequest.terminal?.trim().toUpperCase() ?? '';
+        const location = resolveLocation(terminal, initialRequest.zone, initialRequest.gate);
+
+        setTruckId(String(initialRequest.equipment_id));
+        setDriverName(initialRequest.driver_name ?? '');
+        setDriverPhone(initialRequest.driver_phone ?? '');
+        setStartDateTime(toDateTimeLocal(initialRequest.requested_start));
+        setEndDateTime(toDateTimeLocal(initialRequest.requested_end));
+        setSelectedTerminal(terminal);
+        setSelectedLocation(location);
+        setManualZone(location ? '' : (initialRequest.zone ?? ''));
+        setManualGate(location ? '' : (initialRequest.gate ?? ''));
+        setComment(initialRequest.comment ?? '');
+        setPhotos(initialRequest.photos ?? []);
+        setErrors({});
+        setAvailabilityResult(null);
+        setShowConflictDetails(false);
+        setActiveRequestConflict(null);
+    }, [open, initialRequest]);
 
     // Автоматическая проверка доступности при изменении техники или даты
     useEffect(() => {
@@ -147,6 +234,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                         truck_id: truckId,
                         requested_start: startDateTime,
                         requested_end: endDateTime,
+                        ...(initialRequest?.schedule_id ? { exclude_schedule_id: initialRequest.schedule_id } : {}),
                     },
                 });
 
@@ -167,8 +255,6 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
         const timer = setTimeout(checkAvailability, 300);
         return () => clearTimeout(timer);
     }, [truckId, startDateTime, endDateTime]);
-
-    const filteredLocations = MOCK_LOCATIONS.filter((l) => l.terminal === selectedTerminal);
 
     // Фото → base64
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -200,7 +286,10 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             errs.endDateTime = 'Время окончания должно быть позже начала';
         }
         if (!selectedTerminal) errs.terminal = 'Выберите терминал';
-        if (!selectedLocation) errs.zone = 'Выберите здание/зону';
+        if (selectedTerminal) {
+            if (hasPresetLocations && !selectedLocation) errs.zone = 'Выберите здание/зону';
+            if (!hasPresetLocations && !manualZone.trim()) errs.zone = 'Укажите здание/зону';
+        }
         return errs;
     };
 
@@ -211,50 +300,33 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             return;
         }
 
-        // Если техника занята и нет свободной альтернативы — не отправляем
-        if (availabilityResult && !availabilityResult.available && !availabilityResult.free_alternative) {
-            setErrors({ global: 'Выбранная техника полностью занята. Выберите другую дату или технику.' });
-            return;
-        }
-
-        // Если выбрали свободную альтернативу — используем её ID
-        const finalTruckId =
-            availabilityResult && !availabilityResult.available && availabilityResult.free_alternative
-                ? availabilityResult.free_alternative.id
-                : parseInt(truckId);
-
         setSubmitting(true);
         try {
-            const address = buildAddress(
-                selectedTerminal,
-                selectedLocation!.building,
-                selectedLocation!.gate,
-                selectedLocation!.status,
-                selectedLocation!.purpose,
-            );
-
-            const res = await axios.post('/spectech/api/requests', {
-                truck_id: finalTruckId,
+            const payload = {
+                truck_id: parseInt(truckId),
                 driver_name: driverName.trim() || null,
                 driver_phone: driverPhone.trim() || null,
                 start_date: startDateTime ? startDateTime.split('T')[0] : today,
                 end_date: endDateTime ? endDateTime.split('T')[0] : today,
                 requested_start: startDateTime || null,
                 requested_end: endDateTime || null,
-                terminal: selectedTerminal,
-                zone: selectedLocation!.building,
-                gate: selectedLocation!.gate,
-                address,
+                terminal: normalizedTerminal || selectedTerminal.trim(),
+                zone: effectiveZone,
+                gate: effectiveGate || null,
+                address: effectiveAddress,
                 comment: comment || null,
                 photos,
                 check_availability: true,
                 force_complete_previous: forceCompletePrevious,
                 previous_request_id: forceCompletePrevious ? activeRequestConflict?.previous_request.id : null,
-            });
+            };
+
+            const res = initialRequest
+                ? await axios.put(`/spectech/api/requests/${initialRequest.id}`, payload)
+                : await axios.post('/spectech/api/requests', payload);
 
             const created = res.data?.data ?? null;
-            onClose();
-            onCreated(created);
+            onSaved(created);
         } catch (err: any) {
             const resp = err.response?.data;
 
@@ -304,12 +376,12 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     return (
         <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
             <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[calc(100vw-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:w-full sm:max-w-2xl">
-                <DialogHeader className="border-border border-b px-4 py-4 sm:px-6">
-                    <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-                        <MapPin className="h-4 w-4 text-red-600" />
-                        Новая заявка на спецтехнику
-                    </DialogTitle>
-                </DialogHeader>
+                    <DialogHeader className="border-border border-b px-4 py-4 sm:px-6">
+                        <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+                            {isEditing ? <Pencil className="h-4 w-4 text-red-600" /> : <MapPin className="h-4 w-4 text-red-600" />}
+                            {isEditing ? 'Редактирование заявки' : 'Новая заявка на спецтехнику'}
+                        </DialogTitle>
+                    </DialogHeader>
 
                 <div className="flex flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-6">
                     <div className="flex flex-col gap-4">
@@ -381,7 +453,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                 </label>
                                 <input
                                     type="datetime-local"
-                                    min={nowLocalMin()}
+                                    min={isEditing ? undefined : nowLocalMin()}
                                     value={startDateTime}
                                     onChange={(e) => {
                                         setStartDateTime(e.target.value);
@@ -450,9 +522,12 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-600" />
                                                 <div className="flex-1 text-xs text-orange-700">
                                                     <div className="font-medium">{availabilityResult.message}</div>
+                                                    <div className="mt-1">
+                                                        Заявку можно отправить. Диспетчер увидит конфликт и скорректирует планирование.
+                                                    </div>
                                                     {availabilityResult.free_alternative && (
                                                         <div className="mt-1 font-medium text-green-700">
-                                                            💡 Доступна альтернатива: <strong>{availabilityResult.free_alternative.name}</strong>
+                                                            Доступна альтернатива: <strong>{availabilityResult.free_alternative.name}</strong>
                                                         </div>
                                                     )}
                                                 </div>
@@ -502,7 +577,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                             {checkingAvailability && <span className="text-xs text-gray-500">Проверка доступности...</span>}
                         </div>
 
-                        {/* Водитель */}
+                        {/* Водитель — только оператор */}
+                        {isOperator && (
                         <div className="grid grid-cols-2 gap-3">
                             <div className="flex flex-col gap-1">
                                 <label className="text-xs font-medium">Имя водителя</label>
@@ -525,6 +601,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                 />
                             </div>
                         </div>
+                        )}
 
                         {/* Выбор терминала */}
                         <div className="flex flex-col gap-1">
@@ -532,17 +609,19 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                 Терминал <span className="text-red-500">*</span>
                             </label>
                             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                                {TERMINALS.map((t) => (
+                                {KNOWN_TERMINALS.map((t) => (
                                     <button
                                         key={t}
                                         type="button"
                                         onClick={() => {
                                             setSelectedTerminal(t);
                                             setSelectedLocation(null);
+                                            setManualZone('');
+                                            setManualGate('');
                                             setErrors((p) => ({ ...p, terminal: '', zone: '' }));
                                         }}
                                         className={`h-8 rounded-md border px-3 text-sm font-medium transition-colors ${
-                                            selectedTerminal === t
+                                            normalizedTerminal === t
                                                 ? 'border-red-600 bg-red-600 text-white'
                                                 : 'border-border bg-background hover:bg-muted'
                                         }`}
@@ -551,18 +630,36 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                     </button>
                                 ))}
                             </div>
+                            <input
+                                list="spectech-terminals"
+                                value={selectedTerminal}
+                                onChange={(e) => {
+                                    setSelectedTerminal(e.target.value);
+                                    setSelectedLocation(null);
+                                    setManualZone('');
+                                    setManualGate('');
+                                    setErrors((p) => ({ ...p, terminal: '', zone: '' }));
+                                }}
+                                placeholder="Или введите свой терминал"
+                                className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                            />
+                            <datalist id="spectech-terminals">
+                                {KNOWN_TERMINALS.map((terminal) => (
+                                    <option key={terminal} value={terminal} />
+                                ))}
+                            </datalist>
                             {errors.terminal && <span className="text-xs text-red-500">{errors.terminal}</span>}
 
                             {/* Описание выбранного терминала */}
-                            {selectedTerminal && (
-                                <div className={`mt-1 rounded border px-2 py-1 text-xs ${TERMINAL_INFO[selectedTerminal]?.color}`}>
-                                    {TERMINAL_INFO[selectedTerminal]?.description}
+                            {normalizedTerminal && TERMINAL_INFO[normalizedTerminal] && (
+                                <div className={`mt-1 rounded border px-2 py-1 text-xs ${TERMINAL_INFO[normalizedTerminal]?.color}`}>
+                                    {TERMINAL_INFO[normalizedTerminal]?.description}
                                 </div>
                             )}
                         </div>
 
                         {/* Выбор здания/зоны */}
-                        {selectedTerminal && (
+                        {normalizedTerminal && hasPresetLocations && (
                             <div className="flex flex-col gap-1">
                                 <label className="text-xs font-medium">
                                     Здание / Зона <span className="text-red-500">*</span>
@@ -600,11 +697,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                                                           : 'border-gray-200 bg-gray-100 text-gray-500'
                                                 }`}
                                             >
-                                                {selectedLocation.status === 'active'
-                                                    ? 'Активен'
-                                                    : selectedLocation.status === 'pending'
-                                                      ? 'Строится'
-                                                      : 'Пустой'}
+                                                {formatLocationStatus(selectedLocation.status)}
                                             </span>
                                         </div>
                                         <div className="text-muted-foreground text-xs">Назначение: {selectedLocation.purpose}</div>
@@ -614,18 +707,43 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                             </div>
                         )}
 
+                        {normalizedTerminal && !hasPresetLocations && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium">
+                                        Здание / Зона <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={manualZone}
+                                        onChange={(e) => {
+                                            setManualZone(e.target.value);
+                                            setErrors((p) => ({ ...p, zone: '' }));
+                                        }}
+                                        placeholder="Например, Склад B2"
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    />
+                                    {errors.zone && <span className="text-xs text-red-500">{errors.zone}</span>}
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium">Гейт</label>
+                                    <input
+                                        type="text"
+                                        value={manualGate}
+                                        onChange={(e) => setManualGate(e.target.value)}
+                                        placeholder="Например, Gate 7"
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
                         {/* Автосформированный адрес */}
-                        {selectedLocation && (
+                        {effectiveAddress && (
                             <div className="flex flex-col gap-1">
                                 <label className="text-muted-foreground text-xs font-medium">Адрес (автозаполнение)</label>
                                 <div className="border-border bg-muted text-muted-foreground min-h-9 rounded-md border px-3 py-2 text-xs leading-relaxed">
-                                    {buildAddress(
-                                        selectedTerminal,
-                                        selectedLocation.building,
-                                        selectedLocation.gate,
-                                        selectedLocation.status,
-                                        selectedLocation.purpose,
-                                    )}
+                                    {effectiveAddress}
                                 </div>
                             </div>
                         )}
@@ -685,7 +803,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
                             onClick={() => void handleSubmit()}
                             disabled={submitting}
                         >
-                            {submitting ? 'Отправка...' : 'Создать заявку'}
+                            {submitting ? (isEditing ? 'Сохранение...' : 'Отправка...') : (isEditing ? 'Сохранить изменения' : 'Создать заявку')}
                         </Button>
                     </div>
                 </div>

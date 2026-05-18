@@ -27,8 +27,16 @@ export interface SpectechRequestData {
     source_label?: string;
     schedule_id?: number | null;
     from_scheduling?: boolean;
+    conflict_info?: Array<{
+        truck_name: string;
+        plate_number?: string | null;
+        free_at?: string;
+        conflicts?: Array<{ from: string; to: string; purpose: string }>;
+    }>;
     status_frozen?: boolean;
     status_frozen_reason?: string | null;
+    cancellation_reason?: string | null;
+    cancelled_by?: 'customer' | 'operator' | null;
     created_at: string;
 }
 
@@ -39,6 +47,7 @@ const STATUS_COLORS: Record<string, string> = {
     work_started: 'bg-yellow-100 text-yellow-800 border-yellow-200',
     completed:    'bg-green-100 text-green-800 border-green-200',
     returned:     'bg-gray-100 text-gray-600 border-gray-200',
+    cancelled:    'bg-red-100 text-red-800 border-red-200',
 };
 
 interface Props {
@@ -146,4 +155,3 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
 };
 
 export default RequestCard;
-

@@ -28,6 +28,8 @@ class SpectechRequest extends Model
         'requested_end',
         'from_scheduling',
         'conflict_info',
+        'cancellation_reason',
+        'cancelled_by',
     ];
 
     protected $casts = [
@@ -48,6 +50,10 @@ class SpectechRequest extends Model
     const STATUS_WORK_STARTED = 'work_started';
     const STATUS_COMPLETED    = 'completed';
     const STATUS_RETURNED     = 'returned';
+    const STATUS_CANCELLED    = 'cancelled';
+
+    const CANCELLED_BY_CUSTOMER = 'customer';
+    const CANCELLED_BY_OPERATOR = 'operator';
 
     const STATUS_LABELS = [
         'new'          => 'Новая',
@@ -56,6 +62,7 @@ class SpectechRequest extends Model
         'work_started' => 'Работы начаты',
         'completed'    => 'Выполнено',
         'returned'     => 'Возврат',
+        'cancelled'    => 'Отменена',
     ];
 
     public function user(): BelongsTo
@@ -71,6 +78,40 @@ class SpectechRequest extends Model
     public function schedule(): BelongsTo
     {
         return $this->belongsTo(SpectechSchedule::class);
+    }
+
+    public static function scheduleStatusForRequestStatus(string $status): ?string
+    {
+        return match ($status) {
+            self::STATUS_NEW,
+            self::STATUS_DEPARTURE,
+            self::STATUS_ON_LOCATION => SpectechSchedule::STATUS_PENDING,
+            self::STATUS_WORK_STARTED => SpectechSchedule::STATUS_IN_PROGRESS,
+            self::STATUS_COMPLETED,
+            self::STATUS_RETURNED => SpectechSchedule::STATUS_DONE,
+            self::STATUS_CANCELLED => SpectechSchedule::STATUS_CANCELLED,
+            default => null,
+        };
+    }
+
+    public function syncScheduleStatus(): void
+    {
+        if (! $this->schedule_id) {
+            return;
+        }
+
+        $scheduleStatus = self::scheduleStatusForRequestStatus($this->status);
+        if ($scheduleStatus === null) {
+            return;
+        }
+
+        $schedule = $this->relationLoaded('schedule')
+            ? $this->schedule
+            : $this->schedule()->first();
+
+        if ($schedule && $schedule->status !== $scheduleStatus) {
+            $schedule->update(['status' => $scheduleStatus]);
+        }
     }
 
     public function getEffectiveEndAt(): ?Carbon

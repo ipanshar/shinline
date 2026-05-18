@@ -5,6 +5,14 @@
 import { createRoot } from 'react-dom/client';
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import axios from 'axios';
+import {
+    buildSpectechAddress,
+    formatLocationStatus,
+    isKnownTerminal,
+    KNOWN_TERMINALS,
+    MOCK_LOCATIONS,
+    TERMINAL_INFO,
+} from '@/components/spectech/MOCK_LOCATIONS';
 // Без CSRF/credentials — Mini App авторизуется через initData
 axios.defaults.withCredentials = false;
 
@@ -112,6 +120,7 @@ interface SpectechTruckOption {
 
 interface SpectechRequestItem {
     id: number;
+    equipment_id: number;
     equipment_name: string;
     plate_number?: string | null;
     driver_name?: string | null;
@@ -129,6 +138,17 @@ interface SpectechRequestItem {
     status_label: string;
     photos?: string[];
     photo_urls?: string[];
+    schedule_id?: number | null;
+    conflict_info?: Array<{
+        truck_name: string;
+        plate_number?: string | null;
+        free_at?: string;
+        conflicts?: Array<{ from: string; to: string; purpose: string }>;
+    }>;
+    client_name?: string | null;
+    source_label?: string | null;
+    cancellation_reason?: string | null;
+    cancelled_by?: string | null;
     created_at?: string | null;
 }
 
@@ -257,6 +277,7 @@ const spectechStatusLabels: Record<string, string> = {
     work_started: 'Работы начаты',
     completed: 'Выполнено',
     returned: 'Возврат',
+    cancelled: 'Отменена',
 };
 
 const spectechStatusOptions = [
@@ -267,6 +288,7 @@ const spectechStatusOptions = [
     { value: 'work_started', label: 'Работы начаты' },
     { value: 'completed', label: 'Выполнено' },
     { value: 'returned', label: 'Возврат' },
+    { value: 'cancelled', label: 'Отменённые' },
 ];
 
 const nextSpectechStatus: Record<string, string> = {
@@ -276,6 +298,33 @@ const nextSpectechStatus: Record<string, string> = {
     work_started: 'completed',
     completed: 'returned',
 };
+
+const finalSpectechStatuses = ['completed', 'returned', 'cancelled'];
+
+const spectechStatusStyles: Record<string, { bg: string; color: string; border: string }> = {
+    new: { bg: '#f5f5f5', color: '#555', border: '#ddd' },
+    departure: { bg: '#fff4e6', color: '#a45a00', border: '#f5d08a' },
+    on_location: { bg: '#eaf4ff', color: '#1663b7', border: '#bfdcff' },
+    work_started: { bg: '#f2edff', color: '#6541b4', border: '#d7ccff' },
+    completed: { bg: '#e9f8ee', color: '#1f7a3a', border: '#b9e6c6' },
+    returned: { bg: '#eef7f0', color: '#226b35', border: '#abdcb8' },
+    cancelled: { bg: '#fff1f1', color: '#b42318', border: '#f4b8b3' },
+};
+
+function formatSpectechDateTime(value?: string | null): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+        ? value
+        : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatSpectechPeriod(request: SpectechRequestItem): string {
+    const start = request.requested_start ? formatSpectechDateTime(request.requested_start) : request.start_date || '—';
+    const end = request.requested_end ? formatSpectechDateTime(request.requested_end) : request.end_date || '—';
+
+    return `${start} — ${end}`;
+}
 
 const utilizationStatusLabels: Record<string, string> = {
     new: 'На рассмотрении',
@@ -1534,31 +1583,49 @@ function UtilizationRequestList({
 }
 
 // ── Главный компонент ─────────────────────────────────────────────────────────
+function buildDefaultRequestStart(): string {
+    const date = new Date();
+    date.setMinutes(0, 0, 0);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:00`;
+}
+
+function buildDefaultRequestEnd(): string {
+    const date = new Date();
+    date.setHours(date.getHours() + 8);
+    date.setMinutes(0, 0, 0);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}:00`;
+}
+
+function toDateTimeLocal(value?: string | null): string {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 function SpectechCreateForm({
     initData,
     onDone,
     onCancel,
+    request,
+    isOperator = false,
 }: {
     initData: string;
     onDone: () => void | Promise<void>;
     onCancel: () => void;
+    request?: SpectechRequestItem | null;
+    isOperator?: boolean;
 }) {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
-    const [truckId, setTruckId] = useState<number | ''>('');
+    const [truckId, setTruckId] = useState<number | ''>(request?.equipment_id ?? '');
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
-    const [requestedStart, setRequestedStart] = useState(() => {
-        const date = new Date();
-        date.setMinutes(0, 0, 0);
-        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:00`;
-    });
-    const [requestedEnd, setRequestedEnd] = useState(() => {
-        const date = new Date();
-        date.setHours(date.getHours() + 8);
-        date.setMinutes(0, 0, 0);
-        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:00`;
-    });
+    const [requestedStart, setRequestedStart] = useState(buildDefaultRequestStart);
+    const [requestedEnd, setRequestedEnd] = useState(buildDefaultRequestEnd);
     const [terminal, setTerminal] = useState('T1');
+    const [selectedLocationId, setSelectedLocationId] = useState<number | ''>('');
     const [zone, setZone] = useState('');
     const [gate, setGate] = useState('');
     const [address, setAddress] = useState('');
@@ -1569,6 +1636,79 @@ function SpectechCreateForm({
     const [err, setErr] = useState<string | null>(null);
     const [availabilityWarn, setAvailabilityWarn] = useState<string | null>(null);
     const [freeAlternative, setFreeAlternative] = useState<{ id: number; name: string; plate_number: string } | null>(null);
+
+    const normalizedTerminal = terminal.trim().toUpperCase();
+    const hasPresetLocations = isKnownTerminal(normalizedTerminal);
+    const filteredLocations = hasPresetLocations
+        ? MOCK_LOCATIONS.filter((location) => location.terminal === normalizedTerminal)
+        : [];
+    const selectedLocation = filteredLocations.find((location) => location.id === selectedLocationId) ?? null;
+
+    useEffect(() => {
+        if (!request) {
+            setTruckId('');
+            setDriverName('');
+            setDriverPhone('');
+            setRequestedStart(buildDefaultRequestStart());
+            setRequestedEnd(buildDefaultRequestEnd());
+            setTerminal('T1');
+            setSelectedLocationId('');
+            setZone('');
+            setGate('');
+            setAddress('');
+            setComment('');
+            setPhotos([]);
+            setErr(null);
+            return;
+        }
+
+        const presetLocation = isKnownTerminal(request.terminal)
+            ? MOCK_LOCATIONS.find((location) => (
+                location.terminal === request.terminal
+                && location.building === request.zone
+                && (request.gate ? location.gate === request.gate : true)
+            )) ?? null
+            : null;
+
+        setTruckId(request.equipment_id ?? '');
+        setDriverName(request.driver_name ?? '');
+        setDriverPhone(request.driver_phone ?? '');
+        setRequestedStart(toDateTimeLocal(request.requested_start) || buildDefaultRequestStart());
+        setRequestedEnd(toDateTimeLocal(request.requested_end) || buildDefaultRequestEnd());
+        setTerminal(request.terminal ?? 'T1');
+        setSelectedLocationId(presetLocation?.id ?? '');
+        setZone(presetLocation?.building ?? (request.zone ?? ''));
+        setGate(presetLocation?.gate ?? (request.gate ?? ''));
+        setAddress(request.address ?? '');
+        setComment(request.comment ?? '');
+        setPhotos(request.photo_urls ?? request.photos ?? []);
+        setErr(null);
+    }, [request]);
+
+    useEffect(() => {
+        if (!selectedLocation) {
+            return;
+        }
+
+        setZone(selectedLocation.building);
+        setGate(selectedLocation.gate === '-' ? '' : selectedLocation.gate);
+        setAddress(buildSpectechAddress(
+            normalizedTerminal,
+            selectedLocation.building,
+            selectedLocation.gate === '-' ? null : selectedLocation.gate,
+            formatLocationStatus(selectedLocation.status),
+            selectedLocation.purpose,
+        ));
+    }, [selectedLocation, normalizedTerminal]);
+
+    useEffect(() => {
+        if (hasPresetLocations) {
+            return;
+        }
+
+        setSelectedLocationId('');
+        setAddress(buildSpectechAddress(normalizedTerminal || terminal.trim(), zone.trim(), gate.trim() || null));
+    }, [hasPresetLocations, terminal, normalizedTerminal, zone, gate]);
 
     useEffect(() => {
         setLoadingTrucks(true);
@@ -1586,19 +1726,25 @@ function SpectechCreateForm({
             .finally(() => setLoadingTrucks(false));
     }, [initData]);
 
-    // Проверить доступность при смене техники или периода
     useEffect(() => {
         if (!truckId || !requestedStart || !requestedEnd) {
             setAvailabilityWarn(null);
             setFreeAlternative(null);
             return;
         }
+
         const ctrl = new AbortController();
         axios
             .get<{ available: boolean; message: string; free_alternative?: { id: number; name: string; plate_number: string } | null }>(
                 '/api/telegram/miniapp/spectech/check-availability',
                 {
-                    params: { init_data: initData, truck_id: truckId, requested_start: requestedStart, requested_end: requestedEnd },
+                    params: {
+                        init_data: initData,
+                        truck_id: truckId,
+                        requested_start: requestedStart,
+                        requested_end: requestedEnd,
+                        ...(request?.schedule_id ? { exclude_schedule_id: request.schedule_id } : {}),
+                    },
                     headers: { 'X-Telegram-Init-Data': initData },
                     signal: ctrl.signal,
                 },
@@ -1614,7 +1760,7 @@ function SpectechCreateForm({
             })
             .catch(() => { /* ignore */ });
         return () => ctrl.abort();
-    }, [truckId, requestedStart, requestedEnd, initData]);
+    }, [truckId, requestedStart, requestedEnd, initData, request?.schedule_id]);
 
     const handlePhotoSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files ?? []);
@@ -1651,29 +1797,55 @@ function SpectechCreateForm({
             return;
         }
 
+        if (!normalizedTerminal) {
+            setErr('Укажите терминал');
+            return;
+        }
+
+        if (hasPresetLocations && !selectedLocation) {
+            setErr('Выберите здание для терминала');
+            return;
+        }
+
+        if (!zone.trim()) {
+            setErr('Укажите здание или объект');
+            return;
+        }
+
         setBusy(true);
         setErr(null);
         try {
-            await axios.post('/api/telegram/miniapp/spectech/requests', {
+            const payload: any = {
                 init_data: initData,
                 truck_id: truckId,
-                driver_name: driverName.trim(),
-                driver_phone: driverPhone.trim() || null,
                 requested_start: requestedStart,
                 requested_end: requestedEnd,
-                terminal,
+                terminal: normalizedTerminal,
                 zone: zone.trim(),
                 gate: gate.trim() || null,
-                address: address.trim(),
+                address: address.trim() || buildSpectechAddress(normalizedTerminal, zone.trim(), gate.trim() || null),
                 comment: comment.trim() || null,
                 photos,
-            }, {
-                headers: { 'X-Telegram-Init-Data': initData },
-            });
+            };
+
+            if (isOperator) {
+                payload.driver_name = driverName.trim() || null;
+                payload.driver_phone = driverPhone.trim() || null;
+            }
+
+            if (request) {
+                await axios.put(`/api/telegram/miniapp/spectech/requests/${request.id}`, payload, {
+                    headers: { 'X-Telegram-Init-Data': initData },
+                });
+            } else {
+                await axios.post('/api/telegram/miniapp/spectech/requests', payload, {
+                    headers: { 'X-Telegram-Init-Data': initData },
+                });
+            }
 
             await onDone();
         } catch (error: any) {
-            setErr(getErrorMessage(error, 'Не удалось создать заявку'));
+            setErr(getErrorMessage(error, request ? 'Не удалось обновить заявку' : 'Не удалось создать заявку'));
         } finally {
             setBusy(false);
         }
@@ -1681,7 +1853,7 @@ function SpectechCreateForm({
 
     return (
         <form onSubmit={submit}>
-            <h3>Новая заявка на спецтехнику</h3>
+            <h3>{request ? `Редактирование заявки #${request.id}` : 'Новая заявка на спецтехнику'}</h3>
             <label>Техника</label>
             <select
                 style={inputStyle}
@@ -1698,11 +1870,15 @@ function SpectechCreateForm({
                 ))}
             </select>
 
-            <label>Имя водителя</label>
-            <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Необязательно" />
+            {isOperator && (
+                <>
+                    <label>Имя водителя</label>
+                    <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Необязательно" />
 
-            <label>Телефон водителя</label>
-            <input style={inputStyle} type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+7..." />
+                    <label>Телефон водителя</label>
+                    <input style={inputStyle} type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+7..." />
+                </>
+            )}
 
             <label>Дата и время начала</label>
             <input style={inputStyle} type="datetime-local" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} required />
@@ -1713,6 +1889,9 @@ function SpectechCreateForm({
             {availabilityWarn && (
                 <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 13 }}>
                     <strong>⚠️ {availabilityWarn}</strong>
+                    <div style={{ marginTop: 6 }}>
+                        Заявку можно отправить. Диспетчер увидит конфликт и скорректирует планирование.
+                    </div>
                     {freeAlternative && (
                         <div style={{ marginTop: 6 }}>
                             Свободна альтернатива:{' '}
@@ -1729,21 +1908,77 @@ function SpectechCreateForm({
             )}
 
             <label>Терминал</label>
-            <select style={inputStyle} value={terminal} onChange={(e) => setTerminal(e.target.value)} required>
-                <option value="T1">T1</option>
-                <option value="T2">T2</option>
-                <option value="T3">T3</option>
-                <option value="T4">T4</option>
-            </select>
+            <input
+                list="spectech-terminal-options"
+                style={inputStyle}
+                value={terminal}
+                onChange={(e) => {
+                    setTerminal(e.target.value);
+                    setSelectedLocationId('');
+                    setZone('');
+                    setGate('');
+                    setAddress('');
+                }}
+                placeholder="T1 / T2 / T3 / T4 или свой"
+                required
+            />
+            <datalist id="spectech-terminal-options">
+                {KNOWN_TERMINALS.map((item) => (
+                    <option key={item} value={item} />
+                ))}
+            </datalist>
 
-            <label>Зона / объект</label>
-            <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
+            {TERMINAL_INFO[normalizedTerminal] && (
+                <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
+                    {TERMINAL_INFO[normalizedTerminal].description}
+                </div>
+            )}
 
-            <label>Гейт</label>
-            <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
+            {hasPresetLocations ? (
+                <>
+                    <label>Здание / зона</label>
+                    <select
+                        style={inputStyle}
+                        value={selectedLocationId}
+                        onChange={(e) => {
+                            const value = e.target.value ? Number(e.target.value) : '';
+                            setSelectedLocationId(value);
+                            if (!value) {
+                                setZone('');
+                                setGate('');
+                                setAddress('');
+                            }
+                        }}
+                        required
+                    >
+                        <option value="">Выберите здание</option>
+                        {filteredLocations.map((location) => (
+                            <option key={location.id} value={location.id}>
+                                {location.building} · {location.gate} · {location.purpose}
+                            </option>
+                        ))}
+                    </select>
+                    {selectedLocation && (
+                        <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
+                            {formatLocationStatus(selectedLocation.status)} · {selectedLocation.purpose}
+                        </div>
+                    )}
+
+                    <label>Гейт</label>
+                    <input style={{ ...inputStyle, background: '#f7f7f7' }} value={gate} readOnly />
+                </>
+            ) : (
+                <>
+                    <label>Зона / объект</label>
+                    <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
+
+                    <label>Гейт</label>
+                    <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
+                </>
+            )}
 
             <label>Адрес</label>
-            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} required />
+            <input style={{ ...inputStyle, background: '#f7f7f7' }} value={address} onChange={(e) => setAddress(e.target.value)} required />
 
             <label>Комментарий</label>
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={comment} onChange={(e) => setComment(e.target.value)} />
@@ -1778,7 +2013,7 @@ function SpectechCreateForm({
             )}
 
             {err && <p style={{ color: 'crimson' }}>{err}</p>}
-            <button type="submit" disabled={busy} style={btn}>{busy ? 'Создание…' : 'Создать заявку'}</button>
+            <button type="submit" disabled={busy} style={btn}>{busy ? (request ? 'Сохранение…' : 'Создание…') : (request ? 'Сохранить изменения' : 'Создать заявку')}</button>
             <button type="button" style={btnSecondary} onClick={onCancel}>Отмена</button>
         </form>
     );
@@ -1787,37 +2022,76 @@ function SpectechCreateForm({
 function SpectechRequestList({
     requests,
     onCreate,
+    onEdit,
     onBack,
+    onCancel,
 }: {
     requests: SpectechRequestItem[];
     onCreate: () => void;
+    onEdit: (request: SpectechRequestItem) => void;
     onBack: () => void;
+    onCancel: (request: SpectechRequestItem) => void;
 }) {
     return (
         <>
             <h3>Мои заявки на спецтехнику</h3>
             {requests.length === 0 && <p>Заявок пока нет.</p>}
-            {requests.map((request) => (
-                <div key={request.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, margin: '8px 0' }}>
-                    <strong>#{request.id} {request.equipment_name}</strong>
-                    <div>Статус: {request.status_label || spectechStatusLabels[request.status] || request.status}</div>
-                    <div>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
-                    <div>Период: {
-                        request.requested_start
-                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.start_date
-                    } — {
-                        request.requested_end
-                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.end_date
-                    }</div>
-                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
-                    <div>Адрес: {request.address}</div>
-                    {request.comment && <div>Комментарий: {request.comment}</div>}
-                    {request.photo_urls && request.photo_urls.length > 0 && <div>Фото: {request.photo_urls.length}</div>}
-                    {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString()}</div>}
-                </div>
-            ))}
+            {requests.map((request) => {
+                const statusStyle = spectechStatusStyles[request.status] ?? spectechStatusStyles.new;
+                const canModify = !finalSpectechStatuses.includes(request.status);
+
+                return (
+                    <div
+                        key={request.id}
+                        style={{
+                            border: `1px solid ${statusStyle.border}`,
+                            borderRadius: 8,
+                            padding: 10,
+                            margin: '8px 0',
+                            background: request.status === 'cancelled' ? '#fffafa' : '#fff',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <strong>#{request.id} {request.equipment_name}</strong>
+                            <span style={{ border: `1px solid ${statusStyle.border}`, borderRadius: 999, padding: '3px 8px', background: statusStyle.bg, color: statusStyle.color, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {request.status_label || spectechStatusLabels[request.status] || request.status}
+                            </span>
+                        </div>
+                        {request.plate_number && <div style={{ color: '#666', fontSize: 13 }}>Номер: {request.plate_number}</div>}
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            <div><strong>Период:</strong> {formatSpectechPeriod(request)}</div>
+                            <div><strong>Локация:</strong> {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+                            <div><strong>Адрес:</strong> {request.address || '—'}</div>
+                            <div><strong>Водитель:</strong> {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
+                            {request.comment && <div><strong>Комментарий:</strong> {request.comment}</div>}
+                            {request.photo_urls && request.photo_urls.length > 0 && <div><strong>Фото:</strong> {request.photo_urls.length}</div>}
+                            {request.created_at && <div><strong>Создана:</strong> {formatSpectechDateTime(request.created_at)}</div>}
+                        </div>
+                        {request.status === 'cancelled' && (
+                            <div style={{ marginTop: 8, border: '1px solid #f4b8b3', borderRadius: 8, padding: 8, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
+                                <strong>Заявка отменена{request.cancelled_by ? `: ${request.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}</strong>
+                                <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
+                            </div>
+                        )}
+                        {(request.conflict_info ?? []).length > 0 && (
+                            <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
+                                <strong>Техника занята на выбранный период</strong>
+                                <div style={{ marginTop: 4 }}>Заявка принята, диспетчер скорректирует планирование.</div>
+                            </div>
+                        )}
+                        {canModify && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                <button type="button" style={{ ...btnSecondary, marginBottom: 0 }} onClick={() => onEdit(request)}>
+                                    Изменить заявку
+                                </button>
+                                <button type="button" style={{ ...btnDanger, marginBottom: 0 }} onClick={() => onCancel(request)}>
+                                    Отменить заявку
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
@@ -1832,6 +2106,8 @@ function SpectechOperatorList({
     onStatusFilterChange,
     onRefresh,
     onAdvanceStatus,
+    onEdit,
+    onCancel,
     onBack,
 }: {
     requests: SpectechRequestItem[];
@@ -1841,6 +2117,8 @@ function SpectechOperatorList({
     onStatusFilterChange: (value: string) => void;
     onRefresh: () => void;
     onAdvanceStatus: (requestId: number, status: string) => Promise<void>;
+    onEdit: (request: SpectechRequestItem) => void;
+    onCancel: (request: SpectechRequestItem) => void;
     onBack: () => void;
 }) {
     const [busyId, setBusyId] = useState<number | null>(null);
@@ -1870,45 +2148,71 @@ function SpectechOperatorList({
             </button>
             {error && <p style={{ color: 'crimson' }}>{error}</p>}
             {!loading && requests.length === 0 && <p>Заявок пока нет.</p>}
-            {requests.map((request) => (
-                <div
-                    key={request.id}
-                    style={{
-                        border: '1px solid #ddd',
-                        borderRadius: 8,
-                        padding: 10,
-                        margin: '8px 0',
-                        opacity: busyId === request.id ? 0.65 : 1,
-                    }}
-                >
-                    <strong>#{request.id} {request.equipment_name}</strong>
-                    {request.plate_number && <div>Номер: {request.plate_number}</div>}
-                    <div>Водитель: {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
-                    <div>Статус: <strong>{request.status_label || spectechStatusLabels[request.status] || request.status}</strong></div>
-                    <div>Период: {
-                        request.requested_start
-                            ? new Date(request.requested_start).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.start_date
-                    } — {
-                        request.requested_end
-                            ? new Date(request.requested_end).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : request.end_date
-                    }</div>
-                    <div>Локация: {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
-                    <div>Адрес: {request.address}</div>
-                    {request.comment && <div>Комментарий: {request.comment}</div>}
-                    {request.created_at && <div>Создана: {new Date(request.created_at).toLocaleString('ru-RU')}</div>}
-                    {nextSpectechStatus[request.status] && (
-                        <button
-                            style={{ ...btn, marginTop: 8 }}
-                            disabled={busyId === request.id}
-                            onClick={() => handleAdvance(request)}
-                        >
-                            {busyId === request.id ? 'Сохранение…' : `→ ${spectechStatusLabels[nextSpectechStatus[request.status]]}`}
-                        </button>
-                    )}
-                </div>
-            ))}
+            {requests.map((request) => {
+                const statusStyle = spectechStatusStyles[request.status] ?? spectechStatusStyles.new;
+                const canModify = !finalSpectechStatuses.includes(request.status);
+
+                return (
+                    <div
+                        key={request.id}
+                        style={{
+                            border: `1px solid ${statusStyle.border}`,
+                            borderRadius: 8,
+                            padding: 10,
+                            margin: '8px 0',
+                            opacity: busyId === request.id ? 0.65 : 1,
+                            background: request.status === 'cancelled' ? '#fffafa' : '#fff',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <strong>#{request.id} {request.equipment_name}</strong>
+                            <span style={{ border: `1px solid ${statusStyle.border}`, borderRadius: 999, padding: '3px 8px', background: statusStyle.bg, color: statusStyle.color, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {request.status_label || spectechStatusLabels[request.status] || request.status}
+                            </span>
+                        </div>
+                        {request.plate_number && <div style={{ color: '#666', fontSize: 13 }}>Номер: {request.plate_number}</div>}
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            {request.client_name && <div><strong>Инициатор:</strong> {request.client_name} {request.source_label ? `· ${request.source_label}` : ''}</div>}
+                            <div><strong>Период:</strong> {formatSpectechPeriod(request)}</div>
+                            <div><strong>Локация:</strong> {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
+                            <div><strong>Адрес:</strong> {request.address || '—'}</div>
+                            <div><strong>Водитель:</strong> {request.driver_name || '—'}{request.driver_phone ? ` · ${request.driver_phone}` : ''}</div>
+                            {request.comment && <div><strong>Комментарий:</strong> {request.comment}</div>}
+                            {request.created_at && <div><strong>Создана:</strong> {formatSpectechDateTime(request.created_at)}</div>}
+                        </div>
+                        {request.status === 'cancelled' && (
+                            <div style={{ marginTop: 8, border: '1px solid #f4b8b3', borderRadius: 8, padding: 8, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
+                                <strong>Заявка отменена{request.cancelled_by ? `: ${request.cancelled_by === 'operator' ? 'оператором' : 'заказчиком'}` : ''}</strong>
+                                <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
+                            </div>
+                        )}
+                        {(request.conflict_info ?? []).length > 0 && (
+                            <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
+                                <strong>Техника занята на выбранный период</strong>
+                                <div style={{ marginTop: 4 }}>Заявка принята, требуется регулировка диспетчером.</div>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            {nextSpectechStatus[request.status] && (
+                                <button
+                                    style={{ ...btn }}
+                                    disabled={busyId === request.id}
+                                    onClick={() => handleAdvance(request)}
+                                >
+                                    {busyId === request.id ? 'Сохранение…' : `→ ${spectechStatusLabels[nextSpectechStatus[request.status]]}`}
+                                </button>
+                            )}
+                            {canModify && (
+                                <>
+                                    <button type="button" style={{ ...btnSecondary }} onClick={() => onEdit(request)}>Изменить</button>
+                                    <button type="button" style={{ ...btnDanger }} onClick={() => onCancel(request)}>Отменить</button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                );
+            })}
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
     );
@@ -1929,10 +2233,42 @@ function TelegramMiniApp() {
     const [violationIncidents, setViolationIncidents] = useState<ViolationIncidentItem[]>([]);
     const [violationIncidentsLoading, setViolationIncidentsLoading] = useState(false);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
+    const [selectedSpectechRequest, setSelectedSpectechRequest] = useState<SpectechRequestItem | null>(null);
+    const [spectechEditSource, setSpectechEditSource] = useState<'requests' | 'operator'>('requests');
     const [operatorSpectechRequests, setOperatorSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [operatorSpectechLoading, setOperatorSpectechLoading] = useState(false);
     const [operatorSpectechError, setOperatorSpectechError] = useState<string | null>(null);
     const [operatorSpectechStatusFilter, setOperatorSpectechStatusFilter] = useState('');
+
+    // ── Cancel modal for spectech requests (Telegram) ──
+    const [tgCancelModalOpen, setTgCancelModalOpen] = useState(false);
+    const [tgCancellingRequest, setTgCancellingRequest] = useState<SpectechRequestItem | null>(null);
+    const [tgCancelLoading, setTgCancelLoading] = useState(false);
+    const [tgCancelReason, setTgCancelReason] = useState('');
+
+    const openTgCancel = (request: SpectechRequestItem) => {
+        setTgCancellingRequest(request);
+        setTgCancelReason('');
+        setTgCancelModalOpen(true);
+    };
+
+    const handleTgCancel = async () => {
+        if (!tgCancellingRequest || !tgCancelReason.trim()) return;
+        setTgCancelLoading(true);
+        try {
+            await axios.patch(`/api/telegram/miniapp/spectech/requests/${tgCancellingRequest.id}/cancel`, { init_data: initData, reason: tgCancelReason.trim() }, { headers: { 'X-Telegram-Init-Data': initData } });
+            setTgCancelModalOpen(false);
+            setTgCancellingRequest(null);
+            await loadSpectechRequests();
+            if (session?.can_manage_spectech) {
+                await loadOperatorSpectechRequests();
+            }
+        } catch (e: any) {
+            alert(e?.response?.data?.message || e?.message || 'Не удалось отменить заявку');
+        } finally {
+            setTgCancelLoading(false);
+        }
+    };
 
     useEffect(() => {
         const run = async () => {
@@ -2061,11 +2397,6 @@ function TelegramMiniApp() {
         void loadSpectechRequests();
     }, [view, loadSpectechRequests]);
 
-    const handleSpectechCreated = useCallback(async () => {
-        await loadSpectechRequests();
-        setView('spectech-requests');
-    }, [loadSpectechRequests]);
-
     const loadOperatorSpectechRequests = useCallback(async () => {
         if (!initData || !session?.can_manage_spectech) return;
         setOperatorSpectechLoading(true);
@@ -2087,18 +2418,31 @@ function TelegramMiniApp() {
         }
     }, [initData, session?.can_manage_spectech, operatorSpectechStatusFilter]);
 
+    const handleSpectechCreated = useCallback(async () => {
+        await loadSpectechRequests();
+        if (session?.can_manage_spectech) {
+            await loadOperatorSpectechRequests();
+        }
+        setSelectedSpectechRequest(null);
+        setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');
+    }, [loadOperatorSpectechRequests, loadSpectechRequests, session?.can_manage_spectech, spectechEditSource]);
+
     useEffect(() => {
         if (view !== 'spectech-operator' || !initData || !session?.can_manage_spectech) return;
         void loadOperatorSpectechRequests();
     }, [view, initData, session?.can_manage_spectech, loadOperatorSpectechRequests]);
 
     const advanceSpectechStatus = useCallback(async (requestId: number, status: string) => {
-        await axios.patch(
-            `/api/telegram/miniapp/operator/spectech/requests/${requestId}/status`,
-            { init_data: initData, status },
-            { headers: { 'X-Telegram-Init-Data': initData } }
-        );
-        await loadOperatorSpectechRequests();
+        try {
+            await axios.patch(
+                `/api/telegram/miniapp/operator/spectech/requests/${requestId}/status`,
+                { init_data: initData, status },
+                { headers: { 'X-Telegram-Init-Data': initData } }
+            );
+            await loadOperatorSpectechRequests();
+        } catch (e: any) {
+            alert(e?.response?.data?.message || e?.message || 'Не удалось изменить статус заявки');
+        }
     }, [initData, loadOperatorSpectechRequests]);
 
     const loadUtilizationRequests = useCallback(() => {
@@ -2253,13 +2597,40 @@ function TelegramMiniApp() {
                 <SpectechCreateForm
                     initData={initData}
                     onDone={handleSpectechCreated}
-                    onCancel={() => setView('home')}
+                    request={null}
+                    isOperator={session?.can_manage_spectech}
+                    onCancel={() => {
+                        setSelectedSpectechRequest(null);
+                        setView('home');
+                    }}
+                />
+            )}
+            {status === 'approved' && view === 'spectech-edit' && selectedSpectechRequest && (
+                <SpectechCreateForm
+                    initData={initData}
+                    onDone={handleSpectechCreated}
+                    request={selectedSpectechRequest}
+                    isOperator={session?.can_manage_spectech}
+                    onCancel={() => {
+                        setSelectedSpectechRequest(null);
+                        setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');
+                    }}
                 />
             )}
             {status === 'approved' && view === 'spectech-requests' && (
                 <SpectechRequestList
                     requests={spectechRequests}
-                    onCreate={() => setView('spectech-create')}
+                    onCreate={() => {
+                        setSpectechEditSource('requests');
+                        setSelectedSpectechRequest(null);
+                        setView('spectech-create');
+                    }}
+                    onEdit={(request) => {
+                        setSpectechEditSource('requests');
+                        setSelectedSpectechRequest(request);
+                        setView('spectech-edit');
+                    }}
+                    onCancel={(request) => openTgCancel(request)}
                     onBack={() => setView('home')}
                 />
             )}
@@ -2273,6 +2644,12 @@ function TelegramMiniApp() {
                     onStatusFilterChange={setOperatorSpectechStatusFilter}
                     onRefresh={() => void loadOperatorSpectechRequests()}
                     onAdvanceStatus={advanceSpectechStatus}
+                    onEdit={(request) => {
+                        setSpectechEditSource('operator');
+                        setSelectedSpectechRequest(request);
+                        setView('spectech-edit');
+                    }}
+                    onCancel={(request) => openTgCancel(request)}
                     onBack={() => setView('home')}
                 />
             )}
@@ -2357,9 +2734,23 @@ function TelegramMiniApp() {
                     onBack={() => setView('home')}
                 />
             )}
-        </Wrap>
-    );
-}
+                {/* Cancel modal (simple) */}
+                {tgCancelModalOpen && (
+                    <div style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                        <div style={{ width: 'min(520px, calc(100% - 32px))', background: '#fff', borderRadius: 12, padding: 16 }}>
+                            <h3 style={{ marginTop: 0 }}>Отмена заявки #{tgCancellingRequest?.id}</h3>
+                            <p style={{ color: '#666', fontSize: 13 }}>Укажите причину отмены. Эта информация будет сохранена.</p>
+                            <textarea value={tgCancelReason} onChange={(e) => setTgCancelReason(e.target.value)} rows={4} style={{ width: '100%', padding: 8, marginTop: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                <button style={{ ...btnSecondary, flex: 1 }} onClick={() => { setTgCancelModalOpen(false); setTgCancellingRequest(null); }} disabled={tgCancelLoading}>Отмена</button>
+                                <button style={{ ...btnDanger, flex: 1 }} onClick={() => void handleTgCancel()} disabled={tgCancelLoading || !tgCancelReason.trim()}>{tgCancelLoading ? 'Отмена…' : 'Отменить'}</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Wrap>
+        );
+    }
 
 // ── Монтирование без Inertia ──────────────────────────────────────────────────
 

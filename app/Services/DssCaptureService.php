@@ -199,7 +199,7 @@ class DssCaptureService extends DssBaseService
             $vehicleCapture = VehicleCapture::firstOrNew(['capture_key' => $captureKey]);
             $isNew = !$vehicleCapture->exists;
 
-            $vehicleCapture->fill([
+            $fillData = [
                 'devaice_id' => $device->id,
                 'plateNo' => $item['plateNo'],
                 'capture_direction' => $direction,
@@ -210,13 +210,32 @@ class DssCaptureService extends DssBaseService
                 'captureTime' => (string) $item['captureTime'],
                 'vehicleColorName' => $item['vehicleColorName'] ?? null,
                 'vehicleModelName' => $item['vehicleModelName'] ?? null,
-                'dss_alarm_code' => $item['dss_alarm_code'] ?? null,
-                'dss_alarm_type' => $item['dss_alarm_type'] ?? null,
-                'dss_alarm_source_code' => $item['dss_alarm_source_code'] ?? null,
-                'dss_alarm_source_name' => $item['dss_alarm_source_name'] ?? null,
-                'dss_alarm_payload' => $item['dss_alarm_payload'] ?? null,
-                'dss_alarm_detail_payload' => $item['dss_alarm_detail_payload'] ?? null,
-            ]);
+            ];
+
+            // Alarm-поля записываем только если входящий элемент несёт alarm-данные
+            // (webhook-путь). Если alarm_code пуст — это polling-запись; в этом случае
+            // для новой записи ставим null, для существующей — не перетираем уже
+            // сохранённый alarm_code, который мог быть установлен webhook'ом раньше.
+            $incomingAlarmCode = ($item['dss_alarm_code'] ?? null);
+            if ($incomingAlarmCode !== null && $incomingAlarmCode !== '') {
+                $fillData['dss_alarm_code'] = $incomingAlarmCode;
+                $fillData['dss_alarm_type'] = $item['dss_alarm_type'] ?? null;
+                $fillData['dss_alarm_source_code'] = $item['dss_alarm_source_code'] ?? null;
+                $fillData['dss_alarm_source_name'] = $item['dss_alarm_source_name'] ?? null;
+                $fillData['dss_alarm_payload'] = $item['dss_alarm_payload'] ?? null;
+                $fillData['dss_alarm_detail_payload'] = $item['dss_alarm_detail_payload'] ?? null;
+            } elseif ($isNew) {
+                $fillData['dss_alarm_code'] = null;
+                $fillData['dss_alarm_type'] = null;
+                $fillData['dss_alarm_source_code'] = null;
+                $fillData['dss_alarm_source_name'] = null;
+                $fillData['dss_alarm_payload'] = null;
+                $fillData['dss_alarm_detail_payload'] = null;
+            }
+            // Для существующей записи без входящего alarm_code — сохраняем текущие
+            // значения (не добавляем их в $fillData, fill() их не тронет).
+
+            $vehicleCapture->fill($fillData);
 
             if ($isNew || $vehicleCapture->isDirty()) {
                 $vehicleCapture->save();
@@ -263,7 +282,13 @@ class DssCaptureService extends DssBaseService
     {
         $normalizedPlate = strtolower(str_replace([' ', '-'], '', $plateNo));
 
-        return sha1(implode('|', [$deviceId, $captureTime, $normalizedPlate, $direction]));
+        // Округляем время до 5-секундного бакета, чтобы события одной и той же
+        // физической фиксации, пришедшие через webhook (alarmTime) и через daemon
+        // (captureTime), попадали в одну запись vehicle_captures, даже если их
+        // временны́е метки расходятся на 1–4 секунды.
+        $timeBucket = (int) floor((int) $captureTime / 5) * 5;
+
+        return sha1(implode('|', [$deviceId, $timeBucket, $normalizedPlate, $direction]));
     }
 
     private function fetchAlarmEntranceDetail(string $alarmCode): array

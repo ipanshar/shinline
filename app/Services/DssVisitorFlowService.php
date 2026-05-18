@@ -9,12 +9,14 @@ use App\Models\EntryPermit;
 use App\Models\GuestVisit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Models\TaskWeighing;
 use App\Models\Truck;
 use App\Models\User;
 use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
 use App\Models\Zone;
+use App\Services\DssParkingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -31,6 +33,7 @@ class DssVisitorFlowService
         private DssPermitVehicleService $permitVehicleService,
         private ExitPermitService $exitPermitService,
         private GuestVisitTelegramNotifier $guestVisitTelegramNotifier,
+        private DssParkingService $parkingService,
     )
     {
     }
@@ -202,9 +205,30 @@ class DssVisitorFlowService
                     return;
                 }
 
+                // self_barrier_mode: строгий двор — даже если все условия выполнены, требуем
+                // ручное подтверждение оператором (confirm-exit-review + open_barrier=true)
+                if (config('dss.self_barrier_mode') && $yard->strict_mode) {
+                    $this->createPendingExitReview(
+                        $device,
+                        $zone,
+                        $truck,
+                        $plateNo,
+                        $captureTime,
+                        $captureData,
+                        'Строгий режим двора: выезд требует ручного подтверждения оператора КПП.'
+                    );
+
+                    return;
+                }
+
                 $this->exitPermitService->markUsedForVisitor($visitor);
                 $this->closeVisitorExit($visitor, $device, $captureTime);
                 $this->createConfirmedExitReview($visitor, $device, $zone, $plateNo, $captureTime, $captureData);
+
+                // self_barrier_mode: нестрогий двор — открываем шлагбаум выезда автоматически
+                if (config('dss.self_barrier_mode') && !$yard->strict_mode) {
+                    $this->openBarrierSafely($device->id, 'exit', $plateNo);
+                }
             } else {
                 $this->createPendingExitReview($device, $zone, $truck, $plateNo, $captureTime, $captureData);
             }
@@ -217,6 +241,13 @@ class DssVisitorFlowService
         }
 
         $autoConfirm = (bool) ($confirmation['auto_confirm'] ?? false);
+
+        // На строгих дворах в режиме self_barrier_mode даже действующее разрешение не
+        // позволяет автоподтверждению: оператор КПП должен вручную подтвердить въезд
+        // через confirmVisitor (+ open_barrier=true если нужно открыть шлагбаум).
+        if (config('dss.self_barrier_mode') && $isStrictMode) {
+            $autoConfirm = false;
+        }
 
         $recentPendingVisitor = $this->findRecentPendingVisitor($device, $zone->yard_id, $truck, $plateNo, $captureTime);
         if ($recentPendingVisitor) {
@@ -301,7 +332,7 @@ class DssVisitorFlowService
             'entry_permit_id' => $permit?->id,
             'entry_date' => $captureTime ?? now(),
             'status_id' => $statusRow->id,
-            'confirmation_status' => $confirmation['status'],
+            'confirmation_status' => $autoConfirm ? Visitor::CONFIRMATION_CONFIRMED : Visitor::CONFIRMATION_PENDING,
             'confirmed_at' => $autoConfirm ? now() : null,
             'recognition_confidence' => $confidence,
             'truck_category_id' => $truck?->truck_category_id,
@@ -319,14 +350,26 @@ class DssVisitorFlowService
             $this->notifyGuestVisitArrival($visitor, $guestVisitId);
             $this->createAutomaticExitPermitForIntegrationPermit($visitor, $permit);
             $this->weighingService->createRequirement($visitor);
+
+            // Привязываем TaskWeighing записи задания к конкретному визиту
+            if ($visitor->task_id) {
+                TaskWeighing::where('task_id', $visitor->task_id)
+                    ->whereNull('visitor_id')
+                    ->update(['visitor_id' => $visitor->id]);
+            }
+
+            // self_barrier_mode: нестрогий двор — открываем шлагбаум въезда автоматически
+            if ($this->shouldAutoOpenBarrier($yard, $autoConfirm)) {
+                $this->openBarrierSafely($device->id, 'entry', $plateNo);
+            }
         }
 
         $this->structuredLogger->info('visitor_created', [
-            'visitor_id' => $visitor->id,
-            'truck_id' => $truck?->id,
-            'yard_id' => $zone->yard_id,
-            'device_id' => $device->id,
-            'confirmation_status' => $confirmation['status'],
+            'visitor_id'           => $visitor->id,
+            'truck_id'             => $truck?->id,
+            'yard_id'              => $zone->yard_id,
+            'device_id'            => $device->id,
+            'confirmation_status'  => $autoConfirm ? Visitor::CONFIRMATION_CONFIRMED : Visitor::CONFIRMATION_PENDING,
         ]);
 
         $reason = $confirmation['reason'];
@@ -376,12 +419,16 @@ class DssVisitorFlowService
         $captureMoment = $captureTime ?? now();
         $normalizedPlate = $this->normalizePlate($plateNo);
 
+        // Ищем любой недавний Visitor (pending ИЛИ confirmed) для того же устройства
+        // в 5-минутном окне. Это защищает от дублей, когда webhook и daemon обрабатывают
+        // одну и ту же физическую фиксацию с небольшим временны́м сдвигом и создают
+        // два разных VehicleCapture (из-за разницы captureTime / alarmTime).
         $query = Visitor::query()
             ->where('yard_id', $yardId)
             ->where('entrance_device_id', $device->id)
-            ->where('confirmation_status', Visitor::CONFIRMATION_PENDING)
+            ->whereIn('confirmation_status', [Visitor::CONFIRMATION_PENDING, Visitor::CONFIRMATION_CONFIRMED])
             ->whereNull('exit_date')
-            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(2));
+            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(5));
 
         if ($truck) {
             $query->where('truck_id', $truck->id);
@@ -666,5 +713,52 @@ class DssVisitorFlowService
         $review->resolved_at = $captureTime ?? now();
         $review->resolved_visitor_id = $visitor->id;
         $review->save();
+    }
+
+    /**
+     * Нужно ли открывать шлагбаум автоматически при обнаружении ТС камерой.
+     *
+     * Условие: режим self_barrier_mode включён, ТС авто-подтверждено (permit найден)
+     * и двор НЕ в строгом режиме (на строгих дворах оператор открывает вручную).
+     */
+    private function shouldAutoOpenBarrier(Yard $yard, bool $autoConfirm): bool
+    {
+        return config('dss.self_barrier_mode')
+            && $autoConfirm
+            && !$yard->strict_mode;
+    }
+
+    /**
+     * Открывает шлагбаум устройства, не бросая исключений.
+     * Ошибка логируется как warning — сбой открытия не должен ронять весь capture-пайплайн.
+     */
+    private function openBarrierSafely(int $deviceId, string $direction, string $plateNo): void
+    {
+        try {
+            $result = $this->parkingService->openBarrierForDevice($deviceId);
+
+            if (isset($result['error'])) {
+                Log::warning('DSS: не удалось открыть шлагбаум', [
+                    'device_id'    => $deviceId,
+                    'direction'    => $direction,
+                    'plate_number' => $plateNo,
+                    'error'        => $result['error'],
+                    'details'      => $result['details'] ?? $result['data'] ?? null,
+                ]);
+            } else {
+                Log::info('DSS: шлагбаум открыт', [
+                    'device_id'    => $deviceId,
+                    'direction'    => $direction,
+                    'plate_number' => $plateNo,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('DSS: исключение при открытии шлагбаума', [
+                'device_id'    => $deviceId,
+                'direction'    => $direction,
+                'plate_number' => $plateNo,
+                'error'        => $e->getMessage(),
+            ]);
+        }
     }
 }
