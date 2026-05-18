@@ -340,6 +340,15 @@ Route::get('/utilization/requests', [RouteController::class, 'utilizationRequest
 Route::get('/utilization/api/requests', [UtilizationRequestController::class, 'index'])->middleware('permission:utilization.view');
 Route::patch('/utilization/api/requests/{id}/status', [UtilizationRequestController::class, 'updateStatus'])->middleware('permission:utilization.manage');
 
+// Violations (отдельный модуль)
+Route::get('/violations', [RouteController::class, 'violations'])->middleware('permission:violations.review');
+Route::get('/violations/api/incidents', [\App\Http\Controllers\Api\ViolationAdminController::class, 'incidents'])->middleware('permission:violations.review');
+Route::get('/violations/api/catalog', [\App\Http\Controllers\Api\ViolationAdminController::class, 'catalog'])->middleware('permission:violations.review');
+Route::post('/violations/api/categories', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertCategory'])->middleware('permission:violations.settings');
+Route::patch('/violations/api/categories/{category}', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertCategory'])->middleware('permission:violations.settings');
+Route::post('/violations/api/types', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertType'])->middleware('permission:violations.settings');
+Route::patch('/violations/api/types/{type}', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertType'])->middleware('permission:violations.settings');
+
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
 Route::post('/zones/createorupdate', [\App\Http\Controllers\ZoneController::class, 'createOrUpdateZone']); // Создать или обновить зону

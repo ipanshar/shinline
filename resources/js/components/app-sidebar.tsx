@@ -183,6 +183,12 @@ export function AppSidebar() {
                     icon: Scale,
                     permission: 'weighing.view',
                 },
+                {
+                    title: 'Нарушители',
+                    href: '/violations',
+                    icon: ClipboardList,
+                    permission: 'violations.review',
+                },
             ],
         },
         {

@@ -96,6 +96,12 @@ class PermissionsSeeder extends Seeder
             // Экстренные перемещения в утилизацию
             ['name' => 'utilization.view',   'description' => 'Просмотр заявок на утилизацию', 'group' => 'utilization'],
             ['name' => 'utilization.manage', 'description' => 'Управление заявками на утилизацию', 'group' => 'utilization'],
+
+            // Нарушители
+            ['name' => 'violations.record', 'description' => 'Фиксация нарушений', 'group' => 'violations'],
+            ['name' => 'violations.review', 'description' => 'Просмотр и проверка нарушений', 'group' => 'violations'],
+            ['name' => 'violations.reference', 'description' => 'Управление базой сотрудников для нарушений', 'group' => 'violations'],
+            ['name' => 'violations.settings', 'description' => 'Настройка модуля нарушений', 'group' => 'violations'],
         ];
 
         // Создаём разрешения
@@ -208,6 +214,20 @@ class PermissionsSeeder extends Seeder
         );
         $this->syncPermissions($tgInviter, [
             'guest_visits.view', 'guest_visits.create',
+        ]);
+
+        // Служба безопасности
+        $securityService = Role::firstOrCreate(
+            ['name' => 'Служба безопасности'],
+            [
+                'level' => 60,
+                'description' => 'Фиксация и проверка нарушений через веб и Telegram Mini App',
+            ]
+        );
+        $this->syncPermissions($securityService, [
+            'violations.record',
+            'violations.review',
+            'violations.reference',
         ]);
     }
 
