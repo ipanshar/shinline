@@ -20,7 +20,7 @@ return new class extends Migration
             $table->decimal('best_similarity', 5, 4)->nullable();
             $table->unsignedSmallInteger('candidate_count')->default(0);
             $table->foreignId('recognized_employee_id')->nullable()->constrained('violation_employees')->nullOnDelete();
-            $table->string('recognized_employee_business_key', 190)->nullable()->index();
+            $table->string('recognized_employee_business_key', 190)->nullable();
             $table->string('recognized_full_name', 160)->nullable();
             $table->string('recognized_department', 160)->nullable();
             $table->string('selected_frame_path', 500)->nullable();
@@ -31,6 +31,7 @@ return new class extends Migration
             $table->dateTime('finished_at')->nullable();
             $table->timestamps();
 
+            $table->index('recognized_employee_business_key', 'vra_rec_emp_bkey_idx');
             $table->index(['incident_id', 'status']);
         });
     }
