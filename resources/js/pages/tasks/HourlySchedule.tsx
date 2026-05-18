@@ -71,15 +71,20 @@ function getTaskLoadingForWarehouse(task: Task, warehouseId: string) {
   return task.task_loadings?.find((loading) => String(loading.warehouse_id) === warehouseId);
 }
 
+function getTaskScheduleIso(task: Task, warehouseId: string) {
+  const loading = getTaskLoadingForWarehouse(task, warehouseId);
+  return loading?.plane_date ?? task.plan_date ?? null;
+}
+
 function getTasksForHour(tasks: Task[], hour: number, warehouseId: string) {
   return tasks.filter((task) => {
-    const loading = getTaskLoadingForWarehouse(task, warehouseId);
+    const scheduleIso = getTaskScheduleIso(task, warehouseId);
 
-    if (!loading?.plane_date) {
+    if (!scheduleIso) {
       return false;
     }
 
-    return new Date(loading.plane_date).getHours() === hour;
+    return new Date(scheduleIso).getHours() === hour;
   });
 }
 
@@ -131,7 +136,7 @@ const DayTableSchedule: React.FC<DayTableScheduleProps> = ({ tasks, warehouseId,
                   </thead>
                   <tbody>
                     {hourTasks.map((task) => {
-                      const taskLoading = getTaskLoadingForWarehouse(task, warehouseId);
+                      const scheduleIso = getTaskScheduleIso(task, warehouseId);
 
                       return (
                         <tr key={task.id}>
@@ -147,7 +152,7 @@ const DayTableSchedule: React.FC<DayTableScheduleProps> = ({ tasks, warehouseId,
                           <td style={{ textAlign: 'center' }}>
                             <span className="time-badge">
                               <Clock size={14} />
-                              {fmtTime(taskLoading?.plane_date)}
+                              {fmtTime(scheduleIso)}
                             </span>
                           </td>
                           <td>
