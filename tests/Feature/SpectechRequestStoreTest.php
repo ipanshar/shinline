@@ -89,6 +89,49 @@ class SpectechRequestStoreTest extends TestCase
         ]);
     }
 
+    public function test_store_accepts_request_when_selected_truck_is_busy(): void
+    {
+        [$user, $truck] = $this->createUserAndTruck();
+
+        SpectechSchedule::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'equipment_type_key' => 'Самосвал Shacman',
+            'equipment_type_label' => 'Самосвал Shacman',
+            'assigned_truck_name' => 'Самосвал Shacman (932BC05)',
+            'scheduled_start' => '2026-05-15 08:00:00',
+            'scheduled_end' => '2026-05-15 12:00:00',
+            'purpose' => 'Уже запланированная работа',
+            'address' => 'Территория',
+            'status' => SpectechSchedule::STATUS_PENDING,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/spectech/api/requests', [
+                'truck_id' => $truck->id,
+                'requested_start' => '2026-05-15T09:00',
+                'requested_end' => '2026-05-15T18:00',
+                'terminal' => 'T1',
+                'zone' => 'Zone A',
+                'gate' => 'G-1',
+                'address' => 'Terminal T1, Zone A',
+                'comment' => 'Нужна техника несмотря на занятость',
+                'photos' => [],
+                'check_availability' => true,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('status', true)
+            ->assertJsonPath('data.status', 'new')
+            ->assertJsonCount(1, 'data.conflict_info');
+
+        $this->assertDatabaseHas('spectech_requests', [
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'comment' => 'Нужна техника несмотря на занятость',
+            'status' => 'new',
+        ]);
+    }
+
     public function test_spectech_operator_can_create_request_from_another_users_schedule(): void
     {
         [$owner, $truck] = $this->createUserAndTruck();

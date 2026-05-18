@@ -408,7 +408,7 @@ const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes, range }) =
         return Math.max(0.4, Math.min(100, r) - Math.max(0, l));
     };
 
-    const LABEL_W = 116;
+    const LABEL_W = 132;
     const ROW_H   = 34;
 
     return (
@@ -457,13 +457,13 @@ const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes, range }) =
                                     <div key={truck.id} className="flex items-center border-b border-border/20 hover:bg-muted/10 transition-colors">
                                         {/* Truck label */}
                                         <div
-                                            className="flex-shrink-0 px-2 text-[11px] text-right text-muted-foreground truncate"
+                                            className="flex-shrink-0 px-2 text-right truncate"
                                             style={{ width: LABEL_W }}
                                             title={`${truck.name}${truck.plate_number ? ` · ${truck.plate_number}` : ''}`}
                                         >
-                                            <div className="truncate">{truck.name}</div>
+                                            <div className="truncate text-[11px] text-muted-foreground">{truck.name}</div>
                                             {truck.plate_number && (
-                                                <div className="text-[9px] text-muted-foreground/60 truncate">{truck.plate_number}</div>
+                                                <div className="truncate text-[10px] font-semibold text-foreground">{truck.plate_number}</div>
                                             )}
                                         </div>
 
@@ -510,6 +510,7 @@ const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes, range }) =
                                                                 y: r.top,
                                                                 lines: [
                                                                     `#${s.id} · ${s.status_label}`,
+                                                                    `${truck.name}${truck.plate_number ? ` · ${truck.plate_number}` : ''}`,
                                                                     s.purpose,
                                                                     `${fmtDt(s.scheduled_start)} → ${fmtDt(s.scheduled_end)}`,
                                                                     ...(s.address ? [`📍 ${s.address}`] : []),
@@ -519,7 +520,9 @@ const GanttView: React.FC<GanttProps> = ({ schedules, equipmentTypes, range }) =
                                                         }}
                                                         onMouseLeave={() => setTooltip(null)}
                                                     >
-                                                        <span className="truncate text-[10px] font-medium leading-none">{s.purpose}</span>
+                                                        <span className="truncate text-[10px] font-medium leading-none">
+                                                            {truck.plate_number ? `${truck.plate_number} · ` : ''}{s.purpose}
+                                                        </span>
                                                     </div>
                                                 );
                                             })}
@@ -1066,4 +1069,3 @@ const SpectechPlanningManager: React.FC = () => {
 };
 
 export default SpectechPlanningManager;
-
