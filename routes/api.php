@@ -234,6 +234,11 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     Route::get('/telegram/miniapp/utilization/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'utilizationRequests']);
     Route::post('/telegram/miniapp/utilization/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createUtilizationRequest']);
 
+    // Нарушители (Mini App)
+    Route::get('/telegram/miniapp/violations/catalog', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'catalog']);
+    Route::get('/telegram/miniapp/violations/incidents', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'incidents']);
+    Route::post('/telegram/miniapp/violations/incidents', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'create']);
+
     // Legacy endpoints (оставлены для обратной совместимости)
     Route::get('/telegram/miniapp/spectech/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTrucks']);
     Route::get('/telegram/miniapp/spectech/check-availability', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'checkSpectechAvailability']);

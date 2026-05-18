@@ -127,4 +127,8 @@ class RouteController extends Controller
     public function utilizationRequests(){
         return Inertia::render('utilization/requests');
     }
+
+    public function violations(){
+        return Inertia::render('violations/index');
+    }
 }

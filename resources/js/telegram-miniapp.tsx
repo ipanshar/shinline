@@ -72,6 +72,8 @@ interface SessionPayload {
     };
     user: { id: number; name: string; phone: string | null } | null;
     can_manage_spectech: boolean;
+    can_record_violations: boolean;
+    can_review_violations: boolean;
     yards: YardOption[];
 }
 
@@ -175,6 +177,46 @@ interface UtilizationRequestItem {
     photos?: string[];
     photo_urls?: string[];
     created_at?: string | null;
+}
+
+interface ViolationEvidenceItem {
+    id: number;
+    media_kind: 'photo' | 'video';
+    url: string | null;
+    is_primary: boolean;
+}
+
+interface ViolationIncidentItem {
+    id: number;
+    incident_uid: string;
+    workflow_status: string;
+    recognition_status: string;
+    occurred_at: string | null;
+    category_name: string | null;
+    type_name: string | null;
+    employee_full_name: string | null;
+    employee_department: string | null;
+    description: string | null;
+    location_label: string | null;
+    evidence_total_count: number;
+    evidence_photo_count: number;
+    evidence_video_count: number;
+    evidences: ViolationEvidenceItem[];
+}
+
+interface ViolationTypeOption {
+    id: number;
+    key: string;
+    name: string;
+    description?: string | null;
+}
+
+interface ViolationCategoryOption {
+    id: number;
+    key: string;
+    name: string;
+    description?: string | null;
+    types: ViolationTypeOption[];
 }
 
 const MAX_REQUEST_PHOTOS = 5;
@@ -293,6 +335,15 @@ const utilizationStatusLabels: Record<string, string> = {
     rejected: 'Отклонена',
 };
 
+const violationStatusLabels: Record<string, string> = {
+    draft_processing: 'Обработка',
+    pending_review: 'На проверке',
+    approved: 'Подтверждено',
+    rejected: 'Отклонено',
+    resolved: 'Рассмотрено',
+    closed: 'Закрыто',
+};
+
 const emptyVisitVehicle = (): VisitVehicle => ({
     plate_number: '',
     brand: null,
@@ -398,6 +449,20 @@ const getErrorMessage = (error: any, fallback: string) => {
     return error?.response?.data?.message ?? fallback;
 };
 
+const formatDateTimeLabel = (value?: string | null) => {
+    if (!value) {
+        return '—';
+    }
+
+    return new Date(value).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
 const Wrap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div style={{ maxWidth: 520, margin: '0 auto', padding: 16 }}>
         {children}
@@ -472,6 +537,8 @@ function Dashboard({
     onCreate,
     onVisits,
     onExitPermits,
+    onViolationsCreate,
+    onViolationsList,
     onSpectechCreate,
     onSpectechRequests,
     onUtilizationCreate,
@@ -482,6 +549,8 @@ function Dashboard({
     onCreate: () => void;
     onVisits: () => void;
     onExitPermits: () => void;
+    onViolationsCreate: () => void;
+    onViolationsList: () => void;
     onSpectechCreate: () => void;
     onSpectechRequests: () => void;
     onUtilizationCreate: () => void;
@@ -494,6 +563,13 @@ function Dashboard({
             <p>Площадки: {session.yards.length === 0 ? 'не назначены' : session.yards.map((y) => y.name).join(', ')}</p>
             <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
             <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
+            {session.can_record_violations && (
+                <>
+                    <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
+                    <button style={btnDanger} onClick={onViolationsCreate}>Зафиксировать нарушение</button>
+                    <button style={btnSecondary} onClick={onViolationsList}>Мои нарушения</button>
+                </>
+            )}
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btn} onClick={onSpectechCreate}>Заявка на спецтехнику</button>
             <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
@@ -522,6 +598,285 @@ function UtilizationActions({
             <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>Аварийный вызов техслужб доступен отдельно, без ожидания одобрения.</p>
             <button style={btn} onClick={onCreate}>Аварийный вызов техслужб</button>
             <button style={btnSecondary} onClick={onRequests}>Мои заявки на аварийный вызов</button>
+        </>
+    );
+}
+
+function ViolationsCreateView({
+    initData,
+    catalog,
+    loadingCatalog,
+    onCreated,
+    onViewList,
+    onBack,
+}: {
+    initData: string;
+    catalog: ViolationCategoryOption[];
+    loadingCatalog: boolean;
+    onCreated: () => void | Promise<void>;
+    onViewList: () => void;
+    onBack: () => void;
+}) {
+    const [categoryId, setCategoryId] = useState<number | ''>('');
+    const [typeId, setTypeId] = useState<number | ''>('');
+    const [occurredAt, setOccurredAt] = useState(() => toDateTimeLocalValue(new Date().toISOString()));
+    const [manualFullName, setManualFullName] = useState('');
+    const [manualDepartment, setManualDepartment] = useState('');
+    const [manualPosition, setManualPosition] = useState('');
+    const [locationLabel, setLocationLabel] = useState('');
+    const [description, setDescription] = useState('');
+    const [files, setFiles] = useState<File[]>([]);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (catalog.length === 0) {
+            setCategoryId('');
+            return;
+        }
+
+        const nextCategory = catalog.find((category) => category.id === categoryId) ?? catalog[0];
+        setCategoryId(nextCategory.id);
+    }, [catalog, categoryId]);
+
+    const selectedCategory = catalog.find((category) => category.id === categoryId) ?? null;
+
+    useEffect(() => {
+        const activeTypes = selectedCategory?.types ?? [];
+
+        if (activeTypes.length === 0) {
+            setTypeId('');
+            return;
+        }
+
+        const nextType = activeTypes.find((type) => type.id === typeId) ?? activeTypes[0];
+        setTypeId(nextType.id);
+    }, [selectedCategory, typeId]);
+
+    const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFiles = Array.from(event.target.files ?? []);
+
+        if (selectedFiles.length === 0) {
+            return;
+        }
+
+        setFiles((current) => [...current, ...selectedFiles].slice(0, 5));
+        setErr(null);
+        event.target.value = '';
+    };
+
+    const removeFile = (index: number) => {
+        setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    };
+
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+
+        if (!typeId) {
+            setErr('Выберите тип нарушения');
+            return;
+        }
+
+        if (files.length === 0) {
+            setErr('Добавьте хотя бы одно фото или видео');
+            return;
+        }
+
+        setBusy(true);
+        setErr(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('init_data', initData);
+            formData.append('type_id', String(typeId));
+            formData.append('occurred_at', occurredAt ? new Date(occurredAt).toISOString() : new Date().toISOString());
+            formData.append('manual_full_name', manualFullName.trim());
+
+            if (manualDepartment.trim()) {
+                formData.append('manual_department', manualDepartment.trim());
+            }
+
+            if (manualPosition.trim()) {
+                formData.append('manual_position', manualPosition.trim());
+            }
+
+            if (locationLabel.trim()) {
+                formData.append('location_label', locationLabel.trim());
+            }
+
+            if (description.trim()) {
+                formData.append('description', description.trim());
+            }
+
+            files.forEach((file) => {
+                formData.append('files[]', file);
+            });
+
+            await axios.post('/api/telegram/miniapp/violations/incidents', formData, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            await onCreated();
+        } catch (error: any) {
+            setErr(getErrorMessage(error, 'Не удалось сохранить нарушение'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <form onSubmit={submit}>
+            <h3 style={{ marginBottom: 8 }}>Фиксация нарушения</h3>
+            <p style={{ marginTop: 0, color: '#555' }}>
+                Пока доступна ручная фиксация. Распознавание через Face ID будет подключено следующим этапом.
+            </p>
+            <label>Категория</label>
+            <select
+                style={inputStyle}
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value ? Number(event.target.value) : '')}
+                disabled={loadingCatalog || catalog.length === 0}
+                required
+            >
+                <option value="">{loadingCatalog ? 'Загрузка...' : 'Выберите категорию'}</option>
+                {catalog.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+            </select>
+
+            <label>Тип нарушения</label>
+            <select
+                style={inputStyle}
+                value={typeId}
+                onChange={(event) => setTypeId(event.target.value ? Number(event.target.value) : '')}
+                disabled={!selectedCategory || selectedCategory.types.length === 0}
+                required
+            >
+                <option value="">{!selectedCategory ? 'Сначала выберите категорию' : 'Выберите тип нарушения'}</option>
+                {(selectedCategory?.types ?? []).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                ))}
+            </select>
+
+            {selectedCategory?.description && (
+                <div style={{ marginTop: -6, marginBottom: 12, color: '#666', fontSize: 12 }}>{selectedCategory.description}</div>
+            )}
+
+            <label>Дата и время</label>
+            <input
+                style={inputStyle}
+                type="datetime-local"
+                value={occurredAt}
+                onChange={(event) => setOccurredAt(event.target.value)}
+                required
+            />
+
+            <label>ФИО нарушителя</label>
+            <input style={inputStyle} value={manualFullName} onChange={(event) => setManualFullName(event.target.value)} required />
+
+            <label>Отдел</label>
+            <input style={inputStyle} value={manualDepartment} onChange={(event) => setManualDepartment(event.target.value)} placeholder="Необязательно" />
+
+            <label>Должность</label>
+            <input style={inputStyle} value={manualPosition} onChange={(event) => setManualPosition(event.target.value)} placeholder="Необязательно" />
+
+            <label>Локация</label>
+            <input style={inputStyle} value={locationLabel} onChange={(event) => setLocationLabel(event.target.value)} placeholder="КПП, цех, склад" />
+
+            <label>Описание</label>
+            <textarea style={{ ...inputStyle, minHeight: 72 }} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Что произошло" />
+
+            <label>Фото или видео</label>
+            <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm"
+                multiple
+                onChange={handleFileSelection}
+                style={{ ...inputStyle, padding: 8 }}
+            />
+            <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                До 5 файлов. Поддерживаются фото и видео.
+            </div>
+
+            {files.length > 0 && (
+                <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                    {files.map((file, index) => (
+                        <div key={`${file.name}-${index}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #ddd', borderRadius: 10, padding: '10px 12px' }}>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                                <div style={{ fontSize: 12, color: '#666' }}>
+                                    {file.type.startsWith('video/') ? 'Видео' : 'Фото'} · {(file.size / 1024 / 1024).toFixed(2)} MB
+                                </div>
+                            </div>
+                            <button type="button" style={{ ...smallButtonStyle, background: '#fdecea', color: '#b42318' }} onClick={() => removeFile(index)}>
+                                Убрать
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {err && <p style={{ color: 'crimson' }}>{err}</p>}
+            <button type="submit" disabled={busy || loadingCatalog || catalog.length === 0} style={btnDanger}>{busy ? 'Сохранение…' : 'Сохранить нарушение'}</button>
+            <button type="button" style={btnSecondary} onClick={onViewList}>Мои нарушения</button>
+            <button type="button" style={btnSecondary} onClick={onBack}>← Назад</button>
+        </form>
+    );
+}
+
+function ViolationsIncidentList({
+    incidents,
+    loading,
+    onReload,
+    onCreate,
+    onBack,
+}: {
+    incidents: ViolationIncidentItem[];
+    loading: boolean;
+    onReload: () => void;
+    onCreate: () => void;
+    onBack: () => void;
+}) {
+    return (
+        <>
+            <h3 style={{ marginBottom: 8 }}>Мои нарушения</h3>
+            <button type="button" style={btnSecondary} onClick={onReload} disabled={loading}>
+                {loading ? 'Обновление…' : 'Обновить'}
+            </button>
+            {loading && incidents.length === 0 && <p>Загрузка списка...</p>}
+            {!loading && incidents.length === 0 && <p>Вы ещё не зафиксировали ни одного нарушения.</p>}
+            {incidents.map((incident) => {
+                const primaryEvidence = incident.evidences.find((evidence) => evidence.is_primary) ?? incident.evidences[0] ?? null;
+
+                return (
+                    <div key={incident.id} style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
+                            <div>
+                                <div style={{ fontWeight: 700 }}>{incident.employee_full_name || 'Без ФИО'}</div>
+                                <div style={{ fontSize: 13, color: '#555' }}>{incident.category_name || '—'} / {incident.type_name || '—'}</div>
+                            </div>
+                            <span style={{ padding: '4px 8px', borderRadius: 999, background: '#f3f4f6', color: '#111827', fontSize: 12, whiteSpace: 'nowrap' }}>
+                                {violationStatusLabels[incident.workflow_status] || incident.workflow_status}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#444', display: 'grid', gap: 4 }}>
+                            <div>Когда: {formatDateTimeLabel(incident.occurred_at)}</div>
+                            {incident.employee_department && <div>Отдел: {incident.employee_department}</div>}
+                            {incident.location_label && <div>Локация: {incident.location_label}</div>}
+                            {incident.description && <div>Описание: {incident.description}</div>}
+                            <div>Доказательства: {incident.evidence_photo_count} фото / {incident.evidence_video_count} видео</div>
+                        </div>
+                        {primaryEvidence?.url && primaryEvidence.media_kind === 'photo' && (
+                            <img src={primaryEvidence.url} alt={incident.type_name || 'Нарушение'} style={{ width: '100%', borderRadius: 10, marginTop: 10, maxHeight: 220, objectFit: 'cover' }} />
+                        )}
+                        {primaryEvidence?.url && primaryEvidence.media_kind === 'video' && (
+                            <video src={primaryEvidence.url} controls style={{ width: '100%', borderRadius: 10, marginTop: 10, maxHeight: 220, background: '#111' }} />
+                        )}
+                    </div>
+                );
+            })}
+            <button type="button" style={btnDanger} onClick={onCreate}>Зафиксировать новое нарушение</button>
+            <button type="button" style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
     );
 }
@@ -1868,11 +2223,15 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
     const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
+    const [violationCatalog, setViolationCatalog] = useState<ViolationCategoryOption[]>([]);
+    const [violationCatalogLoading, setViolationCatalogLoading] = useState(false);
+    const [violationIncidents, setViolationIncidents] = useState<ViolationIncidentItem[]>([]);
+    const [violationIncidentsLoading, setViolationIncidentsLoading] = useState(false);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
     const [selectedSpectechRequest, setSelectedSpectechRequest] = useState<SpectechRequestItem | null>(null);
     const [spectechEditSource, setSpectechEditSource] = useState<'requests' | 'operator'>('requests');
@@ -2108,6 +2467,55 @@ function TelegramMiniApp() {
         setView('utilization-requests');
     }, [loadUtilizationRequests]);
 
+    const loadViolationCatalog = useCallback(async () => {
+        if (!initData || !session?.can_record_violations) return;
+
+        setViolationCatalogLoading(true);
+        try {
+            const response = await axios.get<{ data: ViolationCategoryOption[] }>('/api/telegram/miniapp/violations/catalog', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setViolationCatalog(response.data.data ?? []);
+        } catch {
+            setViolationCatalog([]);
+        } finally {
+            setViolationCatalogLoading(false);
+        }
+    }, [initData, session?.can_record_violations]);
+
+    const loadViolationIncidents = useCallback(async () => {
+        if (!initData || !session?.can_record_violations) return;
+
+        setViolationIncidentsLoading(true);
+        try {
+            const response = await axios.get<{ data: ViolationIncidentItem[] }>('/api/telegram/miniapp/violations/incidents', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setViolationIncidents(response.data.data ?? []);
+        } catch {
+            setViolationIncidents([]);
+        } finally {
+            setViolationIncidentsLoading(false);
+        }
+    }, [initData, session?.can_record_violations]);
+
+    useEffect(() => {
+        if (view !== 'violations-create' || !session?.can_record_violations) return;
+        void loadViolationCatalog();
+    }, [view, session?.can_record_violations, loadViolationCatalog]);
+
+    useEffect(() => {
+        if (view !== 'violations-list' || !session?.can_record_violations) return;
+        void loadViolationIncidents();
+    }, [view, session?.can_record_violations, loadViolationIncidents]);
+
+    const handleViolationCreated = useCallback(async () => {
+        await loadViolationIncidents();
+        setView('violations-list');
+    }, [loadViolationIncidents]);
+
     if (loading) {
         return (
             <Wrap>
@@ -2169,6 +2577,8 @@ function TelegramMiniApp() {
                     onCreate={() => setView('create')}
                     onVisits={() => setView('visits')}
                     onExitPermits={() => setView('exit-permits')}
+                    onViolationsCreate={() => setView('violations-create')}
+                    onViolationsList={() => setView('violations-list')}
                     onSpectechCreate={() => setView('spectech-create')}
                     onSpectechRequests={() => setView('spectech-requests')}
                     onUtilizationCreate={() => setView('utilization-create')}
@@ -2284,6 +2694,27 @@ function TelegramMiniApp() {
                     yards={session.yards}
                     visitors={activeVisitors}
                     onReload={loadActiveVisitors}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'violations-create' && session.can_record_violations && (
+                <ViolationsCreateView
+                    initData={initData}
+                    catalog={violationCatalog}
+                    loadingCatalog={violationCatalogLoading}
+                    onCreated={handleViolationCreated}
+                    onViewList={() => setView('violations-list')}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'violations-list' && session.can_record_violations && (
+                <ViolationsIncidentList
+                    incidents={violationIncidents}
+                    loading={violationIncidentsLoading}
+                    onReload={() => void loadViolationIncidents()}
+                    onCreate={() => setView('violations-create')}
                     onBack={() => setView('home')}
                 />
             )}
