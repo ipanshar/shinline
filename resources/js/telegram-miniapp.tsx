@@ -888,7 +888,7 @@ function ViolationsIncidentList({
             {loading && incidents.length === 0 && <p>Загрузка списка...</p>}
             {!loading && incidents.length === 0 && <p>Вы ещё не зафиксировали ни одного нарушения.</p>}
             {incidents.map((incident) => {
-                const primaryEvidence = incident.evidences.find((evidence) => evidence.is_primary) ?? incident.evidences[0] ?? null;
+                const evidences = incident.evidences.filter((evidence) => Boolean(evidence.url));
 
                 return (
                     <div key={incident.id} style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12, marginBottom: 10 }}>
@@ -908,11 +908,28 @@ function ViolationsIncidentList({
                             {incident.description && <div>Описание: {incident.description}</div>}
                             <div>Доказательства: {incident.evidence_photo_count} фото / {incident.evidence_video_count} видео</div>
                         </div>
-                        {primaryEvidence?.url && primaryEvidence.media_kind === 'photo' && (
-                            <img src={primaryEvidence.url} alt={incident.type_name || 'Нарушение'} style={{ width: '100%', borderRadius: 10, marginTop: 10, maxHeight: 220, objectFit: 'cover' }} />
-                        )}
-                        {primaryEvidence?.url && primaryEvidence.media_kind === 'video' && (
-                            <video src={primaryEvidence.url} controls style={{ width: '100%', borderRadius: 10, marginTop: 10, maxHeight: 220, background: '#111' }} />
+                        {evidences.length > 0 && (
+                            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: evidences.length > 1 ? 'repeat(2, minmax(0, 1fr))' : '1fr', marginTop: 10 }}>
+                                {evidences.map((evidence) => (
+                                    evidence.media_kind === 'photo'
+                                        ? (
+                                            <img
+                                                key={evidence.id}
+                                                src={evidence.url ?? ''}
+                                                alt={incident.type_name || 'Нарушение'}
+                                                style={{ width: '100%', borderRadius: 10, maxHeight: 220, objectFit: 'cover', display: 'block' }}
+                                            />
+                                        )
+                                        : (
+                                            <video
+                                                key={evidence.id}
+                                                src={evidence.url ?? ''}
+                                                controls
+                                                style={{ width: '100%', borderRadius: 10, maxHeight: 220, background: '#111' }}
+                                            />
+                                        )
+                                ))}
+                            </div>
                         )}
                     </div>
                 );

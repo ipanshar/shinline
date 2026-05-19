@@ -13,7 +13,6 @@ use App\Services\Violations\ViolationIncidentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 class TelegramMiniAppViolationsController extends Controller
 {
@@ -164,9 +163,20 @@ class TelegramMiniAppViolationsController extends Controller
             'evidences' => $incident->evidences->map(fn ($evidence) => [
                 'id' => $evidence->id,
                 'media_kind' => $evidence->media_kind,
-                'url' => Storage::disk('public')->url($evidence->path),
+                'url' => $this->storageUrl($evidence->path),
                 'is_primary' => (bool) $evidence->is_primary,
             ])->values(),
         ];
+    }
+
+    private function storageUrl(?string $path): ?string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', ltrim($path, '/'));
+
+        return '/storage/' . $normalized;
     }
 }

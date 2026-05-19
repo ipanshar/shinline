@@ -8,7 +8,6 @@ use App\Models\ViolationIncident;
 use App\Models\ViolationType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -192,11 +191,13 @@ class ViolationAdminController extends Controller
 
     private function storageUrl(?string $path): ?string
     {
-        if (! $path) {
+        if (! is_string($path) || trim($path) === '') {
             return null;
         }
 
-        return Storage::disk('public')->url($path);
+        $normalized = str_replace('\\', '/', ltrim($path, '/'));
+
+        return '/storage/' . $normalized;
     }
 
     private function normalizedKey(mixed $explicitKey, string $fallbackName): string
