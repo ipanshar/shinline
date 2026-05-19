@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ViolationIncidentService
 {
@@ -109,11 +110,33 @@ class ViolationIncidentService
         $mimeType = (string) ($file->getMimeType() ?: $file->getClientMimeType() ?: 'application/octet-stream');
         $mediaKind = str_starts_with($mimeType, 'video/') ? 'video' : 'photo';
         $extension = strtolower((string) ($file->getClientOriginalExtension() ?: $file->extension() ?: ($mediaKind === 'video' ? 'mp4' : 'jpg')));
-        $relativePath = $file->storeAs(
-            'violations/' . $incident->incident_uid . '/original',
-            sprintf('%02d_%s.%s', $index + 1, Str::ulid(), $extension),
-            'public'
-        );
+        $sourcePath = $this->resolveUploadedFilePath($file);
+        $relativePath = 'violations/' . $incident->incident_uid . '/original/' . sprintf('%02d_%s.%s', $index + 1, Str::ulid(), $extension);
+        $stream = fopen($sourcePath, 'rb');
+
+        if ($stream === false) {
+            throw ValidationException::withMessages([
+                'files' => 'Не удалось прочитать загруженный файл на сервере. Повторите попытку.',
+            ]);
+        }
+
+        try {
+            $stored = Storage::disk('public')->put($relativePath, $stream);
+        } finally {
+            fclose($stream);
+        }
+
+        if (! $stored) {
+            throw ValidationException::withMessages([
+                'files' => 'Не удалось сохранить файл нарушения в хранилище.',
+            ]);
+        }
+
+        $fileSize = $file->getSize();
+        if (! is_int($fileSize) || $fileSize <= 0) {
+            $sizeFromDisk = @filesize($sourcePath);
+            $fileSize = is_int($sizeFromDisk) ? $sizeFromDisk : null;
+        }
 
         return $incident->evidences()->create([
             'media_role' => 'original',
@@ -122,13 +145,39 @@ class ViolationIncidentService
             'path' => $relativePath,
             'file_name' => $file->getClientOriginalName(),
             'mime_type' => $mimeType,
-            'file_size' => $file->getSize(),
-            'sha1' => sha1_file($file->getRealPath() ?: $file->path()),
+            'file_size' => $fileSize,
+            'sha1' => sha1_file($sourcePath) ?: null,
             'sort_order' => $index,
             'is_primary' => $index === 0,
             'meta' => [
                 'original_name' => $file->getClientOriginalName(),
             ],
+        ]);
+    }
+
+    private function resolveUploadedFilePath(UploadedFile $file): string
+    {
+        $candidates = array_filter([
+            $file->getRealPath() ?: null,
+            method_exists($file, 'path') ? $file->path() : null,
+            $file->getPathname() ?: null,
+        ], fn ($value) => is_string($value) && trim($value) !== '');
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        Log::warning('Violation upload file path is unavailable', [
+            'original_name' => $file->getClientOriginalName(),
+            'client_mime' => $file->getClientMimeType(),
+            'error' => $file->getError(),
+            'candidates' => array_values($candidates),
+        ]);
+
+        throw ValidationException::withMessages([
+            'files' => 'Сервер не смог получить временный файл загрузки. Проверьте PHP upload_tmp_dir и права на временную папку.',
         ]);
     }
 
