@@ -7,6 +7,8 @@ export interface SpectechRequestData {
     equipment_id: number;
     equipment_name: string;
     plate_number?: string;
+    initiator_name?: string | null;
+    initiator_phone?: string | null;
     driver_name?: string;
     driver_phone?: string;
     start_date: string;
@@ -100,7 +102,7 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
                 {request.client_name && (
                     <div className="flex items-center gap-1 col-span-2">
                         <User className="h-3 w-3" />
-                        <span>{request.client_name}</span>
+                        <span>{request.initiator_phone ? `${request.client_name} · ${request.initiator_phone}` : request.client_name}</span>
                     </div>
                 )}
                 <div className="flex items-center gap-1 col-span-2">

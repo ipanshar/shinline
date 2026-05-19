@@ -40,6 +40,9 @@ export interface User {
     login: string;
     roles: string[];
     email: string;
+    phone?: string | null;
+    permissions?: string[];
+    isAdmin?: boolean;
     avatar?: string;
     email_verified_at: string | null;
     created_at: string;
