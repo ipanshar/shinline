@@ -5,7 +5,7 @@ import { Head } from '@inertiajs/react';
 import { type BreadcrumbItem } from '@/types';
 import {
     Plus, ClipboardList, RefreshCw, ChevronDown, ChevronUp,
-    Search, Truck, MapPin, Calendar, CheckCircle2, Clock, Pencil, Phone, XCircle, AlertTriangle,
+    Search, Truck, MapPin, Calendar, CheckCircle2, Clock, Pencil, Phone, XCircle, AlertTriangle, User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -163,6 +163,10 @@ const RequestItem: React.FC<{
                             {period}
                         </span>
                         <span className="flex items-center gap-1">
+                            <User className="h-3 w-3 flex-shrink-0" />
+                            {req.initiator_phone ? `${req.initiator_name || req.client_name || 'Инициатор'} · ${req.initiator_phone}` : `Инициатор: ${req.initiator_name || req.client_name || '—'}`}
+                        </span>
+                        <span className="flex items-center gap-1">
                             <Phone className="h-3 w-3 flex-shrink-0" />
                             {req.driver_phone ? `${req.driver_name || 'Водитель'} · ${req.driver_phone}` : `Водитель: ${req.driver_name || '—'}`}
                         </span>
@@ -266,6 +270,7 @@ const RequestItem: React.FC<{
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Детали заявки</p>
                             <div className="mb-3 grid gap-2 text-[12px] text-[#444]">
+                                <div><span className="font-medium">Инициатор:</span> {req.initiator_name || req.client_name || '—'}{req.initiator_phone ? ` · ${req.initiator_phone}` : ''}</div>
                                 <div><span className="font-medium">Локация:</span> {req.terminal} / {req.zone}{req.gate ? ` / ${req.gate}` : ''}</div>
                                 <div><span className="font-medium">Адрес:</span> {req.address || '—'}</div>
                                 <div><span className="font-medium">Комментарий:</span> {req.comment || '—'}</div>
@@ -351,7 +356,7 @@ export default function SpectechRequests() {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return base;
         return base.filter(req =>
-            [String(req.id), req.equipment_name, req.address, req.comment ?? '', req.status_label, req.driver_name ?? '', req.driver_phone ?? '', req.source_label ?? '']
+            [String(req.id), req.equipment_name, req.address, req.comment ?? '', req.status_label, req.initiator_name ?? '', req.initiator_phone ?? '', req.driver_name ?? '', req.driver_phone ?? '', req.source_label ?? '']
                 .join(' ').toLowerCase().includes(q)
         );
     }, [searchQuery, sorted, telegramOnly]);
