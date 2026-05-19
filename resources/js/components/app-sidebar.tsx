@@ -189,12 +189,6 @@ export function AppSidebar() {
                     icon: Scale,
                     permission: 'weighing.view',
                 },
-                {
-                    title: 'Нарушители',
-                    href: '/violations',
-                    icon: ClipboardList,
-                    permission: 'violations.review',
-                },
             ],
         },
         {
@@ -231,6 +225,18 @@ export function AppSidebar() {
                     href: '/utilization/requests',
                     icon: ClipboardList,
                     permission: 'utilization.view',
+                },
+            ],
+        },
+        {
+            title: 'Служба безопасности',
+            icon: ShieldCheck,
+            items: [
+                {
+                    title: 'Нарушения',
+                    href: '/violations',
+                    icon: ClipboardList,
+                    permission: 'violations.review',
                 },
             ],
         },
