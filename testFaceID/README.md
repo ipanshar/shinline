@@ -80,6 +80,18 @@ php artisan violations:import-sigur-dump --dump="C:\faceid-data\sigur_20260506.s
 - FACEID_IMPORT_MANIFEST_PATH: временный manifest для импорта;
 - FACEID_CACHE_DIR: каталог cache/reference_vectors.json.
 
+## Windows service
+
+Чтобы backend не зависел от открытого окна терминала на Windows-сервере, используй готовые скрипты:
+
+```cmd
+cd /d C:\inetpub\wwwroot
+testFaceID\scripts\install-faceid-service.cmd
+nssm start shinline-faceid
+```
+
+Сам backend запускается через [testFaceID/scripts/run-faceid-backend.cmd](testFaceID/scripts/run-faceid-backend.cmd). Этот launcher сам выставляет пути до runtime manifest, reference store и cache, поэтому следующий человек на сервере не обязан собирать длинную команду руками.
+
 ## Подготовка
 
 Python зависимости:
