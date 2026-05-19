@@ -17,6 +17,11 @@ interface ViolationEvidence {
     is_primary: boolean;
 }
 
+interface EvidencePreviewState {
+    evidence: ViolationEvidence;
+    title: string;
+}
+
 interface ViolationIncident {
     id: number;
     incident_uid: string;
@@ -102,7 +107,15 @@ const getErrorMessage = (error: unknown, fallback: string) => {
     return responseData?.message ?? fallback;
 };
 
-function EvidencePreview({ evidence, alt }: { evidence?: ViolationEvidence | null; alt: string }) {
+function EvidencePreview({
+    evidence,
+    alt,
+    onOpen,
+}: {
+    evidence?: ViolationEvidence | null;
+    alt: string;
+    onOpen: (evidence: ViolationEvidence) => void;
+}) {
     if (!evidence?.url) {
         return null;
     }
@@ -111,7 +124,15 @@ function EvidencePreview({ evidence, alt }: { evidence?: ViolationEvidence | nul
         return <video src={evidence.url} controls className="mt-3 h-44 w-full rounded-lg bg-black object-cover" />;
     }
 
-    return <img src={evidence.url} alt={alt} className="mt-3 h-44 w-full rounded-lg object-cover" />;
+    return (
+        <button
+            type="button"
+            onClick={() => onOpen(evidence)}
+            className="mt-3 block w-full cursor-zoom-in overflow-hidden rounded-lg"
+        >
+            <img src={evidence.url} alt={alt} className="h-44 w-full rounded-lg object-cover transition hover:scale-[1.01]" />
+        </button>
+    );
 }
 
 export default function ViolationsPage() {
@@ -131,6 +152,7 @@ export default function ViolationsPage() {
     const [savingCategory, setSavingCategory] = useState(false);
     const [savingType, setSavingType] = useState(false);
     const [toggleBusyKey, setToggleBusyKey] = useState<string | null>(null);
+    const [preview, setPreview] = useState<EvidencePreviewState | null>(null);
     const [categoryForm, setCategoryForm] = useState({
         name: '',
         description: '',
@@ -411,7 +433,11 @@ export default function ViolationsPage() {
                                             <p className="mt-3 text-sm leading-6 text-[#444]">{incident.description}</p>
                                         )}
 
-                                        <EvidencePreview evidence={primaryEvidence} alt={incident.type_name || 'Доказательство'} />
+                                        <EvidencePreview
+                                            evidence={primaryEvidence}
+                                            alt={incident.type_name || 'Доказательство'}
+                                            onOpen={(evidence) => setPreview({ evidence, title: incident.type_name || 'Доказательство' })}
+                                        />
 
                                         {(incident.review_note || incident.rejection_reason) && (
                                             <div className="mt-3 rounded-lg border border-[#E9D8A6] bg-[#FFF8DB] px-3 py-2 text-sm text-[#6B5B1A]">
@@ -584,6 +610,30 @@ export default function ViolationsPage() {
                     </div>
                 </div>
             </div>
+            {preview?.evidence.url && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 p-4"
+                    onClick={() => setPreview(null)}
+                >
+                    <div className="grid w-full max-w-5xl gap-3" onClick={(event) => event.stopPropagation()}>
+                        <div className="flex items-center justify-between gap-3 text-white">
+                            <div className="text-sm font-semibold">{preview.title}</div>
+                            <button
+                                type="button"
+                                onClick={() => setPreview(null)}
+                                className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-[#111] transition hover:bg-[#F3F4F6]"
+                            >
+                                Закрыть
+                            </button>
+                        </div>
+                        <img
+                            src={preview.evidence.url}
+                            alt={preview.title}
+                            className="max-h-[86vh] w-full rounded-xl bg-[#111] object-contain"
+                        />
+                    </div>
+                </div>
+            )}
         </AppLayout>
     );
 }
