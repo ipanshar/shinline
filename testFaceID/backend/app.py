@@ -14,6 +14,7 @@ from .face_service import COSINE_MATCH_THRESHOLD, FaceSearchService
 
 LOGGER = logging.getLogger(__name__)
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = PROJECT_DIR.parent
 
 
 def resolve_dump_path() -> Path:
@@ -53,10 +54,10 @@ def resolve_file_path(env_name: str, default_relative_path: str) -> Path:
 
 
 DUMP_PATH = resolve_dump_path()
-REFERENCE_DIR = resolve_directory_path("FACEID_REFERENCE_DIR", "backend/reference_images")
+REFERENCE_DIR = resolve_directory_path("FACEID_REFERENCE_DIR", "../storage/app/private/faceid/references")
 REFERENCE_MANIFEST_PATH = resolve_file_path(
     "FACEID_REFERENCE_MANIFEST_PATH",
-    "backend/cache/reference-manifest.json",
+    "../storage/app/private/faceid/reference-manifest.json",
 )
 CACHE_DIR = resolve_directory_path("FACEID_CACHE_DIR", "backend/cache")
 REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
