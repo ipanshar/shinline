@@ -42,6 +42,44 @@ php artisan violations:sync-faceid-runtime --dump="C:\faceid-data\sigur_20260506
 - `FACEID_RESTART_SERVICE`: имя NSSM service, если backend должен перезапускаться автоматически после деплоя;
 - `FACEID_NSSM_PATH`: путь до `nssm.exe`, если он не лежит в PATH.
 
+## Установка Windows service
+
+Чтобы Face ID backend не зависел от открытого окна `cmd`, установи его как NSSM service.
+
+Если `nssm.exe` уже лежит в `PATH`:
+
+```cmd
+cd /d C:\inetpub\wwwroot
+testFaceID\scripts\install-faceid-service.cmd
+nssm start shinline-faceid
+curl.exe http://127.0.0.1:8008/api/status
+```
+
+Если `nssm.exe` лежит по явному пути:
+
+```cmd
+cd /d C:\inetpub\wwwroot
+testFaceID\scripts\install-faceid-service.cmd shinline-faceid "C:\Tools\nssm\win64\nssm.exe"
+"C:\Tools\nssm\win64\nssm.exe" start shinline-faceid
+curl.exe http://127.0.0.1:8008/api/status
+```
+
+Что делает installer:
+
+- регистрирует service `shinline-faceid`;
+- запускает backend через [testFaceID/scripts/run-faceid-backend.cmd](testFaceID/scripts/run-faceid-backend.cmd);
+- включает автозапуск сервиса после перезагрузки сервера;
+- пишет stdout/stderr в `storage/logs/faceid`;
+- включает автоматический restart сервиса при падении.
+
+После установки сервисом можно управлять так:
+
+```cmd
+nssm status shinline-faceid
+nssm restart shinline-faceid
+nssm stop shinline-faceid
+```
+
 ## Где что лежит
 
 - Таблица сотрудников: `violation_employees`
