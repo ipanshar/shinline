@@ -9,12 +9,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
     buildSpectechAddress,
     formatLocationStatus,
+    hasTerminalScheme,
     isKnownTerminal,
     KNOWN_TERMINALS,
     MOCK_LOCATIONS,
     TERMINAL_INFO,
     type Location,
 } from './MOCK_LOCATIONS';
+import TerminalScheme from './TerminalScheme';
 
 type SpectechTruckOption = {
     id: number;
@@ -133,7 +135,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
         ? MOCK_LOCATIONS.filter((location) => location.terminal === normalizedTerminal)
         : [];
     const effectiveZone = hasPresetLocations ? (selectedLocation?.building ?? '') : manualZone.trim();
-    const effectiveGate = hasPresetLocations ? (selectedLocation?.gate ?? '') : manualGate.trim();
+    const effectiveGate = manualGate.trim();
     const effectiveAddress = buildSpectechAddress(
         normalizedTerminal || selectedTerminal.trim(),
         effectiveZone,
@@ -222,7 +224,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
         setSelectedTerminal(terminal);
         setSelectedLocation(location);
         setManualZone(location ? '' : (initialRequest.zone ?? ''));
-        setManualGate(location ? '' : (initialRequest.gate ?? ''));
+        setManualGate(initialRequest.gate ?? '');
         setComment(initialRequest.comment ?? '');
         setPhotos(initialRequest.photos ?? []);
         setErrors({});
@@ -704,24 +706,40 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                                 <label className="text-xs font-medium">
                                     Здание / Зона <span className="text-red-500">*</span>
                                 </label>
-                                <select
-                                    value={selectedLocation?.id ?? ''}
-                                    onChange={(e) => {
-                                        const loc = filteredLocations.find((l) => l.id === parseInt(e.target.value)) ?? null;
-                                        setSelectedLocation(loc);
-                                        setErrors((p) => ({ ...p, zone: '' }));
-                                    }}
-                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
-                                >
+                                    <select
+                                        value={selectedLocation?.id ?? ''}
+                                        onChange={(e) => {
+                                            const loc = filteredLocations.find((l) => l.id === parseInt(e.target.value)) ?? null;
+                                            setSelectedLocation(loc);
+                                            setManualGate('');
+                                            setErrors((p) => ({ ...p, zone: '' }));
+                                        }}
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    >
                                     <option value="">Выберите здание...</option>
                                     {filteredLocations.map((loc) => (
                                         <option key={loc.id} value={loc.id}>
-                                            {loc.building} | Гейт: {loc.gate} |{' '}
-                                            {loc.status === 'active' ? '✓' : loc.status === 'pending' ? '🔧' : '○'}
+                                            {loc.building}
+                                            {loc.purpose && loc.purpose !== 'Объект терминала' ? ` · ${loc.purpose}` : ''}
                                         </option>
                                     ))}
                                 </select>
                                 {errors.zone && <span className="text-xs text-red-500">{errors.zone}</span>}
+
+                                {hasTerminalScheme(normalizedTerminal) && (
+                                    <TerminalScheme
+                                        terminal={normalizedTerminal}
+                                        locations={filteredLocations}
+                                        selectedLocationId={selectedLocation?.id ?? null}
+                                        onSelectLocation={(location) => {
+                                            setSelectedLocation(location);
+                                            setErrors((p) => ({ ...p, zone: '' }));
+                                        }}
+                                        compact
+                                        scale={1.2}
+                                        className="mt-2"
+                                    />
+                                )}
 
                                 {/* Карточка выбранной зоны */}
                                 {selectedLocation && (
@@ -741,9 +759,18 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                                             </span>
                                         </div>
                                         <div className="text-muted-foreground text-xs">Назначение: {selectedLocation.purpose}</div>
-                                        <div className="text-muted-foreground text-xs">Гейт: {selectedLocation.gate}</div>
                                     </div>
                                 )}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium">Гейт для заявки</label>
+                                    <input
+                                        type="text"
+                                        value={manualGate}
+                                        onChange={(e) => setManualGate(e.target.value)}
+                                        placeholder="Например, G1 / Gate 7"
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    />
+                                </div>
                             </div>
                         )}
 
@@ -766,7 +793,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                                     {errors.zone && <span className="text-xs text-red-500">{errors.zone}</span>}
                                 </div>
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-xs font-medium">Гейт</label>
+                                    <label className="text-xs font-medium">Гейт для заявки</label>
                                     <input
                                         type="text"
                                         value={manualGate}

@@ -6,7 +6,8 @@ import axios from 'axios';
 import { AlertTriangle, MapPin, Upload, X } from 'lucide-react';
 import { usePage } from '@inertiajs/react';
 import React, { useRef, useState } from 'react';
-import { MOCK_LOCATIONS, TERMINAL_INFO, type Location } from './MOCK_LOCATIONS';
+import { MOCK_LOCATIONS, TERMINAL_INFO, hasTerminalScheme, type Location } from './MOCK_LOCATIONS';
+import TerminalScheme from './TerminalScheme';
 
 interface ActiveRequestConflict {
     can_force_complete: boolean;
@@ -38,6 +39,7 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
     const [initiatorPhone, setInitiatorPhone] = useState(defaultInitiatorPhone);
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
+    const [gate, setGate] = useState('');
     const [comment, setComment] = useState('');
     const [photos, setPhotos] = useState<string[]>([]);
     const [submitting, setSubmitting] = useState(false);
@@ -85,7 +87,7 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
 
         setSubmitting(true);
         try {
-            const address = `Терминал: ${selectedTerminal} | Здание: ${selectedLocation!.building} | Гейт: ${selectedLocation!.gate} | Статус: ${selectedLocation!.status} | Назначение: ${selectedLocation!.purpose}`;
+            const address = `Терминал: ${selectedTerminal} | Здание: ${selectedLocation!.building} | Гейт: ${gate.trim()} | Статус: ${selectedLocation!.status} | Назначение: ${selectedLocation!.purpose}`;
 
             await axios.post('/spectech/api/requests/from-schedule', {
                 schedule_id: scheduleId,
@@ -95,7 +97,7 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
                 driver_phone: driverPhone.trim() || null,
                 terminal: selectedTerminal,
                 zone: selectedLocation!.building,
-                gate: selectedLocation!.gate,
+                gate: gate.trim() || null,
                 address,
                 comment: comment || null,
                 photos,
@@ -138,6 +140,7 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
             setInitiatorPhone(defaultInitiatorPhone);
             setDriverName('');
             setDriverPhone('');
+            setGate('');
             setComment('');
             setPhotos([]);
             setErrors({});
@@ -317,20 +320,49 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
                                     onChange={(e) => {
                                         const loc = filteredLocations.find((l) => l.id === parseInt(e.target.value)) ?? null;
                                         setSelectedLocation(loc);
-                                        setErrors((p) => ({ ...p, zone: '' }));
-                                        setActiveRequestConflict(null);
-                                    }}
-                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
-                                >
+                                            setGate('');
+                                            setErrors((p) => ({ ...p, zone: '' }));
+                                            setActiveRequestConflict(null);
+                                        }}
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    >
                                     <option value="">Выберите здание...</option>
                                     {filteredLocations.map((loc) => (
                                         <option key={loc.id} value={loc.id}>
-                                            {loc.building} | Гейт: {loc.gate} |{' '}
-                                            {loc.status === 'active' ? '✓' : loc.status === 'pending' ? '🔧' : '○'}
+                                            {loc.building}
+                                            {loc.purpose && loc.purpose !== 'Объект терминала' ? ` · ${loc.purpose}` : ''}
                                         </option>
                                     ))}
                                 </select>
                                 {errors.zone && <span className="text-xs text-red-500">{errors.zone}</span>}
+
+                                {hasTerminalScheme(selectedTerminal) && (
+                                    <TerminalScheme
+                                        terminal={selectedTerminal}
+                                        locations={filteredLocations}
+                                        selectedLocationId={selectedLocation?.id ?? null}
+                                        onSelectLocation={(location) => {
+                                            setSelectedLocation(location);
+                                            setGate('');
+                                            setErrors((p) => ({ ...p, zone: '' }));
+                                            setActiveRequestConflict(null);
+                                        }}
+                                        compact
+                                        scale={1.2}
+                                        className="mt-2"
+                                    />
+                                )}
+
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium">Гейт для заявки</label>
+                                    <input
+                                        type="text"
+                                        value={gate}
+                                        onChange={(e) => setGate(e.target.value)}
+                                        placeholder="Например, G1 / Gate 7"
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    />
+                                </div>
                             </div>
                         )}
 
