@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminCommandsController;
+use App\Http\Controllers\FaceIdReferenceImageController;
 use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\UsersController;
 use Illuminate\Support\Facades\Route;
@@ -44,6 +45,7 @@ Route::get('/client-registration', [ClientRegistrationController::class, 'showFo
 Route::post('/client-registration', [ClientRegistrationController::class, 'store'])->name('client.registration.store');
 // Публичный вход для Telegram Mini App (без авторизации через сайт)
 Route::get('/telegram/app', [RouteController::class, 'telegramMiniApp']);
+Route::get('/reference-images/{path}', [FaceIdReferenceImageController::class, 'show'])->where('path', '.*');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');

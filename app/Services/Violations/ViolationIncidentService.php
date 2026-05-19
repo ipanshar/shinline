@@ -45,6 +45,8 @@ class ViolationIncidentService
         $recognitionPayload = null;
         $recognitionError = null;
         $recognitionErrorType = null;
+        $confirmedReferenceKey = $this->nullableTrim($payload['recognition_confirmed_reference_key'] ?? null);
+        $rejectedAllCandidates = filter_var($payload['recognition_rejected_all'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
         if ($recognitionFile) {
             $recognitionStartedAt = now();
@@ -60,7 +62,9 @@ class ViolationIncidentService
             }
         }
 
-        return DB::transaction(function () use (
+        $shouldRefreshFaceReferenceManifest = false;
+
+        $incident = DB::transaction(function () use (
             $user,
             $chat,
             $payload,
@@ -71,6 +75,9 @@ class ViolationIncidentService
             $recognitionErrorType,
             $recognitionStartedAt,
             $recognitionFinishedAt,
+            $confirmedReferenceKey,
+            $rejectedAllCandidates,
+            &$shouldRefreshFaceReferenceManifest,
         ) {
             $type = ViolationType::query()
                 ->with('category')
@@ -80,15 +87,40 @@ class ViolationIncidentService
 
             $occurredAt = Carbon::parse((string) $payload['occurred_at']);
             $reporterName = $chat->display_full_name ?: $user->name;
-            $matchedCandidate = $this->matchedRecognitionCandidate($recognitionPayload);
-            $matchedProfile = $this->candidateProfile($matchedCandidate);
-            $recognizedEmployee = $matchedCandidate ? $this->syncRecognizedEmployee($matchedCandidate) : null;
+            if ($confirmedReferenceKey !== null && $rejectedAllCandidates) {
+                throw ValidationException::withMessages([
+                    'recognition_confirmed_reference_key' => 'Нельзя одновременно подтвердить кандидата и пометить, что все кандидаты отклонены.',
+                ]);
+            }
 
-            $employeeFullName = $this->resolveEmployeeField($payload['manual_full_name'] ?? null, $matchedCandidate['name'] ?? null);
+            $confirmedCandidate = $this->confirmedRecognitionCandidate($recognitionPayload, $confirmedReferenceKey);
+            if ($confirmedReferenceKey !== null && ! $confirmedCandidate) {
+                throw ValidationException::withMessages([
+                    'recognition_confirmed_reference_key' => 'Подтверждённый кандидат больше не найден. Сделайте фото ещё раз.',
+                ]);
+            }
+
+            $matchedCandidate = $rejectedAllCandidates ? null : $this->matchedRecognitionCandidate($recognitionPayload);
+            $resolvedCandidate = $confirmedCandidate ?? $matchedCandidate;
+            $resolvedProfile = $this->candidateProfile($resolvedCandidate);
+            $recognizedEmployee = $resolvedCandidate ? $this->syncRecognizedEmployee($resolvedCandidate) : null;
+
+            $manualFullName = $this->nullableTrim($payload['manual_full_name'] ?? null);
+            if ($rejectedAllCandidates && $manualFullName === null) {
+                throw ValidationException::withMessages([
+                    'manual_full_name' => 'После трёх отклонённых кандидатов укажите ФИО вручную.',
+                ]);
+            }
+
+            $employeeFullName = $this->resolveEmployeeField($manualFullName, $resolvedCandidate['name'] ?? null);
+            $manualEmployee = $resolvedCandidate === null && $employeeFullName !== null
+                ? $this->syncManualTelegramEmployee($payload)
+                : null;
             $queueUnknownIdentity = $recognitionFile !== null
-                && $matchedCandidate === null
+                && $resolvedCandidate === null
                 && $recognitionError === null
-                && $employeeFullName === null;
+                && $employeeFullName === null
+                && ! $rejectedAllCandidates;
 
             if (! $employeeFullName && ! $queueUnknownIdentity) {
                 throw ValidationException::withMessages([
@@ -96,23 +128,31 @@ class ViolationIncidentService
                 ]);
             }
 
-            $employeeDepartment = $this->resolveEmployeeField($payload['manual_department'] ?? null, $matchedProfile['department'] ?? null);
-            $employeePosition = $this->resolveEmployeeField($payload['manual_position'] ?? null, $matchedProfile['role'] ?? null);
-            $recognitionStatus = $this->resolveRecognitionStatus($recognitionFile, $matchedCandidate, $recognitionError, $employeeFullName !== null);
+            $employeeDepartment = $this->resolveEmployeeField($payload['manual_department'] ?? null, $resolvedProfile['department'] ?? null);
+            $employeePosition = $this->resolveEmployeeField($payload['manual_position'] ?? null, $resolvedProfile['role'] ?? null);
+            $recognitionStatus = $this->resolveRecognitionStatus($recognitionFile, $resolvedCandidate, $recognitionError, $manualEmployee !== null || $manualFullName !== null);
             $workflowStatus = $queueUnknownIdentity
                 ? ViolationIncident::STATUS_UNKNOWN_MANUAL
                 : ViolationIncident::STATUS_PENDING_REVIEW;
             $statusNote = $queueUnknownIdentity
                 ? 'Личность не найдена. Инцидент отправлен в очередь ручной идентификации СБ.'
-                : 'Нарушение зафиксировано через Telegram Mini App.';
+                : ($manualEmployee !== null
+                    ? 'Личность заполнена вручную после проверки эталонных фото в Telegram Mini App.'
+                    : 'Нарушение зафиксировано через Telegram Mini App.');
+
+            $incidentEmployee = $recognizedEmployee ?? $manualEmployee;
+            $shouldPersistRecognitionProbe = $recognitionFile !== null
+                && ($queueUnknownIdentity || ($manualEmployee !== null && $resolvedCandidate === null));
 
             $incident = ViolationIncident::query()->create([
                 'source' => 'telegram_miniapp',
                 'workflow_status' => $workflowStatus,
                 'recognition_status' => $recognitionStatus,
-                'identity_source' => $matchedCandidate
-                    ? 'faceid_camera'
-                    : ($queueUnknownIdentity ? 'pending_manual_security' : 'manual'),
+                'identity_source' => $confirmedCandidate
+                    ? 'faceid_guard_confirmed'
+                    : ($resolvedCandidate
+                        ? 'faceid_camera'
+                        : ($queueUnknownIdentity ? 'pending_manual_security' : 'manual')),
                 'occurred_at' => $occurredAt,
                 'reported_by_user_id' => $user->id,
                 'reported_by_chat_id' => $chat->chat_id,
@@ -125,29 +165,35 @@ class ViolationIncidentService
                 'type_name' => $type->name,
                 'description' => $this->nullableTrim($payload['description'] ?? null),
                 'location_label' => $this->nullableTrim($payload['location_label'] ?? null),
-                'employee_id' => $recognizedEmployee?->id,
-                'employee_business_key' => $recognizedEmployee?->business_key,
-                'employee_iin' => $matchedCandidate ? $this->nullableTrim($matchedProfile['iin'] ?? null) : null,
+                'employee_id' => $incidentEmployee?->id,
+                'employee_business_key' => $incidentEmployee?->business_key,
+                'employee_iin' => $resolvedCandidate
+                    ? $this->nullableTrim($resolvedProfile['iin'] ?? null)
+                    : $manualEmployee?->iin,
                 'employee_full_name' => $employeeFullName,
                 'employee_normalized_full_name' => $employeeFullName ? Str::lower($employeeFullName) : null,
                 'employee_department' => $employeeDepartment,
                 'employee_position' => $employeePosition,
-                'employee_status' => $matchedCandidate ? $this->nullableTrim($matchedProfile['status'] ?? null) : null,
-                'is_manual_identity' => $queueUnknownIdentity ? false : $matchedCandidate === null,
+                'employee_status' => $resolvedCandidate
+                    ? $this->nullableTrim($resolvedProfile['status'] ?? null)
+                    : $manualEmployee?->employment_status,
+                'is_manual_identity' => $queueUnknownIdentity ? false : $resolvedCandidate === null,
                 'recognition_employee_id' => $recognizedEmployee?->id,
                 'recognition_employee_business_key' => $recognizedEmployee?->business_key,
                 'recognition_employee_full_name' => $recognizedEmployee?->full_name,
                 'recognition_employee_department' => $recognizedEmployee?->department,
                 'recognition_attempts_count' => $recognitionFile ? 1 : 0,
                 'recognition_candidate_count' => count($this->recognitionCandidates($recognitionPayload)),
-                'recognition_similarity' => $this->recognitionSimilarity($recognitionPayload),
+                'recognition_similarity' => $this->recognitionSimilarity($recognitionPayload, $resolvedCandidate),
                 'recognition_threshold' => $this->recognitionThreshold($recognitionPayload),
                 'recognition_error' => $recognitionError,
                 'meta' => array_filter([
                     'capture_source' => 'telegram_miniapp',
                     'chat_id' => $chat->chat_id,
                     'recognition_error_type' => $recognitionErrorType,
-                    'recognition_source' => $matchedCandidate ? $this->nullableTrim($matchedCandidate['source'] ?? null) : null,
+                    'recognition_source' => $resolvedCandidate ? $this->nullableTrim($resolvedCandidate['source'] ?? null) : null,
+                    'recognition_confirmed_reference_key' => $confirmedReferenceKey,
+                    'recognition_rejected_all' => $rejectedAllCandidates ? true : null,
                 ], fn ($value) => $value !== null && $value !== ''),
             ]);
 
@@ -157,7 +203,7 @@ class ViolationIncidentService
 
             $this->syncIncidentEvidenceSnapshot($incident, $evidences);
 
-            if ($queueUnknownIdentity && $recognitionFile) {
+            if ($shouldPersistRecognitionProbe && $recognitionFile) {
                 $recognitionProbe = $this->storeRecognitionProbe($incident, $recognitionFile);
                 $incident->forceFill([
                     'meta' => array_merge(
@@ -165,12 +211,21 @@ class ViolationIncidentService
                         ['recognition_probe_evidence_id' => $recognitionProbe->id]
                     ),
                 ])->save();
+
+                if ($manualEmployee !== null) {
+                    $this->upsertFaceReferenceFromEvidence($manualEmployee, $recognitionProbe, 'manual_security', [
+                        'source_label' => 'Telegram Mini App manual identification',
+                    ]);
+                    $this->refreshEmployeeFaceReferenceSummary($manualEmployee);
+                    $shouldRefreshFaceReferenceManifest = true;
+                }
             }
 
             if ($recognitionFile) {
                 $this->storeRecognitionAttempt(
                     $incident,
                     $recognizedEmployee,
+                    $resolvedCandidate,
                     $recognitionPayload,
                     $recognitionError,
                     $recognitionStartedAt,
@@ -191,6 +246,12 @@ class ViolationIncidentService
 
             return $incident;
         });
+
+        if ($shouldRefreshFaceReferenceManifest) {
+            $this->refreshFaceReferenceManifestSilently();
+        }
+
+        return $incident;
     }
 
     /**
@@ -266,21 +327,22 @@ class ViolationIncidentService
     private function storeRecognitionAttempt(
         ViolationIncident $incident,
         ?ViolationEmployee $recognizedEmployee,
+        ?array $resolvedCandidate,
         ?array $recognitionPayload,
         ?string $recognitionError,
         ?Carbon $startedAt,
         ?Carbon $finishedAt,
     ): void {
-        $bestCandidate = $this->bestRecognitionCandidate($recognitionPayload);
+        $bestCandidate = $resolvedCandidate ?? $this->bestRecognitionCandidate($recognitionPayload);
         $bestProfile = $this->candidateProfile($bestCandidate);
 
         $incident->recognitionAttempts()->create([
             'attempt_kind' => 'image',
             'service_name' => 'faceid_python',
-            'status' => $this->resolveAttemptStatus($recognitionPayload, $recognitionError),
-            'matched' => $this->matchedRecognitionCandidate($recognitionPayload) !== null,
+            'status' => $this->resolveAttemptStatus($recognitionPayload, $recognitionError, $resolvedCandidate),
+            'matched' => $resolvedCandidate !== null,
             'threshold' => $this->recognitionThreshold($recognitionPayload),
-            'best_similarity' => $this->recognitionSimilarity($recognitionPayload),
+            'best_similarity' => $this->recognitionSimilarity($recognitionPayload, $bestCandidate),
             'candidate_count' => count($this->recognitionCandidates($recognitionPayload)),
             'recognized_employee_id' => $recognizedEmployee?->id,
             'recognized_employee_business_key' => $recognizedEmployee?->business_key,
@@ -355,13 +417,13 @@ class ViolationIncidentService
         return $matchedCandidate ? ViolationIncident::RECOGNITION_MATCHED : ViolationIncident::RECOGNITION_UNKNOWN;
     }
 
-    private function resolveAttemptStatus(?array $recognitionPayload, ?string $recognitionError): string
+    private function resolveAttemptStatus(?array $recognitionPayload, ?string $recognitionError, ?array $resolvedCandidate = null): string
     {
         if ($recognitionError) {
             return 'failed';
         }
 
-        return $this->matchedRecognitionCandidate($recognitionPayload) ? 'matched' : 'unknown';
+        return $resolvedCandidate !== null ? 'matched' : 'unknown';
     }
 
     private function recognitionSourceSystem(mixed $source): string
@@ -445,9 +507,9 @@ class ViolationIncidentService
         return is_array($candidates) ? array_values(array_filter($candidates, 'is_array')) : [];
     }
 
-    private function recognitionSimilarity(?array $payload): ?float
+    private function recognitionSimilarity(?array $payload, ?array $candidate = null): ?float
     {
-        $candidate = $this->bestRecognitionCandidate($payload);
+        $candidate = $candidate ?? $this->bestRecognitionCandidate($payload);
         $similarity = $candidate['similarity'] ?? null;
 
         return is_numeric($similarity) ? (float) $similarity : null;
@@ -458,6 +520,111 @@ class ViolationIncidentService
         $threshold = $payload['threshold'] ?? null;
 
         return is_numeric($threshold) ? (float) $threshold : null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $payload
+     * @return array<string, mixed>|null
+     */
+    private function confirmedRecognitionCandidate(?array $payload, ?string $referenceKey): ?array
+    {
+        if (! $payload || $referenceKey === null) {
+            return null;
+        }
+
+        foreach ($this->allRecognitionCandidates($payload) as $candidate) {
+            if ($this->recognitionCandidateReferenceKey($candidate) === $referenceKey) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $payload
+     * @return array<int, array<string, mixed>>
+     */
+    private function allRecognitionCandidates(?array $payload): array
+    {
+        if (! $payload) {
+            return [];
+        }
+
+        $all = [];
+        $best = $this->bestRecognitionCandidate($payload);
+        if ($best) {
+            $all[] = $best;
+        }
+
+        foreach ($this->recognitionCandidates($payload) as $candidate) {
+            $all[] = $candidate;
+        }
+
+        $seen = [];
+        $unique = [];
+
+        foreach ($all as $candidate) {
+            $key = $this->recognitionCandidateReferenceKey($candidate)
+                ?: $this->nullableTrim($candidate['groupKey'] ?? null)
+                ?: $this->nullableTrim(isset($candidate['employeeId']) ? (string) $candidate['employeeId'] : null)
+                ?: sha1(json_encode($candidate, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $unique[] = $candidate;
+        }
+
+        return $unique;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function recognitionCandidateReferenceKey(array $candidate): ?string
+    {
+        return $this->nullableTrim($candidate['referenceKey'] ?? null);
+    }
+
+    private function syncManualTelegramEmployee(array $payload): ViolationEmployee
+    {
+        $fullName = trim((string) $payload['manual_full_name']);
+        $normalizedFullName = Str::lower($fullName);
+        $department = $this->nullableTrim($payload['manual_department'] ?? null);
+        $position = $this->nullableTrim($payload['manual_position'] ?? null);
+
+        $employee = ViolationEmployee::query()
+            ->where('normalized_full_name', $normalizedFullName)
+            ->when($department, fn ($query) => $query->where('department', $department))
+            ->orderByDesc('is_active')
+            ->orderBy('id')
+            ->first();
+
+        if (! $employee) {
+            $employee = new ViolationEmployee([
+                'business_key' => 'manual_security:' . Str::ulid(),
+                'source_system' => 'manual_security',
+            ]);
+        }
+
+        $employee->full_name = $fullName;
+        $employee->normalized_full_name = $normalizedFullName;
+        $employee->department = $department;
+        $employee->position = $position;
+        $employee->is_active = true;
+        $employee->employment_status ??= 'MANUAL_REVIEW';
+        $employee->face_reference_state = (string) ($employee->face_reference_state ?: 'saved_probe');
+        $employee->imported_at ??= now();
+
+        $meta = is_array($employee->meta) ? $employee->meta : [];
+        $meta['telegram_manual_identity_at'] = now()->toIso8601String();
+        $employee->meta = $meta;
+        $employee->save();
+
+        return $employee;
     }
 
     private function syncManualReviewedEmployee(ViolationIncident $incident, array $payload): ViolationEmployee

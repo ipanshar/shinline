@@ -84,6 +84,8 @@ class TelegramMiniAppViolationsController extends Controller
             'manual_full_name' => ['nullable', 'string', 'max:160'],
             'manual_department' => ['nullable', 'string', 'max:160'],
             'manual_position' => ['nullable', 'string', 'max:160'],
+            'recognition_confirmed_reference_key' => ['nullable', 'string', 'max:255'],
+            'recognition_rejected_all' => ['nullable', 'boolean'],
             'recognition_file' => ['nullable', 'file', 'max:15360', 'mimetypes:image/jpeg,image/png,image/webp,image/heic,image/heif'],
             'files' => ['required', 'array', 'min:1', 'max:5'],
             'files.*' => [
@@ -250,6 +252,7 @@ class TelegramMiniAppViolationsController extends Controller
         $profile = is_array($candidate['profile'] ?? null) ? $candidate['profile'] : [];
 
         return [
+            'reference_key' => isset($candidate['referenceKey']) ? (string) $candidate['referenceKey'] : null,
             'employee_id' => isset($candidate['employeeId']) ? (int) $candidate['employeeId'] : null,
             'group_key' => isset($candidate['groupKey']) ? (string) $candidate['groupKey'] : null,
             'full_name' => isset($candidate['name']) ? (string) $candidate['name'] : null,

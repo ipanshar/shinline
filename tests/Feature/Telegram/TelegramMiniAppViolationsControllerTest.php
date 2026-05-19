@@ -36,6 +36,7 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
         $messaging->shouldReceive('sendWithMiniAppButton')->zeroOrMoreTimes();
         $this->app->instance(TelegramMessagingService::class, $messaging);
         Storage::fake('public');
+        Storage::fake('faceid_references');
     }
 
     protected function tearDown(): void
@@ -118,6 +119,7 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
                 'matched' => true,
                 'threshold' => 0.5,
                 'bestMatch' => [
+                    'referenceKey' => 'sigur-photo:501:1',
                     'employeeId' => 501,
                     'groupKey' => 'iin:123456789012|name:ivan_ivanov',
                     'name' => 'Иван Иванов',
@@ -145,6 +147,7 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.matched', true)
+            ->assertJsonPath('data.best_match.reference_key', 'sigur-photo:501:1')
             ->assertJsonPath('data.best_match.full_name', 'Иван Иванов')
             ->assertJsonPath('data.best_match.department', 'Цех розлива')
             ->assertJsonPath('data.best_match.position', 'EMP');
@@ -164,6 +167,7 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
                 'matched' => true,
                 'threshold' => 0.5,
                 'bestMatch' => [
+                    'referenceKey' => 'sigur-personalimg:777:11',
                     'employeeId' => 777,
                     'groupKey' => 'iin:777777777777|name:petr_petrov',
                     'name' => 'Пётр Петров',
@@ -188,6 +192,7 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
             'type_id' => $typeId,
             'occurred_at' => now()->toDateTimeString(),
             'description' => 'Нарушение с автоопределением личности.',
+            'recognition_confirmed_reference_key' => 'sigur-personalimg:777:11',
             'recognition_file' => UploadedFile::fake()->create('employee.jpg', 64, 'image/jpeg'),
             'files' => [UploadedFile::fake()->create('proof.jpg', 64, 'image/jpeg')],
         ], [
@@ -221,6 +226,171 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
             'status' => 'matched',
             'matched' => true,
             'recognized_full_name' => 'Пётр Петров',
+        ]);
+    }
+
+    public function test_guard_can_confirm_second_candidate_after_rejecting_first_reference_photo(): void
+    {
+        $initData = $this->makeInitData(['id' => 7106, 'first_name' => 'Verifier']);
+        $user = $this->approveSecurityUser('7106', 'Verifier User', 'tg7106@example.com', '+77000007106');
+        $typeId = \App\Models\ViolationType::query()->where('key', 'no_ppe')->value('id');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'referenceKey' => 'sigur-photo:900:1',
+                    'employeeId' => 900,
+                    'groupKey' => 'candidate:900',
+                    'name' => 'Похожий кандидат 1',
+                    'source' => 'sigur-photo',
+                    'referenceImageUrl' => '/reference-images/candidate-1.jpg',
+                    'similarity' => 0.4812,
+                    'profile' => [
+                        'department' => 'Цех 1',
+                        'role' => 'EMP',
+                        'sourceLabel' => 'Sigur photo',
+                    ],
+                ],
+                'candidates' => [[
+                    'referenceKey' => 'sigur-photo:901:2',
+                    'employeeId' => 901,
+                    'groupKey' => 'iin:901901901901|name:sergey_sergeev',
+                    'name' => 'Сергей Сергеев',
+                    'source' => 'sigur-photo',
+                    'referenceImageUrl' => '/reference-images/candidate-2.jpg',
+                    'similarity' => 0.4542,
+                    'profile' => [
+                        'department' => 'Цех розлива',
+                        'role' => 'EMP',
+                        'iin' => '901901901901',
+                        'status' => 'AVAILABLE',
+                        'sourceLabel' => 'Sigur photo',
+                    ],
+                ]],
+            ], 200),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/violations/incidents', [
+            'init_data' => $initData,
+            'type_id' => $typeId,
+            'occurred_at' => now()->toDateTimeString(),
+            'description' => 'Охранник подтвердил второго кандидата по эталонному фото.',
+            'recognition_confirmed_reference_key' => 'sigur-photo:901:2',
+            'recognition_file' => UploadedFile::fake()->create('employee.jpg', 64, 'image/jpeg'),
+            'files' => [UploadedFile::fake()->create('proof.jpg', 64, 'image/jpeg')],
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.employee_full_name', 'Сергей Сергеев')
+            ->assertJsonPath('data.employee_department', 'Цех розлива')
+            ->assertJsonPath('data.employee_position', 'EMP');
+
+        $this->assertDatabaseHas('violation_incidents', [
+            'reported_by_user_id' => $user->id,
+            'employee_full_name' => 'Сергей Сергеев',
+            'recognition_status' => 'matched',
+            'identity_source' => 'faceid_guard_confirmed',
+        ]);
+    }
+
+    public function test_guard_can_reject_three_candidates_and_save_manual_identity_with_new_reference(): void
+    {
+        $initData = $this->makeInitData(['id' => 7107, 'first_name' => 'Manual']);
+        $user = $this->approveSecurityUser('7107', 'Manual User', 'tg7107@example.com', '+77000007107');
+        $typeId = \App\Models\ViolationType::query()->where('key', 'no_ppe')->value('id');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'referenceKey' => 'sigur-photo:1000:1',
+                    'employeeId' => 1000,
+                    'groupKey' => 'candidate:1000',
+                    'name' => 'Кандидат 1',
+                    'source' => 'sigur-photo',
+                    'referenceImageUrl' => '/reference-images/candidate-1.jpg',
+                    'similarity' => 0.4888,
+                    'profile' => [
+                        'department' => 'Цех 1',
+                        'role' => 'EMP',
+                        'sourceLabel' => 'Sigur photo',
+                    ],
+                ],
+                'candidates' => [
+                    [
+                        'referenceKey' => 'sigur-photo:1001:2',
+                        'employeeId' => 1001,
+                        'groupKey' => 'candidate:1001',
+                        'name' => 'Кандидат 2',
+                        'source' => 'sigur-photo',
+                        'referenceImageUrl' => '/reference-images/candidate-2.jpg',
+                        'similarity' => 0.4622,
+                        'profile' => [
+                            'department' => 'Цех 2',
+                            'role' => 'EMP',
+                            'sourceLabel' => 'Sigur photo',
+                        ],
+                    ],
+                    [
+                        'referenceKey' => 'sigur-photo:1002:3',
+                        'employeeId' => 1002,
+                        'groupKey' => 'candidate:1002',
+                        'name' => 'Кандидат 3',
+                        'source' => 'sigur-photo',
+                        'referenceImageUrl' => '/reference-images/candidate-3.jpg',
+                        'similarity' => 0.4511,
+                        'profile' => [
+                            'department' => 'Цех 3',
+                            'role' => 'EMP',
+                            'sourceLabel' => 'Sigur photo',
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/violations/incidents', [
+            'init_data' => $initData,
+            'type_id' => $typeId,
+            'occurred_at' => now()->toDateTimeString(),
+            'description' => 'Три кандидата отклонены, сотрудник заполнен вручную.',
+            'manual_full_name' => 'Новый Сотрудник',
+            'manual_department' => 'Склад ГП',
+            'manual_position' => 'EMP',
+            'recognition_rejected_all' => '1',
+            'recognition_file' => UploadedFile::fake()->create('unknown.jpg', 64, 'image/jpeg'),
+            'files' => [UploadedFile::fake()->create('proof.jpg', 64, 'image/jpeg')],
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.employee_full_name', 'Новый Сотрудник')
+            ->assertJsonPath('data.employee_department', 'Склад ГП')
+            ->assertJsonPath('data.employee_position', 'EMP')
+            ->assertJsonPath('data.recognition_status', 'manual')
+            ->assertJsonPath('data.workflow_status', 'pending_review');
+
+        $incidentId = \App\Models\ViolationIncident::query()->value('id');
+        $employeeId = \App\Models\ViolationEmployee::query()->value('id');
+
+        $this->assertDatabaseHas('violation_evidences', [
+            'incident_id' => $incidentId,
+            'media_role' => 'recognition_probe',
+            'media_kind' => 'photo',
+        ]);
+
+        $this->assertDatabaseHas('violation_employee_face_references', [
+            'employee_id' => $employeeId,
+            'source_system' => 'manual_security',
+            'source' => 'recognition_probe',
+            'disk' => 'faceid_references',
+            'is_active' => true,
         ]);
     }
 
