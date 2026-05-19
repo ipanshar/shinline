@@ -43,4 +43,9 @@ class ViolationEmployee extends Model
     {
         return $this->hasMany(ViolationIncident::class, 'recognition_employee_id');
     }
+
+    public function faceReferences()
+    {
+        return $this->hasMany(ViolationEmployeeFaceReference::class, 'employee_id')->orderByDesc('is_primary')->orderBy('id');
+    }
 }

@@ -61,6 +61,11 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/dss-monitor-alerts.log'));
 
+        $schedule->command('violations:sync-faceid-runtime --json')
+            ->dailyAt('02:20')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/violations-faceid-sync.log'));
+
         $schedule->command('some:command')->daily();
     }
 

@@ -44,6 +44,8 @@ interface ViolationIncident {
     recognition_similarity: number | null;
     review_note: string | null;
     rejection_reason: string | null;
+    identity_requires_manual_review: boolean;
+    recognition_probe: ViolationEvidence | null;
     evidences: ViolationEvidence[];
 }
 
@@ -70,6 +72,8 @@ interface ViolationCategory {
 const incidentStatusLabels: Record<string, string> = {
     draft_processing: 'Обработка',
     pending_review: 'На проверке',
+    unknown_manual: 'Ждёт идентификации',
+    recognized_confirmed: 'Личность подтверждена',
     approved: 'Подтверждено',
     rejected: 'Отклонено',
     resolved: 'Рассмотрено',
@@ -144,8 +148,10 @@ export default function ViolationsPage() {
     const [catalog, setCatalog] = useState<ViolationCategory[]>([]);
     const [loadingIncidents, setLoadingIncidents] = useState(true);
     const [loadingCatalog, setLoadingCatalog] = useState(true);
+    const [loadingUnknownIncidents, setLoadingUnknownIncidents] = useState(true);
     const [incidentsError, setIncidentsError] = useState<string | null>(null);
     const [catalogError, setCatalogError] = useState<string | null>(null);
+    const [unknownIncidentsError, setUnknownIncidentsError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState('');
     const [searchDraft, setSearchDraft] = useState('');
     const [search, setSearch] = useState('');
@@ -153,6 +159,14 @@ export default function ViolationsPage() {
     const [savingType, setSavingType] = useState(false);
     const [toggleBusyKey, setToggleBusyKey] = useState<string | null>(null);
     const [preview, setPreview] = useState<EvidencePreviewState | null>(null);
+    const [unknownIncidents, setUnknownIncidents] = useState<ViolationIncident[]>([]);
+    const [identityForms, setIdentityForms] = useState<Record<number, {
+        employee_full_name: string;
+        employee_department: string;
+        employee_position: string;
+        review_note: string;
+    }>>({});
+    const [savingIdentityIncidentId, setSavingIdentityIncidentId] = useState<number | null>(null);
     const [categoryForm, setCategoryForm] = useState({
         name: '',
         description: '',
@@ -200,6 +214,24 @@ export default function ViolationsPage() {
         }
     }, [search, statusFilter]);
 
+    const loadUnknownIncidents = useCallback(async () => {
+        setLoadingUnknownIncidents(true);
+        setUnknownIncidentsError(null);
+
+        try {
+            const response = await axios.get<{ data: ViolationIncident[] }>('/violations/api/incidents', {
+                params: { status: 'unknown_manual', limit: 25 },
+            });
+
+            setUnknownIncidents(Array.isArray(response.data.data) ? response.data.data : []);
+        } catch (error: unknown) {
+            setUnknownIncidents([]);
+            setUnknownIncidentsError(getErrorMessage(error, 'Не удалось загрузить очередь ручной идентификации'));
+        } finally {
+            setLoadingUnknownIncidents(false);
+        }
+    }, []);
+
     useEffect(() => {
         void loadCatalog();
     }, [loadCatalog]);
@@ -207,6 +239,29 @@ export default function ViolationsPage() {
     useEffect(() => {
         void loadIncidents();
     }, [loadIncidents]);
+
+    useEffect(() => {
+        void loadUnknownIncidents();
+    }, [loadUnknownIncidents]);
+
+    useEffect(() => {
+        setIdentityForms((current) => {
+            const next = { ...current };
+
+            unknownIncidents.forEach((incident) => {
+                if (!next[incident.id]) {
+                    next[incident.id] = {
+                        employee_full_name: incident.employee_full_name || '',
+                        employee_department: incident.employee_department || '',
+                        employee_position: incident.employee_position || '',
+                        review_note: '',
+                    };
+                }
+            });
+
+            return next;
+        });
+    }, [unknownIncidents]);
 
     useEffect(() => {
         if (typeForm.category_id || catalog.length === 0) {
@@ -217,7 +272,7 @@ export default function ViolationsPage() {
     }, [catalog, typeForm.category_id]);
 
     const refreshAll = async () => {
-        await Promise.all([loadIncidents(), loadCatalog()]);
+        await Promise.all([loadIncidents(), loadCatalog(), loadUnknownIncidents()]);
     };
 
     const submitCategory = async (event: React.FormEvent) => {
@@ -307,6 +362,45 @@ export default function ViolationsPage() {
         }
     };
 
+    const updateIdentityForm = (incidentId: number, field: 'employee_full_name' | 'employee_department' | 'employee_position' | 'review_note', value: string) => {
+        setIdentityForms((current) => ({
+            ...current,
+            [incidentId]: {
+                employee_full_name: current[incidentId]?.employee_full_name ?? '',
+                employee_department: current[incidentId]?.employee_department ?? '',
+                employee_position: current[incidentId]?.employee_position ?? '',
+                review_note: current[incidentId]?.review_note ?? '',
+                [field]: value,
+            },
+        }));
+    };
+
+    const submitIdentityResolution = async (incidentId: number) => {
+        const form = identityForms[incidentId];
+
+        if (!form?.employee_full_name?.trim()) {
+            alert('Укажите ФИО сотрудника');
+            return;
+        }
+
+        setSavingIdentityIncidentId(incidentId);
+
+        try {
+            await axios.post(`/violations/api/incidents/${incidentId}/resolve-identity`, {
+                employee_full_name: form.employee_full_name.trim(),
+                employee_department: form.employee_department.trim() || null,
+                employee_position: form.employee_position.trim() || null,
+                review_note: form.review_note.trim() || null,
+            });
+
+            await Promise.all([loadIncidents(), loadUnknownIncidents()]);
+        } catch (error: unknown) {
+            alert(getErrorMessage(error, 'Не удалось сохранить личность сотрудника'));
+        } finally {
+            setSavingIdentityIncidentId(null);
+        }
+    };
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Нарушители" />
@@ -352,6 +446,7 @@ export default function ViolationsPage() {
                         >
                             <option value="">Все статусы</option>
                             <option value="pending_review">На проверке</option>
+                            <option value="unknown_manual">Ждёт идентификации</option>
                             <option value="approved">Подтверждено</option>
                             <option value="rejected">Отклонено</option>
                             <option value="resolved">Рассмотрено</option>
@@ -451,6 +546,104 @@ export default function ViolationsPage() {
                     </section>
 
                     <div className="flex flex-col gap-4">
+                        <section className="rounded-xl border border-[#E8E8E8] bg-white px-5 py-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-sm font-semibold text-[#1A1A1A]">Очередь ручной идентификации</h2>
+                                    <p className="text-xs text-[#6B6B6B]">Сюда попадают нарушения, где Face ID не нашёл сотрудника.</p>
+                                </div>
+                                <div className="text-xs text-[#6B6B6B]">Всего: {unknownIncidents.length}</div>
+                            </div>
+
+                            {unknownIncidentsError && (
+                                <div className="mb-3 rounded-lg border border-[#F5D0D0] bg-[#FFF5F5] px-3 py-2 text-sm text-[#8B1E1E]">
+                                    {unknownIncidentsError}
+                                </div>
+                            )}
+
+                            {loadingUnknownIncidents && <div className="text-sm text-[#6B6B6B]">Загрузка очереди...</div>}
+
+                            {!loadingUnknownIncidents && unknownIncidents.length === 0 && (
+                                <div className="rounded-lg border border-dashed border-[#D9D9D9] px-4 py-6 text-sm text-[#6B6B6B]">
+                                    Неидентифицированных сотрудников сейчас нет.
+                                </div>
+                            )}
+
+                            <div className="space-y-3">
+                                {unknownIncidents.map((incident) => {
+                                    const form = identityForms[incident.id] ?? {
+                                        employee_full_name: '',
+                                        employee_department: '',
+                                        employee_position: '',
+                                        review_note: '',
+                                    };
+                                    const previewEvidence = incident.recognition_probe ?? incident.evidences.find((evidence) => evidence.media_kind === 'photo') ?? null;
+
+                                    return (
+                                        <article key={incident.id} className="rounded-xl border border-[#ECECEC] bg-[#FCFCFC] p-4">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-[#1A1A1A]">Инцидент #{incident.id}</div>
+                                                    <div className="mt-1 text-xs text-[#6B6B6B]">
+                                                        {incident.category_name || '—'} / {incident.type_name || '—'}
+                                                    </div>
+                                                </div>
+                                                <div className="text-right text-xs text-[#6B6B6B]">
+                                                    <div>{formatDateTime(incident.occurred_at)}</div>
+                                                    <div>Сообщил: {incident.reported_by_name || incident.reported_by_user || '—'}</div>
+                                                </div>
+                                            </div>
+
+                                            {previewEvidence?.url && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPreview({ evidence: previewEvidence, title: 'Фото для идентификации' })}
+                                                    className="mt-3 block w-full cursor-zoom-in overflow-hidden rounded-lg"
+                                                >
+                                                    <img src={previewEvidence.url} alt="Фото для идентификации" className="h-44 w-full rounded-lg object-cover transition hover:scale-[1.01]" />
+                                                </button>
+                                            )}
+
+                                            <div className="mt-3 grid gap-3">
+                                                <input
+                                                    value={form.employee_full_name}
+                                                    onChange={(event) => updateIdentityForm(incident.id, 'employee_full_name', event.target.value)}
+                                                    placeholder="ФИО сотрудника"
+                                                    className="h-10 w-full rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                                                />
+                                                <input
+                                                    value={form.employee_department}
+                                                    onChange={(event) => updateIdentityForm(incident.id, 'employee_department', event.target.value)}
+                                                    placeholder="Отдел"
+                                                    className="h-10 w-full rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                                                />
+                                                <input
+                                                    value={form.employee_position}
+                                                    onChange={(event) => updateIdentityForm(incident.id, 'employee_position', event.target.value)}
+                                                    placeholder="Должность"
+                                                    className="h-10 w-full rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                                                />
+                                                <textarea
+                                                    value={form.review_note}
+                                                    onChange={(event) => updateIdentityForm(incident.id, 'review_note', event.target.value)}
+                                                    placeholder="Комментарий СБ"
+                                                    className="min-h-[88px] w-full rounded-lg border border-[#D9D9D9] px-3 py-2 text-sm outline-none transition focus:border-red-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    disabled={savingIdentityIncidentId === incident.id}
+                                                    onClick={() => void submitIdentityResolution(incident.id)}
+                                                    className="inline-flex h-10 items-center justify-center rounded-lg bg-[#111827] px-4 text-sm font-medium text-white transition hover:bg-[#1F2937] disabled:cursor-not-allowed disabled:opacity-60"
+                                                >
+                                                    {savingIdentityIncidentId === incident.id ? 'Сохранение...' : 'Сохранить сотрудника'}
+                                                </button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        </section>
+
                         <section className="rounded-xl border border-[#E8E8E8] bg-white px-5 py-4">
                             <div className="mb-3">
                                 <h2 className="text-sm font-semibold text-[#1A1A1A]">Каталог нарушений</h2>

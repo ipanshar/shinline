@@ -9,6 +9,7 @@ use App\Models\ViolationCategory;
 use App\Models\ViolationIncident;
 use App\Models\ViolationType;
 use App\Services\Telegram\TelegramWebAppAuthService;
+use App\Services\Violations\FaceIdRecognitionService;
 use App\Services\Violations\ViolationIncidentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ class TelegramMiniAppViolationsController extends Controller
     public function __construct(
         private TelegramWebAppAuthService $auth,
         private ViolationIncidentService $incidentService,
+        private FaceIdRecognitionService $faceIdRecognition,
     ) {
     }
 
@@ -57,7 +59,7 @@ class TelegramMiniAppViolationsController extends Controller
         $user = $this->resolveViolationsRecorder($chat);
 
         $items = ViolationIncident::query()
-            ->with(['evidences:id,incident_id,media_kind,path,is_primary,sort_order'])
+            ->with(['evidences:id,incident_id,media_role,media_kind,path,is_primary,sort_order'])
             ->where('reported_by_user_id', $user->id)
             ->orderByDesc('occurred_at')
             ->orderByDesc('id')
@@ -79,9 +81,10 @@ class TelegramMiniAppViolationsController extends Controller
             'occurred_at' => ['required', 'date'],
             'location_label' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'manual_full_name' => ['required', 'string', 'max:160'],
+            'manual_full_name' => ['nullable', 'string', 'max:160'],
             'manual_department' => ['nullable', 'string', 'max:160'],
             'manual_position' => ['nullable', 'string', 'max:160'],
+            'recognition_file' => ['nullable', 'file', 'max:15360', 'mimetypes:image/jpeg,image/png,image/webp,image/heic,image/heif'],
             'files' => ['required', 'array', 'min:1', 'max:5'],
             'files.*' => [
                 'required',
@@ -94,6 +97,9 @@ class TelegramMiniAppViolationsController extends Controller
             'files.array' => 'Файлы переданы в неверном формате.',
             'files.min' => 'Добавьте хотя бы одно фото или видео.',
             'files.max' => 'Можно прикрепить не больше 5 файлов.',
+            'recognition_file.file' => 'Фото для распознавания передано некорректно.',
+            'recognition_file.max' => 'Фото для распознавания не должно превышать 15 МБ.',
+            'recognition_file.mimetypes' => 'Для распознавания подходят JPG, PNG, WEBP, HEIC и HEIF.',
             'files.*.uploaded' => 'Файл не загрузился на сервер. Обычно это лимит upload_max_filesize или post_max_size. Попробуйте фото меньшего размера.',
             'files.*.file' => 'Один из файлов передан некорректно.',
             'files.*.max' => 'Размер каждого файла не должен превышать 50 МБ.',
@@ -102,12 +108,52 @@ class TelegramMiniAppViolationsController extends Controller
 
         /** @var array<int, UploadedFile> $files */
         $files = array_values($request->file('files', []));
+        $recognitionFile = $request->file('recognition_file');
 
-        $incident = $this->incidentService->createManualTelegramIncident($user, $chat, $validated, $files);
+        $incident = $this->incidentService->createManualTelegramIncident(
+            $user,
+            $chat,
+            $validated,
+            $files,
+            $recognitionFile instanceof UploadedFile ? $recognitionFile : null,
+        );
 
         return response()->json([
-            'data' => $this->formatIncident($incident->load('evidences:id,incident_id,media_kind,path,is_primary,sort_order')),
+            'data' => $this->formatIncident($incident->load('evidences:id,incident_id,media_role,media_kind,path,is_primary,sort_order')),
         ], 201);
+    }
+
+    public function recognize(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->resolveViolationsRecorder($chat);
+
+        $request->validate([
+            'recognition_file' => ['required', 'file', 'max:15360', 'mimetypes:image/jpeg,image/png,image/webp,image/heic,image/heif'],
+        ], [
+            'recognition_file.required' => 'Сделайте фото сотрудника для распознавания.',
+            'recognition_file.file' => 'Фото для распознавания передано некорректно.',
+            'recognition_file.max' => 'Фото для распознавания не должно превышать 15 МБ.',
+            'recognition_file.mimetypes' => 'Для распознавания подходят JPG, PNG, WEBP, HEIC и HEIF.',
+        ]);
+
+        $file = $request->file('recognition_file');
+        if (! $file instanceof UploadedFile) {
+            return response()->json(['message' => 'Фото для распознавания не было получено.'], 422);
+        }
+
+        $recognition = $this->faceIdRecognition->recognize($file);
+        if (! ($recognition['ok'] ?? false)) {
+            $status = ($recognition['error_type'] ?? null) === 'service' ? 503 : 422;
+
+            return response()->json([
+                'message' => $recognition['error'] ?? 'Не удалось распознать сотрудника.',
+            ], $status);
+        }
+
+        return response()->json([
+            'data' => $this->formatRecognitionPayload($recognition['payload'] ?? []),
+        ]);
     }
 
     private function authChat(Request $request): TelegramBotChat
@@ -145,6 +191,10 @@ class TelegramMiniAppViolationsController extends Controller
      */
     private function formatIncident(ViolationIncident $incident): array
     {
+        $evidences = $incident->evidences
+            ->filter(fn ($evidence) => $evidence->media_role === 'original')
+            ->values();
+
         return [
             'id' => $incident->id,
             'incident_uid' => $incident->incident_uid,
@@ -155,17 +205,62 @@ class TelegramMiniAppViolationsController extends Controller
             'type_name' => $incident->type_name,
             'employee_full_name' => $incident->employee_full_name,
             'employee_department' => $incident->employee_department,
+            'employee_position' => $incident->employee_position,
             'description' => $incident->description,
             'location_label' => $incident->location_label,
             'evidence_total_count' => $incident->evidence_total_count,
             'evidence_photo_count' => $incident->evidence_photo_count,
             'evidence_video_count' => $incident->evidence_video_count,
-            'evidences' => $incident->evidences->map(fn ($evidence) => [
+            'evidences' => $evidences->map(fn ($evidence) => [
                 'id' => $evidence->id,
                 'media_kind' => $evidence->media_kind,
                 'url' => $this->storageUrl($evidence->path),
                 'is_primary' => (bool) $evidence->is_primary,
             ])->values(),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function formatRecognitionPayload(array $payload): array
+    {
+        $candidates = collect((array) ($payload['candidates'] ?? []))
+            ->map(fn ($candidate) => is_array($candidate) ? $this->formatRecognitionCandidate($candidate) : null)
+            ->filter()
+            ->values();
+
+        return [
+            'matched' => (bool) ($payload['matched'] ?? false),
+            'threshold' => is_numeric($payload['threshold'] ?? null) ? (float) $payload['threshold'] : null,
+            'best_match' => is_array($payload['bestMatch'] ?? null)
+                ? $this->formatRecognitionCandidate($payload['bestMatch'])
+                : null,
+            'candidates' => $candidates,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @return array<string, mixed>
+     */
+    private function formatRecognitionCandidate(array $candidate): array
+    {
+        $profile = is_array($candidate['profile'] ?? null) ? $candidate['profile'] : [];
+
+        return [
+            'employee_id' => isset($candidate['employeeId']) ? (int) $candidate['employeeId'] : null,
+            'group_key' => isset($candidate['groupKey']) ? (string) $candidate['groupKey'] : null,
+            'full_name' => isset($candidate['name']) ? (string) $candidate['name'] : null,
+            'department' => isset($profile['department']) ? (string) $profile['department'] : null,
+            'position' => isset($profile['role']) ? (string) $profile['role'] : null,
+            'iin' => isset($profile['iin']) ? (string) $profile['iin'] : null,
+            'status' => isset($profile['status']) ? (string) $profile['status'] : null,
+            'source' => isset($candidate['source']) ? (string) $candidate['source'] : null,
+            'source_label' => isset($profile['sourceLabel']) ? (string) $profile['sourceLabel'] : null,
+            'reference_image_url' => isset($candidate['referenceImageUrl']) ? (string) $candidate['referenceImageUrl'] : null,
+            'similarity' => is_numeric($candidate['similarity'] ?? null) ? (float) $candidate['similarity'] : null,
         ];
     }
 

@@ -16,7 +16,7 @@ from .dump_parser import DumpReferenceImage, detect_image_extension, parse_sigur
 from .model_downloader import ensure_models
 
 COSINE_MATCH_THRESHOLD = 0.45
-INDEX_SCHEMA_VERSION = 5
+INDEX_SCHEMA_VERSION = 6
 SEARCH_CANDIDATE_LIMIT = 10
 
 
@@ -30,16 +30,25 @@ class ReferenceFace:
     source: str
     profile: dict[str, str]
     image_hash: str
+    reference_url: str | None = None
 
 
 class FaceSearchService:
-    def __init__(self, project_dir: Path, dump_path: Path) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        dump_path: Path,
+        reference_dir: Path | None = None,
+        cache_dir: Path | None = None,
+        reference_manifest_path: Path | None = None,
+    ) -> None:
         self.project_dir = project_dir
         self.dump_path = dump_path
         self.backend_dir = project_dir / "backend"
-        self.cache_dir = self.backend_dir / "cache"
+        self.cache_dir = cache_dir or (self.backend_dir / "cache")
         self.models_dir = self.backend_dir / "models"
-        self.reference_dir = self.backend_dir / "reference_images"
+        self.reference_dir = reference_dir or (self.backend_dir / "reference_images")
+        self.reference_manifest_path = reference_manifest_path or (self.cache_dir / "reference-manifest.json")
         self.cache_file = self.cache_dir / "reference_vectors.json"
         self.custom_profiles_path = project_dir / "custom_profiles.json"
 
@@ -78,11 +87,12 @@ class FaceSearchService:
                         image_id=entry["image_id"],
                         employee_id=entry["employee_id"],
                         name=entry["name"],
-                        image_path=self.project_dir / entry["image_path"],
+                        image_path=self.restore_cached_image_path(str(entry["image_path"])),
                         embedding=np.array(entry["embedding"], dtype=np.float32),
                         source=entry.get("source", "sigur-personalimg"),
                         profile=entry.get("profile", {}),
                         image_hash=entry.get("image_hash", ""),
+                        reference_url=entry.get("reference_url"),
                     )
                     for entry in cache_data.get("entries", [])
                 ]
@@ -100,7 +110,11 @@ class FaceSearchService:
         self.rebuild_index()
 
     def rebuild_index(self) -> None:
-        self.clear_reference_dir()
+        if self.reference_manifest_path.exists():
+            self.reference_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.clear_reference_dir()
+
         references = self.extract_reference_images()
         indexed_faces: list[ReferenceFace] = []
         skipped: list[dict[str, Any]] = list(self.pre_index_skipped_references)
@@ -127,6 +141,7 @@ class FaceSearchService:
                     source=reference["source"],
                     profile=reference.get("profile", {}),
                     image_hash=reference["image_hash"],
+                    reference_url=reference.get("reference_url"),
                 )
             )
 
@@ -139,11 +154,12 @@ class FaceSearchService:
                     "image_id": face.image_id,
                     "employee_id": face.employee_id,
                     "name": face.name,
-                    "image_path": face.image_path.relative_to(self.project_dir).as_posix(),
+                    "image_path": self.cache_image_path(face.image_path),
                     "embedding": face.embedding.tolist(),
                     "source": face.source,
                     "profile": face.profile,
                     "image_hash": face.image_hash,
+                    "reference_url": face.reference_url,
                 }
                 for face in indexed_faces
             ],
@@ -163,7 +179,15 @@ class FaceSearchService:
         self.pre_index_skipped_references = []
         references: list[dict[str, Any]] = []
 
-        if self.dump_path.exists():
+        manifest_references = self.extract_manifest_reference_images()
+        if manifest_references:
+            self.dump_stats = {
+                "source": "local_manifest",
+                "manifestPath": self.reference_manifest_path.as_posix(),
+                "referenceImagesFromManifest": len(manifest_references),
+            }
+            references.extend(manifest_references)
+        elif self.dump_path.exists():
             dump_result = parse_sigur_dump(self.dump_path)
             self.dump_stats = dump_result.stats
             for reference in dump_result.references:
@@ -175,6 +199,58 @@ class FaceSearchService:
 
         references.extend(self.extract_custom_reference_images())
         self.reference_source_count = len(references) + len(self.pre_index_skipped_references)
+        return references
+
+    def extract_manifest_reference_images(self) -> list[dict[str, Any]]:
+        if not self.reference_manifest_path.exists():
+            return []
+
+        payload = json.loads(self.reference_manifest_path.read_text(encoding="utf-8"))
+        raw_references = payload.get("references", [])
+        if not isinstance(raw_references, list):
+            raise ValueError("reference-manifest.json must contain a list in the references field")
+
+        references: list[dict[str, Any]] = []
+        for raw_reference in raw_references:
+            if not isinstance(raw_reference, dict):
+                continue
+
+            image_path = self.resolve_manifest_image_path(raw_reference)
+            image_id = self.parse_manifest_int(raw_reference.get("imageId"))
+            employee_id = self.parse_manifest_int(raw_reference.get("employeeId"))
+            name = str(raw_reference.get("name") or "Unknown employee")
+            source = str(raw_reference.get("source") or raw_reference.get("sourceSystem") or "local-manifest")
+            profile = {
+                str(key): str(value)
+                for key, value in dict(raw_reference.get("profile", {})).items()
+                if value is not None
+            }
+
+            if image_path is None:
+                self.pre_index_skipped_references.append(
+                    {
+                        "image_id": image_id,
+                        "employee_id": employee_id,
+                        "name": name,
+                        "source": source,
+                        "reason": "Reference image from manifest is missing on disk",
+                    }
+                )
+                continue
+
+            references.append(
+                {
+                    "image_id": image_id,
+                    "employee_id": employee_id,
+                    "name": name,
+                    "image_path": image_path,
+                    "source": source,
+                    "profile": profile,
+                    "image_hash": str(raw_reference.get("imageHash", "")),
+                    "reference_url": str(raw_reference.get("referenceImageUrl") or ""),
+                }
+            )
+
         return references
 
     def persist_dump_reference(self, reference: DumpReferenceImage) -> dict[str, Any] | None:
@@ -201,6 +277,7 @@ class FaceSearchService:
             "source": reference.source,
             "profile": reference.profile,
             "image_hash": hashlib.sha1(reference.image_bytes).hexdigest(),
+            "reference_url": f"/reference-images/{image_path.name}",
         }
 
     def extract_custom_reference_images(self) -> list[dict[str, Any]]:
@@ -264,6 +341,7 @@ class FaceSearchService:
                     "source": source,
                     "profile": profile,
                     "image_hash": hashlib.sha1(image_bytes).hexdigest(),
+                    "reference_url": f"/reference-images/{target_path.name}",
                 }
             )
 
@@ -287,11 +365,14 @@ class FaceSearchService:
             if (self.project_dir / str(profile["imagePath"])).exists()
         }
         dump_stat = self.dump_path.stat() if self.dump_path.exists() else None
+        manifest_stat = self.reference_manifest_path.stat() if self.reference_manifest_path.exists() else None
 
         return {
             "schemaVersion": INDEX_SCHEMA_VERSION,
             "dumpMtime": dump_stat.st_mtime if dump_stat else None,
             "dumpSize": dump_stat.st_size if dump_stat else None,
+            "referenceManifestMtime": manifest_stat.st_mtime if manifest_stat else None,
+            "referenceManifestSize": manifest_stat.st_size if manifest_stat else None,
             "customProfilesMtime": self.custom_profiles_path.stat().st_mtime
             if self.custom_profiles_path.exists()
             else None,
@@ -456,6 +537,7 @@ class FaceSearchService:
     def status(self) -> dict[str, Any]:
         return {
             "dumpPath": self.dump_path.as_posix(),
+            "referenceManifestPath": self.reference_manifest_path.as_posix(),
             "referenceSourceCount": self.reference_source_count,
             "indexedCount": len(self.reference_faces),
             "skippedCount": len(self.skipped_references),
@@ -472,7 +554,7 @@ class FaceSearchService:
             "employeeId": face.employee_id,
             "groupKey": self.reference_group_key(face),
             "name": face.name,
-            "referenceImageUrl": f"/reference-images/{face.image_path.name}",
+            "referenceImageUrl": face.reference_url or f"/reference-images/{face.image_path.name}",
             "source": face.source,
             "profile": face.profile,
             "imageHash": face.image_hash,
@@ -510,3 +592,35 @@ class FaceSearchService:
 
     def reference_group_key(self, face: ReferenceFace) -> str:
         return str(face.profile.get("groupKey") or face.employee_id)
+
+    def parse_manifest_int(self, value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    def resolve_manifest_image_path(self, reference: dict[str, Any]) -> Path | None:
+        absolute_path = str(reference.get("absolutePath") or "").strip()
+        if absolute_path:
+            candidate = Path(absolute_path)
+            if candidate.is_file():
+                return candidate
+
+        relative_path = str(reference.get("relativePath") or "").strip()
+        if not relative_path:
+            return None
+
+        candidate = self.reference_dir / relative_path
+        return candidate if candidate.is_file() else None
+
+    def cache_image_path(self, image_path: Path) -> str:
+        try:
+            return image_path.relative_to(self.project_dir).as_posix()
+        except ValueError:
+            return image_path.as_posix()
+
+    def restore_cached_image_path(self, cached_path: str) -> Path:
+        path = Path(cached_path)
+        if path.is_absolute():
+            return path
+        return self.project_dir / path
