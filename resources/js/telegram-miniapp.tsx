@@ -433,6 +433,36 @@ const compressImageDataUrl = async (dataUrl: string): Promise<string> => {
     }
 };
 
+const dataUrlToFile = async (dataUrl: string, originalName: string, lastModified?: number) => {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const baseName = originalName.replace(/\.[^.]+$/, '') || 'upload';
+
+    return new File([blob], `${baseName}.jpg`, {
+        type: blob.type || 'image/jpeg',
+        lastModified: lastModified ?? Date.now(),
+    });
+};
+
+const prepareViolationUploadFile = async (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/')) {
+        return file;
+    }
+
+    try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const compressedDataUrl = await compressImageDataUrl(dataUrl);
+
+        if (compressedDataUrl === dataUrl && file.size <= 2 * 1024 * 1024) {
+            return file;
+        }
+
+        return await dataUrlToFile(compressedDataUrl, file.name, file.lastModified);
+    } catch {
+        return file;
+    }
+};
+
 const getErrorMessage = (error: any, fallback: string) => {
     const validationErrors = error?.response?.data?.errors;
 
@@ -653,16 +683,28 @@ function ViolationsCreateView({
         setTypeId(nextType.id);
     }, [selectedCategory, typeId]);
 
-    const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = Array.from(event.target.files ?? []);
 
         if (selectedFiles.length === 0) {
             return;
         }
 
-        setFiles((current) => [...current, ...selectedFiles].slice(0, 5));
-        setErr(null);
-        event.target.value = '';
+        try {
+            const availableSlots = Math.max(0, 5 - files.length);
+            const preparedFiles = await Promise.all(
+                selectedFiles
+                    .slice(0, availableSlots)
+                    .map((file) => prepareViolationUploadFile(file)),
+            );
+
+            setFiles((current) => [...current, ...preparedFiles].slice(0, 5));
+            setErr(null);
+        } catch (error) {
+            setErr(error instanceof Error ? error.message : 'Не удалось подготовить файлы');
+        } finally {
+            event.target.value = '';
+        }
     };
 
     const removeFile = (index: number) => {
@@ -795,7 +837,7 @@ function ViolationsCreateView({
                 style={{ ...inputStyle, padding: 8 }}
             />
             <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
-                До 5 файлов. Поддерживаются фото и видео.
+                До 5 файлов. Поддерживаются фото и видео. Фото автоматически сжимаются перед отправкой.
             </div>
 
             {files.length > 0 && (

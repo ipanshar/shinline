@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any
@@ -13,7 +14,21 @@ from .face_service import COSINE_MATCH_THRESHOLD, FaceSearchService
 
 LOGGER = logging.getLogger(__name__)
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-DUMP_PATH = PROJECT_DIR / "sigur_20260506.sql"
+
+
+def resolve_dump_path() -> Path:
+    override = os.getenv("FACEID_DUMP_PATH", "").strip()
+    if not override:
+        return PROJECT_DIR / "sigur_20260506.sql"
+
+    dump_path = Path(override).expanduser()
+    if not dump_path.is_absolute():
+        dump_path = (PROJECT_DIR / dump_path).resolve()
+
+    return dump_path
+
+
+DUMP_PATH = resolve_dump_path()
 REFERENCE_DIR = PROJECT_DIR / "backend" / "reference_images"
 REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
 
