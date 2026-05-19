@@ -66,6 +66,10 @@ const NEXT_STATUS: Record<string, { value: string; label: string }> = {
     completed:    { value: 'returned',     label: 'Техника вернулась' },
 };
 
+function getInitiatorLabel(request: SpectechRequestData): string {
+    return request.initiator_name || request.client_name || '—';
+}
+
 const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) => {
     const colorClass = STATUS_COLORS[request.status] ?? 'bg-gray-100 text-gray-600';
     const next = NEXT_STATUS[request.status];
@@ -99,10 +103,10 @@ const RequestCard: React.FC<Props> = ({ request, onStatusChange, isOperator }) =
                     <MapPin className="h-3 w-3" />
                     <span className="truncate">{request.terminal} / {request.zone}</span>
                 </div>
-                {request.client_name && (
+                {(request.initiator_name || request.client_name) && (
                     <div className="flex items-center gap-1 col-span-2">
                         <User className="h-3 w-3" />
-                        <span>{request.initiator_phone ? `${request.client_name} · ${request.initiator_phone}` : request.client_name}</span>
+                        <span>{request.initiator_phone ? `${getInitiatorLabel(request)} · ${request.initiator_phone}` : getInitiatorLabel(request)}</span>
                     </div>
                 )}
                 <div className="flex items-center gap-1 col-span-2">
