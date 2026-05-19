@@ -90,6 +90,15 @@ class TelegramMiniAppViolationsController extends Controller
                 'max:51200',
                 'mimetypes:image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm',
             ],
+        ], [
+            'files.required' => 'Добавьте хотя бы одно фото или видео.',
+            'files.array' => 'Файлы переданы в неверном формате.',
+            'files.min' => 'Добавьте хотя бы одно фото или видео.',
+            'files.max' => 'Можно прикрепить не больше 5 файлов.',
+            'files.*.uploaded' => 'Файл не загрузился на сервер. Обычно это лимит upload_max_filesize или post_max_size. Попробуйте фото меньшего размера.',
+            'files.*.file' => 'Один из файлов передан некорректно.',
+            'files.*.max' => 'Размер каждого файла не должен превышать 50 МБ.',
+            'files.*.mimetypes' => 'Разрешены JPG, PNG, WEBP, HEIC, HEIF и видео MP4, MOV, WEBM.',
         ]);
 
         /** @var array<int, UploadedFile> $files */
