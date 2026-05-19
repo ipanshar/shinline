@@ -208,6 +208,7 @@ interface ViolationIncidentItem {
 }
 
 interface ViolationRecognitionCandidate {
+    reference_key: string | null;
     employee_id: number | null;
     group_key: string | null;
     full_name: string | null;
@@ -245,6 +246,7 @@ interface ViolationCategoryOption {
 
 const MAX_REQUEST_PHOTOS = 5;
 const UNKNOWN_TRUCK_CONFIRMATION_LIMIT = 2;
+const VIOLATION_RECOGNITION_CONFIRMATION_LIMIT = 3;
 
 
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
@@ -527,6 +529,41 @@ const formatSimilarityPercent = (value?: number | null) => {
     return `${(value * 100).toFixed(1)}%`;
 };
 
+const recognitionCandidateIdentity = (candidate: ViolationRecognitionCandidate) => (
+    candidate.reference_key
+    || candidate.group_key
+    || `${candidate.employee_id ?? 'candidate'}:${candidate.full_name ?? ''}:${candidate.source ?? ''}`
+);
+
+const getRecognitionReviewCandidates = (result: ViolationRecognitionResult | null): ViolationRecognitionCandidate[] => {
+    if (!result) {
+        return [];
+    }
+
+    const seen = new Set<string>();
+    const unique: ViolationRecognitionCandidate[] = [];
+
+    for (const candidate of [result.best_match, ...result.candidates]) {
+        if (!candidate) {
+            continue;
+        }
+
+        const key = recognitionCandidateIdentity(candidate);
+        if (seen.has(key)) {
+            continue;
+        }
+
+        seen.add(key);
+        unique.push(candidate);
+
+        if (unique.length >= VIOLATION_RECOGNITION_CONFIRMATION_LIMIT) {
+            break;
+        }
+    }
+
+    return unique;
+};
+
 const Wrap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div style={{ maxWidth: 520, margin: '0 auto', padding: 16 }}>
         {children}
@@ -693,6 +730,10 @@ function ViolationsCreateView({
     const [recognitionBusy, setRecognitionBusy] = useState(false);
     const [recognitionError, setRecognitionError] = useState<string | null>(null);
     const [recognitionResult, setRecognitionResult] = useState<ViolationRecognitionResult | null>(null);
+    const [recognitionReviewCandidates, setRecognitionReviewCandidates] = useState<ViolationRecognitionCandidate[]>([]);
+    const [recognitionReviewIndex, setRecognitionReviewIndex] = useState(0);
+    const [confirmedRecognitionCandidate, setConfirmedRecognitionCandidate] = useState<ViolationRecognitionCandidate | null>(null);
+    const [recognitionRejectedAll, setRecognitionRejectedAll] = useState(false);
     const [lastAutofill, setLastAutofill] = useState<{ fullName: string; department: string; position: string } | null>(null);
     const [files, setFiles] = useState<File[]>([]);
     const [busy, setBusy] = useState(false);
@@ -775,6 +816,48 @@ function ViolationsCreateView({
         setRecognitionFile(null);
         setRecognitionError(null);
         setRecognitionResult(null);
+        setRecognitionReviewCandidates([]);
+        setRecognitionReviewIndex(0);
+        setConfirmedRecognitionCandidate(null);
+        setRecognitionRejectedAll(false);
+    };
+
+    const currentRecognitionCandidate = recognitionReviewCandidates[recognitionReviewIndex] ?? null;
+
+    const applyRecognitionCandidate = (candidate: ViolationRecognitionCandidate | null) => {
+        clearRecognitionAutofill();
+
+        if (!candidate?.full_name) {
+            setConfirmedRecognitionCandidate(null);
+            return;
+        }
+
+        const autofill = {
+            fullName: candidate.full_name ?? '',
+            department: candidate.department ?? '',
+            position: candidate.position ?? '',
+        };
+
+        setManualFullName(autofill.fullName);
+        setManualDepartment(autofill.department);
+        setManualPosition(autofill.position);
+        setLastAutofill(autofill);
+        setConfirmedRecognitionCandidate(candidate);
+        setRecognitionRejectedAll(false);
+    };
+
+    const moveToNextRecognitionCandidate = () => {
+        clearRecognitionAutofill();
+        setConfirmedRecognitionCandidate(null);
+
+        const nextIndex = recognitionReviewIndex + 1;
+        if (nextIndex < recognitionReviewCandidates.length) {
+            setRecognitionReviewIndex(nextIndex);
+            setRecognitionRejectedAll(false);
+            return;
+        }
+
+        setRecognitionRejectedAll(true);
     };
 
     const handleRecognitionSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -789,6 +872,10 @@ function ViolationsCreateView({
         setRecognitionBusy(true);
         setRecognitionError(null);
         setRecognitionResult(null);
+        setRecognitionReviewCandidates([]);
+        setRecognitionReviewIndex(0);
+        setConfirmedRecognitionCandidate(null);
+        setRecognitionRejectedAll(false);
         setErr(null);
 
         try {
@@ -804,26 +891,19 @@ function ViolationsCreateView({
             });
 
             const nextResult = (response.data?.data ?? null) as ViolationRecognitionResult | null;
+            const reviewCandidates = getRecognitionReviewCandidates(nextResult);
             setRecognitionResult(nextResult);
-
-            const bestMatch = nextResult?.matched ? nextResult.best_match : null;
-            if (bestMatch?.full_name) {
-                const autofill = {
-                    fullName: bestMatch.full_name ?? '',
-                    department: bestMatch.department ?? '',
-                    position: bestMatch.position ?? '',
-                };
-
-                setManualFullName(autofill.fullName);
-                setManualDepartment(autofill.department);
-                setManualPosition(autofill.position);
-                setLastAutofill(autofill);
-            } else {
-                setLastAutofill(null);
-            }
+            setRecognitionReviewCandidates(reviewCandidates);
+            setRecognitionReviewIndex(0);
+            setRecognitionRejectedAll(reviewCandidates.length === 0);
+            setLastAutofill(null);
         } catch (error: any) {
             setRecognitionError(getErrorMessage(error, 'Не удалось распознать сотрудника по фото'));
             setRecognitionResult(null);
+            setRecognitionReviewCandidates([]);
+            setRecognitionReviewIndex(0);
+            setConfirmedRecognitionCandidate(null);
+            setRecognitionRejectedAll(false);
             setLastAutofill(null);
         } finally {
             setRecognitionBusy(false);
@@ -848,6 +928,11 @@ function ViolationsCreateView({
             return;
         }
 
+        if (recognitionFile && !recognitionError && !confirmedRecognitionCandidate && !recognitionRejectedAll && recognitionReviewCandidates.length > 0) {
+            setErr('Проверьте эталонное фото кандидата: подтвердите сотрудника или отклоните до трёх вариантов.');
+            return;
+        }
+
         if (!manualFullName.trim() && !recognitionFile) {
             setErr('Укажите ФИО нарушителя вручную или сначала сделайте фото для распознавания');
             return;
@@ -855,6 +940,11 @@ function ViolationsCreateView({
 
         if (!manualFullName.trim() && recognitionError) {
             setErr('Распознавание не завершилось. Либо укажите ФИО вручную, либо сделайте фото ещё раз.');
+            return;
+        }
+
+        if (recognitionRejectedAll && !manualFullName.trim()) {
+            setErr('После трёх отклонённых кандидатов укажите ФИО вручную. Это фото станет новым эталонным.');
             return;
         }
 
@@ -889,6 +979,14 @@ function ViolationsCreateView({
 
             if (recognitionFile) {
                 formData.append('recognition_file', recognitionFile);
+            }
+
+            if (confirmedRecognitionCandidate?.reference_key) {
+                formData.append('recognition_confirmed_reference_key', confirmedRecognitionCandidate.reference_key);
+            }
+
+            if (recognitionRejectedAll) {
+                formData.append('recognition_rejected_all', '1');
             }
 
             files.forEach((file) => {
@@ -995,20 +1093,51 @@ function ViolationsCreateView({
                     }}
                 >
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                        {recognitionResult.matched ? 'Сотрудник найден' : 'Точного совпадения нет'}
+                        {confirmedRecognitionCandidate
+                            ? 'Кандидат подтверждён'
+                            : (recognitionRejectedAll
+                                ? 'Кандидаты отклонены'
+                                : 'Проверьте эталонное фото кандидата')}
                     </div>
-                    <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-                        {recognitionResult.best_match.full_name || 'Без имени'}
-                        {recognitionResult.best_match.department ? ` · ${recognitionResult.best_match.department}` : ''}
-                        {recognitionResult.best_match.position ? ` · ${recognitionResult.best_match.position}` : ''}
-                    </div>
-                    <div style={{ fontSize: 12, marginTop: 4, opacity: 0.9 }}>
-                        Совпадение: {formatSimilarityPercent(recognitionResult.best_match.similarity)}
-                        {recognitionResult.best_match.source_label ? ` · ${recognitionResult.best_match.source_label}` : ''}
-                    </div>
-                    {!recognitionResult.matched && (
-                        <div style={{ fontSize: 12, marginTop: 6 }}>
-                            Можно заполнить ФИО вручную. Если не знаете сотрудника, сохраните нарушение без ФИО: оно уйдёт в очередь СБ на идентификацию.
+                    {currentRecognitionCandidate && !recognitionRejectedAll && (
+                        <>
+                            <div style={{ fontSize: 12, marginBottom: 10, opacity: 0.9 }}>
+                                Кандидат {Math.min(recognitionReviewIndex + 1, recognitionReviewCandidates.length)} из {recognitionReviewCandidates.length}
+                            </div>
+                            {currentRecognitionCandidate.reference_image_url && (
+                                <img
+                                    src={currentRecognitionCandidate.reference_image_url}
+                                    alt={currentRecognitionCandidate.full_name || 'Эталонное фото'}
+                                    style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, display: 'block', marginBottom: 10, background: '#111' }}
+                                />
+                            )}
+                            <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                                {currentRecognitionCandidate.full_name || 'Без имени'}
+                                {currentRecognitionCandidate.department ? ` · ${currentRecognitionCandidate.department}` : ''}
+                                {currentRecognitionCandidate.position ? ` · ${currentRecognitionCandidate.position}` : ''}
+                            </div>
+                            <div style={{ fontSize: 12, marginTop: 4, opacity: 0.9 }}>
+                                Совпадение: {formatSimilarityPercent(currentRecognitionCandidate.similarity)}
+                                {currentRecognitionCandidate.source_label ? ` · ${currentRecognitionCandidate.source_label}` : ''}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+                                <button type="button" style={{ ...smallButtonStyle, background: '#166534', color: '#fff' }} onClick={() => applyRecognitionCandidate(currentRecognitionCandidate)}>
+                                    Это он
+                                </button>
+                                <button type="button" style={{ ...smallButtonStyle, background: '#b42318', color: '#fff' }} onClick={moveToNextRecognitionCandidate}>
+                                    Не он
+                                </button>
+                            </div>
+                        </>
+                    )}
+                    {confirmedRecognitionCandidate && (
+                        <div style={{ fontSize: 12, marginTop: 8 }}>
+                            Охранник подтвердил сотрудника по эталонному фото. Данные подставлены в форму.
+                        </div>
+                    )}
+                    {recognitionRejectedAll && (
+                        <div style={{ fontSize: 12, marginTop: 8 }}>
+                            Три кандидата отклонены. Заполните сотрудника вручную ниже. Фото для распознавания будет сохранено как новый эталон.
                         </div>
                     )}
                 </div>
@@ -1028,7 +1157,7 @@ function ViolationsCreateView({
                 style={inputStyle}
                 value={manualFullName}
                 onChange={(event) => setManualFullName(event.target.value)}
-                required={!recognitionResult?.matched && !recognitionFile}
+                required={recognitionRejectedAll || (!confirmedRecognitionCandidate && !recognitionFile)}
             />
 
             <label>Отдел</label>
