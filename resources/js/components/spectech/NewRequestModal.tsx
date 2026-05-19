@@ -1,8 +1,10 @@
 import { type SpectechRequestData } from '@/components/spectech/RequestCard';
+import { type SharedData } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import axios from 'axios';
 import { AlertTriangle, CheckCircle2, MapPin, Pencil, Upload, X } from 'lucide-react';
+import { usePage } from '@inertiajs/react';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     buildSpectechAddress,
@@ -91,12 +93,18 @@ function resolveLocation(terminal: string, zone?: string, gate?: string | null):
 }
 
 const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialRequest = null, isOperator = false }) => {
+    const { auth } = usePage<SharedData>().props;
+    const currentUser = auth.user;
+    const defaultInitiatorName = typeof currentUser?.name === 'string' ? currentUser.name : '';
+    const defaultInitiatorPhone = typeof currentUser?.phone === 'string' ? currentUser.phone : '';
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [loadingTrucks, setLoadingTrucks] = useState(false);
     const [trucksError, setTrucksError] = useState<string>('');
 
     // Форма
     const [truckId, setTruckId] = useState<string>('');
+    const [initiatorName, setInitiatorName] = useState('');
+    const [initiatorPhone, setInitiatorPhone] = useState('');
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
     const [startDateTime, setStartDateTime] = useState('');
@@ -161,6 +169,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
     useEffect(() => {
         if (!open) {
             setTruckId('');
+            setInitiatorName(defaultInitiatorName);
+            setInitiatorPhone(defaultInitiatorPhone);
             setDriverName('');
             setDriverPhone('');
             setStartDateTime('');
@@ -180,6 +190,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
 
         if (!initialRequest) {
             setTruckId('');
+            setInitiatorName(defaultInitiatorName);
+            setInitiatorPhone(defaultInitiatorPhone);
             setDriverName('');
             setDriverPhone('');
             setStartDateTime('');
@@ -201,6 +213,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
         const location = resolveLocation(terminal, initialRequest.zone, initialRequest.gate);
 
         setTruckId(String(initialRequest.equipment_id));
+        setInitiatorName(initialRequest.initiator_name ?? initialRequest.client_name ?? defaultInitiatorName);
+        setInitiatorPhone(initialRequest.initiator_phone ?? defaultInitiatorPhone);
         setDriverName(initialRequest.driver_name ?? '');
         setDriverPhone(initialRequest.driver_phone ?? '');
         setStartDateTime(toDateTimeLocal(initialRequest.requested_start));
@@ -215,7 +229,7 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
         setAvailabilityResult(null);
         setShowConflictDetails(false);
         setActiveRequestConflict(null);
-    }, [open, initialRequest]);
+    }, [open, initialRequest, defaultInitiatorName, defaultInitiatorPhone]);
 
     // Автоматическая проверка доступности при изменении техники или даты
     useEffect(() => {
@@ -304,6 +318,8 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
         try {
             const payload = {
                 truck_id: parseInt(truckId),
+                initiator_name: initiatorName.trim() || null,
+                initiator_phone: initiatorPhone.trim() || null,
                 driver_name: driverName.trim() || null,
                 driver_phone: driverPhone.trim() || null,
                 start_date: startDateTime ? startDateTime.split('T')[0] : today,
@@ -577,30 +593,54 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                             {checkingAvailability && <span className="text-xs text-gray-500">Проверка доступности...</span>}
                         </div>
 
-                        {/* Водитель — только оператор */}
+                        {/* Инициатор и водитель — для оператора */}
                         {isOperator && (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-medium">Имя водителя</label>
-                                <input
-                                    type="text"
-                                    value={driverName}
-                                    onChange={(e) => setDriverName(e.target.value)}
-                                    placeholder="ФИО водителя"
-                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-medium">Телефон водителя</label>
-                                <input
-                                    type="tel"
-                                    value={driverPhone}
-                                    onChange={(e) => setDriverPhone(e.target.value)}
-                                    placeholder="+7..."
-                                    className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
-                                />
-                            </div>
-                        </div>
+                            <>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-xs font-medium">Инициатор</label>
+                                        <input
+                                            type="text"
+                                            value={initiatorName}
+                                            onChange={(e) => setInitiatorName(e.target.value)}
+                                            placeholder="ФИО заявителя"
+                                            className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-xs font-medium">Телефон инициатора</label>
+                                        <input
+                                            type="tel"
+                                            value={initiatorPhone}
+                                            onChange={(e) => setInitiatorPhone(e.target.value)}
+                                            placeholder="+7..."
+                                            className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-xs font-medium">Имя водителя</label>
+                                        <input
+                                            type="text"
+                                            value={driverName}
+                                            onChange={(e) => setDriverName(e.target.value)}
+                                            placeholder="ФИО водителя"
+                                            className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-xs font-medium">Телефон водителя</label>
+                                        <input
+                                            type="tel"
+                                            value={driverPhone}
+                                            onChange={(e) => setDriverPhone(e.target.value)}
+                                            placeholder="+7..."
+                                            className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            </>
                         )}
 
                         {/* Выбор терминала */}

@@ -121,6 +121,8 @@ interface SpectechRequestItem {
     equipment_id: number;
     equipment_name: string;
     plate_number?: string | null;
+    initiator_name?: string | null;
+    initiator_phone?: string | null;
     driver_name?: string | null;
     driver_phone?: string | null;
     start_date: string;
@@ -1256,15 +1258,21 @@ function SpectechCreateForm({
     onCancel,
     request,
     isOperator = false,
+    currentUserName = '',
+    currentUserPhone = '',
 }: {
     initData: string;
     onDone: () => void | Promise<void>;
     onCancel: () => void;
     request?: SpectechRequestItem | null;
     isOperator?: boolean;
+    currentUserName?: string;
+    currentUserPhone?: string;
 }) {
     const [trucks, setTrucks] = useState<SpectechTruckOption[]>([]);
     const [truckId, setTruckId] = useState<number | ''>(request?.equipment_id ?? '');
+    const [initiatorName, setInitiatorName] = useState('');
+    const [initiatorPhone, setInitiatorPhone] = useState('');
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
     const [requestedStart, setRequestedStart] = useState(buildDefaultRequestStart);
@@ -1292,6 +1300,8 @@ function SpectechCreateForm({
     useEffect(() => {
         if (!request) {
             setTruckId('');
+            setInitiatorName(isOperator ? currentUserName : '');
+            setInitiatorPhone(isOperator ? currentUserPhone : '');
             setDriverName('');
             setDriverPhone('');
             setRequestedStart(buildDefaultRequestStart());
@@ -1316,6 +1326,8 @@ function SpectechCreateForm({
             : null;
 
         setTruckId(request.equipment_id ?? '');
+        setInitiatorName(request.initiator_name ?? request.client_name ?? (isOperator ? currentUserName : ''));
+        setInitiatorPhone(request.initiator_phone ?? (isOperator ? currentUserPhone : ''));
         setDriverName(request.driver_name ?? '');
         setDriverPhone(request.driver_phone ?? '');
         setRequestedStart(toDateTimeLocal(request.requested_start) || buildDefaultRequestStart());
@@ -1328,7 +1340,7 @@ function SpectechCreateForm({
         setComment(request.comment ?? '');
         setPhotos(request.photo_urls ?? request.photos ?? []);
         setErr(null);
-    }, [request]);
+    }, [request, isOperator, currentUserName, currentUserPhone]);
 
     useEffect(() => {
         if (!selectedLocation) {
@@ -1474,6 +1486,8 @@ function SpectechCreateForm({
             };
 
             if (isOperator) {
+                payload.initiator_name = initiatorName.trim() || null;
+                payload.initiator_phone = initiatorPhone.trim() || null;
                 payload.driver_name = driverName.trim() || null;
                 payload.driver_phone = driverPhone.trim() || null;
             }
@@ -1517,6 +1531,12 @@ function SpectechCreateForm({
 
             {isOperator && (
                 <>
+                    <label>Инициатор</label>
+                    <input style={inputStyle} value={initiatorName} onChange={(e) => setInitiatorName(e.target.value)} placeholder="Кто подал заявку" />
+
+                    <label>Телефон инициатора</label>
+                    <input style={inputStyle} type="tel" value={initiatorPhone} onChange={(e) => setInitiatorPhone(e.target.value)} placeholder="+7..." />
+
                     <label>Имя водителя</label>
                     <input style={inputStyle} value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Необязательно" />
 
@@ -1704,6 +1724,7 @@ function SpectechRequestList({
                         </div>
                         {request.plate_number && <div style={{ color: '#666', fontSize: 13 }}>Номер: {request.plate_number}</div>}
                         <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            {request.client_name && <div><strong>Инициатор:</strong> {request.client_name}{request.initiator_phone ? ` · ${request.initiator_phone}` : ''}</div>}
                             <div><strong>Период:</strong> {formatSpectechPeriod(request)}</div>
                             <div><strong>Локация:</strong> {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
                             <div><strong>Адрес:</strong> {request.address || '—'}</div>
@@ -1817,7 +1838,7 @@ function SpectechOperatorList({
                         </div>
                         {request.plate_number && <div style={{ color: '#666', fontSize: 13 }}>Номер: {request.plate_number}</div>}
                         <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
-                            {request.client_name && <div><strong>Инициатор:</strong> {request.client_name} {request.source_label ? `· ${request.source_label}` : ''}</div>}
+                            {request.client_name && <div><strong>Инициатор:</strong> {request.client_name}{request.initiator_phone ? ` · ${request.initiator_phone}` : ''}{request.source_label ? ` · ${request.source_label}` : ''}</div>}
                             <div><strong>Период:</strong> {formatSpectechPeriod(request)}</div>
                             <div><strong>Локация:</strong> {request.terminal} / {request.zone}{request.gate ? ` / ${request.gate}` : ''}</div>
                             <div><strong>Адрес:</strong> {request.address || '—'}</div>
@@ -2189,6 +2210,8 @@ function TelegramMiniApp() {
                     onDone={handleSpectechCreated}
                     request={null}
                     isOperator={session?.can_manage_spectech}
+                    currentUserName={session.user?.name ?? session.profile.full_name ?? ''}
+                    currentUserPhone={session.user?.phone ?? session.profile.phone ?? ''}
                     onCancel={() => {
                         setSelectedSpectechRequest(null);
                         setView('home');
@@ -2201,6 +2224,8 @@ function TelegramMiniApp() {
                     onDone={handleSpectechCreated}
                     request={selectedSpectechRequest}
                     isOperator={session?.can_manage_spectech}
+                    currentUserName={session.user?.name ?? session.profile.full_name ?? ''}
+                    currentUserPhone={session.user?.phone ?? session.profile.phone ?? ''}
                     onCancel={() => {
                         setSelectedSpectechRequest(null);
                         setView(spectechEditSource === 'operator' ? 'spectech-operator' : 'spectech-requests');

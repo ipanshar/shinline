@@ -412,7 +412,7 @@ export default function SpectechDashboard() {
         if (!q) return sorted;
 
         return sorted.filter((req) => {
-            const haystack = [String(req.id), req.client_name ?? '', req.equipment_name, req.address, req.status_label, getCurrentStage(req)]
+            const haystack = [String(req.id), req.client_name ?? '', req.initiator_name ?? '', req.initiator_phone ?? '', req.equipment_name, req.address, req.status_label, getCurrentStage(req)]
                 .join(' ')
                 .toLowerCase();
 
@@ -666,6 +666,7 @@ export default function SpectechDashboard() {
                                                                         <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">
                                                                             <div className="text-[11px] text-[#888]">Инициатор</div>
                                                                             <div className="font-medium">{req.client_name || '—'}</div>
+                                                                            {req.initiator_phone && <div className="mt-0.5 text-[11px] text-[#666]">{req.initiator_phone}</div>}
                                                                             {req.source_label && <div className="mt-0.5 text-[11px] text-blue-700">{req.source_label}</div>}
                                                                         </div>
                                                                         <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">

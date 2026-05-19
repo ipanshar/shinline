@@ -1,8 +1,10 @@
 import { type SpectechRequestData } from '@/components/spectech/RequestCard';
+import { type SharedData } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import axios from 'axios';
 import { AlertTriangle, MapPin, Upload, X } from 'lucide-react';
+import { usePage } from '@inertiajs/react';
 import React, { useRef, useState } from 'react';
 import { MOCK_LOCATIONS, TERMINAL_INFO, type Location } from './MOCK_LOCATIONS';
 
@@ -24,9 +26,16 @@ interface Props {
 const TERMINALS = ['T1', 'T2', 'T3', 'T4'] as const;
 
 const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated, scheduleId, scheduleTruckName, scheduleStart, scheduleEnd }) => {
+    const { auth } = usePage<SharedData>().props;
+    const currentUser = auth.user;
+    const isSpectechOperator = !!(currentUser?.isAdmin || currentUser?.permissions?.includes('spectech.manage'));
+    const defaultInitiatorName = typeof currentUser?.name === 'string' ? currentUser.name : '';
+    const defaultInitiatorPhone = typeof currentUser?.phone === 'string' ? currentUser.phone : '';
     // Форма
     const [selectedTerminal, setSelectedTerminal] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+    const [initiatorName, setInitiatorName] = useState(defaultInitiatorName);
+    const [initiatorPhone, setInitiatorPhone] = useState(defaultInitiatorPhone);
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
     const [comment, setComment] = useState('');
@@ -80,6 +89,8 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
 
             await axios.post('/spectech/api/requests/from-schedule', {
                 schedule_id: scheduleId,
+                initiator_name: initiatorName.trim() || null,
+                initiator_phone: initiatorPhone.trim() || null,
                 driver_name: driverName.trim() || null,
                 driver_phone: driverPhone.trim() || null,
                 terminal: selectedTerminal,
@@ -123,6 +134,8 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
         if (!open) {
             setSelectedTerminal('');
             setSelectedLocation(null);
+            setInitiatorName(defaultInitiatorName);
+            setInitiatorPhone(defaultInitiatorPhone);
             setDriverName('');
             setDriverPhone('');
             setComment('');
@@ -130,7 +143,7 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
             setErrors({});
             setActiveRequestConflict(null);
         }
-    }, [open]);
+    }, [open, defaultInitiatorName, defaultInitiatorPhone]);
 
     return (
         <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -209,7 +222,31 @@ const NewRequestFromScheduleModal: React.FC<Props> = ({ open, onClose, onCreated
                             </div>
                         )}
 
-                        {/* Водитель */}
+                        {/* Инициатор и водитель */}
+                        {isSpectechOperator && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium">Инициатор</label>
+                                    <input
+                                        type="text"
+                                        value={initiatorName}
+                                        onChange={(e) => setInitiatorName(e.target.value)}
+                                        placeholder="ФИО заявителя"
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium">Телефон инициатора</label>
+                                    <input
+                                        type="tel"
+                                        value={initiatorPhone}
+                                        onChange={(e) => setInitiatorPhone(e.target.value)}
+                                        placeholder="+7..."
+                                        className="border-border bg-background h-9 rounded-md border px-3 text-sm focus:ring-2 focus:ring-red-600/30 focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                             <div className="flex flex-col gap-1">
                                 <label className="text-xs font-medium">Имя водителя</label>

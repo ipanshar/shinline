@@ -163,6 +163,8 @@ class SpectechRequestController extends Controller
     {
         $validated = $request->validate([
             'truck_id'    => 'required|exists:trucks,id',
+            'initiator_name' => 'nullable|string|max:160',
+            'initiator_phone' => 'nullable|string|max:32',
             'start_date'  => 'nullable|date',
             'end_date'    => 'required_without:requested_end|nullable|date|after_or_equal:today',
             'requested_start' => 'nullable|date',
@@ -203,8 +205,10 @@ class SpectechRequestController extends Controller
 
         $truck = Truck::findOrFail($validated['truck_id']);
         $typeKey = $this->extractEquipmentTypeKey($truck->name ?? '');
+        $initiatorName = $this->resolveInitiatorName($validated, $request->user()?->name);
+        $initiatorPhone = $this->resolveInitiatorPhone($validated, $request->user()?->phone);
 
-        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey, $conflictInfo) {
+        $spectechRequest = DB::transaction(function () use ($validated, $photoPaths, $startDate, $endDate, $truck, $typeKey, $conflictInfo, $initiatorName, $initiatorPhone) {
             $schedule = SpectechSchedule::create([
                 'user_id'              => Auth::id(),
                 'truck_id'             => $truck->id,
@@ -221,6 +225,8 @@ class SpectechRequestController extends Controller
 
             return SpectechRequest::create([
                 'user_id'         => Auth::id(),
+                'initiator_name'  => $initiatorName,
+                'initiator_phone' => $initiatorPhone,
                 'truck_id'        => $validated['truck_id'],
                 'start_date'      => $startDate->toDateString(),
                 'end_date'        => $endDate->toDateString(),
@@ -261,6 +267,8 @@ class SpectechRequestController extends Controller
 
         $validated = $request->validate([
             'truck_id'        => 'required|exists:trucks,id',
+            'initiator_name'  => 'nullable|string|max:160',
+            'initiator_phone' => 'nullable|string|max:32',
             'driver_name'     => 'nullable|string|max:160',
             'driver_phone'    => 'nullable|string|max:20',
             'start_date'      => 'nullable|date',
@@ -301,15 +309,19 @@ class SpectechRequestController extends Controller
         }
 
         $truck = Truck::findOrFail((int) $validated['truck_id']);
+        $initiatorName = $this->resolveInitiatorName($validated, $spectechRequest->user?->name);
+        $initiatorPhone = $this->resolveInitiatorPhone($validated, $spectechRequest->user?->phone);
         $photoPaths = array_key_exists('photos', $validated)
             ? $this->preparePhotoPaths($validated['photos'] ?? [])
             : ($spectechRequest->photos ?? []);
 
-        DB::transaction(function () use ($spectechRequest, $validated, $truck, $startDate, $endDate, $photoPaths, $conflictInfo) {
+        DB::transaction(function () use ($spectechRequest, $validated, $truck, $startDate, $endDate, $photoPaths, $conflictInfo, $initiatorName, $initiatorPhone) {
             $scheduleId = $this->syncScheduleForRequest($spectechRequest, $truck, $startDate, $endDate, $validated);
 
             $spectechRequest->update([
                 'truck_id'        => $truck->id,
+                'initiator_name'  => $initiatorName,
+                'initiator_phone' => $initiatorPhone,
                 'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
                 'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
                 'start_date'      => $startDate->toDateString(),
@@ -487,6 +499,9 @@ class SpectechRequestController extends Controller
             $r->photos ?? []
         )));
 
+        $initiatorName = $r->initiator_name ?: $r->user?->name;
+        $initiatorPhone = $r->initiator_phone ?: $r->user?->phone;
+
         return [
             'id'             => $r->id,
             'equipment_id'   => $r->truck_id,
@@ -494,6 +509,8 @@ class SpectechRequestController extends Controller
                 ? ($r->truck->name ?: ($r->truck->plate_number ? 'ТС ' . $r->truck->plate_number : 'ТС #' . $r->truck_id))
                 : '—',
             'plate_number'   => $r->truck?->plate_number,
+            'initiator_name' => $initiatorName,
+            'initiator_phone'=> $initiatorPhone,
             'driver_name'    => $r->driver_name,
             'driver_phone'   => $r->driver_phone,
             'start_date'     => $r->start_date?->toDateString(),
@@ -511,7 +528,7 @@ class SpectechRequestController extends Controller
             'status_frozen_reason'=> $r->getStatusFreezeReason(),
             'photos'              => $photos,
             'timeline'            => $r->timeline ?? [],
-            'client_name'         => $r->user?->name,
+            'client_name'         => $initiatorName,
             'is_telegram_miniapp' => (bool) ($r->user?->telegramApprovedChat),
             'source_label'   => $r->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id'    => $r->schedule_id,
@@ -531,6 +548,8 @@ class SpectechRequestController extends Controller
     {
         $validated = $request->validate([
             'schedule_id'   => 'required|exists:spectech_schedules,id',
+            'initiator_name'=> 'nullable|string|max:160',
+            'initiator_phone' => 'nullable|string|max:32',
             'driver_name'   => 'nullable|string|max:160',
             'driver_phone'  => 'nullable|string|max:20',
             'terminal'      => 'required|string|max:10',
@@ -544,6 +563,7 @@ class SpectechRequestController extends Controller
 
         // Получаем расписание
         $schedule = SpectechSchedule::findOrFail($validated['schedule_id']);
+        $scheduleOwner = $schedule->user()->first();
 
         if ($schedule->user_id !== Auth::id() && ! $this->canManageSpectechRequests()) {
             return response()->json(['status' => false, 'message' => 'Доступ запрещён'], 403);
@@ -570,6 +590,8 @@ class SpectechRequestController extends Controller
         // Создаём заявку
         $spectechRequest = SpectechRequest::create([
             'user_id'         => $schedule->user_id,
+            'initiator_name'  => $this->resolveInitiatorName($validated, $scheduleOwner?->name),
+            'initiator_phone' => $this->resolveInitiatorPhone($validated, $scheduleOwner?->phone),
             'truck_id'        => $schedule->truck_id,
             'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
             'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
@@ -762,6 +784,27 @@ class SpectechRequestController extends Controller
         $user = Auth::user();
 
         return $user?->canManageSpectech() ?? false;
+    }
+
+    private function resolveInitiatorName(array $validated, ?string $fallback): ?string
+    {
+        return $this->normalizeOptionalString($validated['initiator_name'] ?? $fallback);
+    }
+
+    private function resolveInitiatorPhone(array $validated, ?string $fallback): ?string
+    {
+        return $this->normalizeOptionalString($validated['initiator_phone'] ?? $fallback);
+    }
+
+    private function normalizeOptionalString(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value !== '' ? $value : null;
     }
 
 

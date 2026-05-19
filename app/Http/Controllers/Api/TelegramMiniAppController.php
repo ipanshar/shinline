@@ -394,7 +394,7 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveApprovedUser($chat);
 
         $requests = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number'])
+            ->with(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])
             ->where('user_id', $user->id)
             ->orderByDesc('created_at')
             ->limit(50)
@@ -411,7 +411,7 @@ class TelegramMiniAppController extends Controller
         $this->resolveSpectechOperator($chat);
 
         $requests = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])
+            ->with(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', (string) $request->input('status')))
             ->orderByDesc('created_at')
             ->get()
@@ -429,6 +429,10 @@ class TelegramMiniAppController extends Controller
 
         $validated = $request->validate([
             'truck_id' => ['required', 'integer', 'exists:trucks,id'],
+            'initiator_name' => ['nullable', 'string', 'max:160'],
+            'initiator_phone' => ['nullable', 'string', 'max:32'],
+            'driver_name' => ['nullable', 'string', 'max:160'],
+            'driver_phone' => ['nullable', 'string', 'max:20'],
             'requested_start' => ['required', 'date', 'after_or_equal:now'],
             'requested_end' => ['required', 'date', 'after:requested_start'],
             'terminal' => ['required', 'string', 'max:50'],
@@ -452,6 +456,13 @@ class TelegramMiniAppController extends Controller
         }
 
         $photoPaths = $this->prepareSpectechPhotoPaths($validated['photos'] ?? []);
+        $canManageSpectech = $user->canManageSpectech();
+        $initiatorName = $canManageSpectech
+            ? $this->resolveInitiatorName($validated, $user->name)
+            : $this->normalizeOptionalString($user->name);
+        $initiatorPhone = $canManageSpectech
+            ? $this->resolveInitiatorPhone($validated, $user->phone)
+            : $this->normalizeOptionalString($user->phone);
 
         $truck   = Truck::findOrFail((int) $validated['truck_id']);
         $typeKey = preg_replace('/[\s]+[№#]?\d+\s*$/', '', trim($truck->name ?? '')) ?: ($truck->name ?? 'Спецтехника');
@@ -472,7 +483,11 @@ class TelegramMiniAppController extends Controller
 
         $spectechRequest = SpectechRequest::query()->create([
             'user_id'         => $user->id,
+            'initiator_name'  => $initiatorName,
+            'initiator_phone' => $initiatorPhone,
             'truck_id'        => $truck->id,
+            'driver_name'     => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
+            'driver_phone'    => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
             'start_date'      => $startCarbon->toDateString(),
             'end_date'        => $endCarbon->toDateString(),
             'requested_start' => $startCarbon,
@@ -487,10 +502,10 @@ class TelegramMiniAppController extends Controller
             'timeline'        => SpectechRequest::buildInitialTimeline(),
             'schedule_id'     => $schedule->id,
             'from_scheduling' => false,
-            'conflict_info'    => $conflictInfo,
+            'conflict_info'   => $conflictInfo,
         ]);
 
-        $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name']);
+        $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat']);
 
         $this->notifySpectechOperators($spectechRequest, $chat);
 
@@ -515,6 +530,8 @@ class TelegramMiniAppController extends Controller
 
         $validated = $request->validate([
             'truck_id' => ['required', 'integer', 'exists:trucks,id'],
+            'initiator_name' => ['nullable', 'string', 'max:160'],
+            'initiator_phone' => ['nullable', 'string', 'max:32'],
             'driver_name' => ['nullable', 'string', 'max:160'],
             'driver_phone' => ['nullable', 'string', 'max:20'],
             'requested_start' => ['required', 'date'],
@@ -551,12 +568,25 @@ class TelegramMiniAppController extends Controller
         $photoPaths = array_key_exists('photos', $validated)
             ? $this->prepareSpectechPhotoPaths($validated['photos'] ?? [])
             : ($spectechRequest->photos ?? []);
+        $canManageSpectech = $user->canManageSpectech();
+        $initiatorName = $canManageSpectech
+            ? $this->resolveInitiatorName($validated, $user->name)
+            : $this->resolveInitiatorName([
+                'initiator_name' => $spectechRequest->initiator_name ?: $user->name,
+            ], $user->name);
+        $initiatorPhone = $canManageSpectech
+            ? $this->resolveInitiatorPhone($validated, $user->phone)
+            : $this->resolveInitiatorPhone([
+                'initiator_phone' => $spectechRequest->initiator_phone ?: $user->phone,
+            ], $user->phone);
 
-        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths, $conflictInfo) {
+        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths, $conflictInfo, $initiatorName, $initiatorPhone) {
             $scheduleId = $this->syncTelegramSpectechSchedule($spectechRequest, $truck, $startCarbon, $endCarbon, $validated);
 
             $spectechRequest->forceFill([
                 'truck_id' => $truck->id,
+                'initiator_name' => $initiatorName,
+                'initiator_phone' => $initiatorPhone,
                 'driver_name' => isset($validated['driver_name']) ? trim((string) $validated['driver_name']) : null,
                 'driver_phone' => isset($validated['driver_phone']) ? trim((string) $validated['driver_phone']) : null,
                 'start_date' => $startCarbon->toDateString(),
@@ -575,7 +605,7 @@ class TelegramMiniAppController extends Controller
         });
 
         return response()->json([
-            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])),
         ]);
     }
 
@@ -619,7 +649,7 @@ class TelegramMiniAppController extends Controller
         $spectechRequest->syncScheduleStatus();
 
         return response()->json([
-            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])),
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])),
         ]);
     }
 
@@ -672,7 +702,7 @@ class TelegramMiniAppController extends Controller
             'message' => $hasCancellationColumns
                 ? 'Заявка отменена'
                 : 'Заявка отменена. Причина отмены не сохранена: на сервере ещё не обновлена схема БД.',
-            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name'])),
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])),
         ]);
     }
 
@@ -888,6 +918,8 @@ class TelegramMiniAppController extends Controller
             fn ($photo) => $this->normalizePhotoUrl(is_string($photo) ? $photo : ''),
             $item->photos ?? []
         )));
+        $initiatorName = $this->resolveInitiatorName(['initiator_name' => $item->initiator_name], $item->user?->name);
+        $initiatorPhone = $this->resolveInitiatorPhone(['initiator_phone' => $item->initiator_phone], $item->user?->phone);
 
         return [
             'id' => $item->id,
@@ -896,6 +928,8 @@ class TelegramMiniAppController extends Controller
                 ? ($item->truck->name ?: ($item->truck->plate_number ? 'ТС '.$item->truck->plate_number : 'ТС #'.$item->truck_id))
                 : '—',
             'plate_number' => $item->truck?->plate_number,
+            'initiator_name' => $initiatorName,
+            'initiator_phone' => $initiatorPhone,
             'driver_name' => $item->driver_name,
             'driver_phone' => $item->driver_phone,
             'start_date' => $item->start_date?->toDateString(),
@@ -914,7 +948,7 @@ class TelegramMiniAppController extends Controller
             'photos' => $photos,
             'photo_urls' => $photos,
             'timeline' => $item->timeline ?? [],
-            'client_name' => $item->user?->name,
+            'client_name' => $initiatorName,
             'is_telegram_miniapp' => (bool) ($item->user?->telegramApprovedChat),
             'source_label' => $item->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id' => $item->schedule_id,
@@ -1159,10 +1193,14 @@ class TelegramMiniAppController extends Controller
             return;
         }
 
+        $initiatorName = $this->resolveInitiatorName(['initiator_name' => $request->initiator_name], $chat->display_full_name ?: $request->user?->name);
+        $initiatorPhone = $this->resolveInitiatorPhone(['initiator_phone' => $request->initiator_phone], $chat->display_phone ?: $request->user?->phone);
+
         $text = implode("\n", [
             '<b>Новая заявка на спецтехнику</b>',
             'ID: #'.e((string) $request->id),
-            'Заявитель: '.e((string) ($chat->display_full_name ?: $request->user?->name ?: '—')),
+            'Заявитель: '.e((string) ($initiatorName ?: '—')),
+            'Тел. заявителя: '.e((string) ($initiatorPhone ?: '—')),
             'Техника: '.e((string) ($request->truck?->name ?: 'ТС #'.$request->truck_id)),
             'Номер: '.e((string) ($request->truck?->plate_number ?: 'без номера')),
             'Водитель: '.e((string) ($request->driver_name ?: '—')),
@@ -1184,6 +1222,27 @@ class TelegramMiniAppController extends Controller
                 ]);
             }
         }
+    }
+
+    private function resolveInitiatorName(array $validated, ?string $fallback): ?string
+    {
+        return $this->normalizeOptionalString($validated['initiator_name'] ?? $fallback);
+    }
+
+    private function resolveInitiatorPhone(array $validated, ?string $fallback): ?string
+    {
+        return $this->normalizeOptionalString($validated['initiator_phone'] ?? $fallback);
+    }
+
+    private function normalizeOptionalString(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value !== '' ? $value : null;
     }
 
     private function formatUtilizationRequest(UtilizationRequest $item): array

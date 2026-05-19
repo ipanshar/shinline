@@ -58,6 +58,8 @@ class SpectechRequestStoreTest extends TestCase
         $this->actingAs($user)
             ->postJson('/spectech/api/requests', [
                 'truck_id' => $truck->id,
+                'initiator_name' => 'Инициатор Теста',
+                'initiator_phone' => '+77001112233',
                 'requested_start' => '2026-05-15T09:00',
                 'requested_end' => '2026-05-15T18:00',
                 'terminal' => 'T1',
@@ -69,12 +71,17 @@ class SpectechRequestStoreTest extends TestCase
                 'check_availability' => true,
             ])
             ->assertCreated()
+            ->assertJsonPath('data.initiator_name', 'Инициатор Теста')
+            ->assertJsonPath('data.initiator_phone', '+77001112233')
+            ->assertJsonPath('data.client_name', 'Инициатор Теста')
             ->assertJsonPath('data.requested_start', '2026-05-15T09:00:00+05:00')
             ->assertJsonPath('data.requested_end', '2026-05-15T18:00:00+05:00');
 
         $this->assertDatabaseHas('spectech_requests', [
             'user_id' => $user->id,
             'truck_id' => $truck->id,
+            'initiator_name' => 'Инициатор Теста',
+            'initiator_phone' => '+77001112233',
             'start_date' => '2026-05-15 00:00:00',
             'end_date' => '2026-05-15 00:00:00',
             'terminal' => 'T1',
@@ -161,6 +168,8 @@ class SpectechRequestStoreTest extends TestCase
         $this->actingAs($spectechOperator)
             ->postJson('/spectech/api/requests/from-schedule', [
                 'schedule_id' => $schedule->id,
+                'initiator_name' => 'Заявитель от оператора',
+                'initiator_phone' => '+77002223344',
                 'terminal' => 'T1',
                 'zone' => 'Zone A',
                 'gate' => 'G-1',
@@ -170,6 +179,8 @@ class SpectechRequestStoreTest extends TestCase
             ])
             ->assertCreated()
             ->assertJsonPath('data.schedule_id', $schedule->id)
+            ->assertJsonPath('data.initiator_name', 'Заявитель от оператора')
+            ->assertJsonPath('data.initiator_phone', '+77002223344')
             ->assertJsonPath('data.from_scheduling', true);
 
         $this->assertDatabaseHas('spectech_requests', [
@@ -177,8 +188,43 @@ class SpectechRequestStoreTest extends TestCase
             'truck_id' => $truck->id,
             'schedule_id' => $schedule->id,
             'from_scheduling' => true,
+            'initiator_name' => 'Заявитель от оператора',
+            'initiator_phone' => '+77002223344',
             'terminal' => 'T1',
             'zone' => 'Zone A',
+        ]);
+    }
+
+    public function test_update_persists_initiator_fields(): void
+    {
+        [$user, $truck] = $this->createUserAndTruck();
+
+        $request = $this->createSpectechRequestForUser($user, $truck, 'T1', 'Zone A');
+
+        $this->actingAs($user)
+            ->putJson("/spectech/api/requests/{$request->id}", [
+                'truck_id' => $truck->id,
+                'initiator_name' => 'Новый инициатор',
+                'initiator_phone' => '+77005556677',
+                'requested_start' => '2026-05-15T09:00',
+                'requested_end' => '2026-05-15T18:00',
+                'terminal' => 'T1',
+                'zone' => 'Zone A',
+                'gate' => 'G-1',
+                'address' => 'Terminal T1, Zone A',
+                'comment' => 'Обновлено',
+                'photos' => [],
+                'check_availability' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.initiator_name', 'Новый инициатор')
+            ->assertJsonPath('data.initiator_phone', '+77005556677')
+            ->assertJsonPath('data.client_name', 'Новый инициатор');
+
+        $this->assertDatabaseHas('spectech_requests', [
+            'id' => $request->id,
+            'initiator_name' => 'Новый инициатор',
+            'initiator_phone' => '+77005556677',
         ]);
     }
 
@@ -234,6 +280,7 @@ class SpectechRequestStoreTest extends TestCase
             'login' => 'spectech-user',
             'email' => 'spectech@example.com',
             'password' => 'secret',
+            'phone' => '+77000000001',
         ]);
 
         $category = TruckCategory::query()->create(['name' => 'Спец техника']);
@@ -250,6 +297,8 @@ class SpectechRequestStoreTest extends TestCase
     {
         return \App\Models\SpectechRequest::query()->create([
             'user_id' => $user->id,
+            'initiator_name' => $user->name,
+            'initiator_phone' => $user->phone,
             'truck_id' => $truck->id,
             'start_date' => '2026-05-15 00:00:00',
             'end_date' => '2026-05-15 00:00:00',
