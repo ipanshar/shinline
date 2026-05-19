@@ -879,6 +879,8 @@ function ViolationsIncidentList({
     onCreate: () => void;
     onBack: () => void;
 }) {
+    const [preview, setPreview] = useState<{ evidence: ViolationEvidenceItem; title: string } | null>(null);
+
     return (
         <>
             <h3 style={{ marginBottom: 8 }}>Мои нарушения</h3>
@@ -913,12 +915,18 @@ function ViolationsIncidentList({
                                 {evidences.map((evidence) => (
                                     evidence.media_kind === 'photo'
                                         ? (
-                                            <img
+                                            <button
                                                 key={evidence.id}
-                                                src={evidence.url ?? ''}
-                                                alt={incident.type_name || 'Нарушение'}
-                                                style={{ width: '100%', borderRadius: 10, maxHeight: 220, objectFit: 'cover', display: 'block' }}
-                                            />
+                                                type="button"
+                                                onClick={() => setPreview({ evidence, title: incident.type_name || 'Нарушение' })}
+                                                style={{ border: 'none', padding: 0, background: 'transparent', cursor: 'zoom-in' }}
+                                            >
+                                                <img
+                                                    src={evidence.url ?? ''}
+                                                    alt={incident.type_name || 'Нарушение'}
+                                                    style={{ width: '100%', borderRadius: 10, maxHeight: 220, objectFit: 'cover', display: 'block' }}
+                                                />
+                                            </button>
                                         )
                                         : (
                                             <video
@@ -936,6 +944,29 @@ function ViolationsIncidentList({
             })}
             <button type="button" style={btnDanger} onClick={onCreate}>Зафиксировать новое нарушение</button>
             <button type="button" style={btnSecondary} onClick={onBack}>← Назад</button>
+            {preview?.evidence.url && (
+                <div
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.88)', zIndex: 1000, padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setPreview(null)}
+                >
+                    <div
+                        style={{ width: '100%', maxWidth: 960, display: 'grid', gap: 12 }}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, color: '#fff' }}>
+                            <div style={{ fontWeight: 700 }}>{preview.title}</div>
+                            <button type="button" style={{ ...smallButtonStyle, background: '#fff', color: '#111' }} onClick={() => setPreview(null)}>
+                                Закрыть
+                            </button>
+                        </div>
+                        <img
+                            src={preview.evidence.url}
+                            alt={preview.title}
+                            style={{ width: '100%', maxHeight: '82vh', objectFit: 'contain', borderRadius: 12, background: '#111' }}
+                        />
+                    </div>
+                </div>
+            )}
         </>
     );
 }
