@@ -63,6 +63,10 @@ function getCurrentStage(request: SpectechRequestData): string {
     return done.length > 0 ? done[done.length - 1].title : 'Заявка';
 }
 
+function getInitiatorLabel(request: SpectechRequestData): string {
+    return request.initiator_name || request.client_name || '—';
+}
+
 // ─── Gantt для панели оператора ─────────────────────────────────────────────
 
 type GanttRange = 'day' | 'week' | 'month';
@@ -247,22 +251,22 @@ const GanttView: React.FC<{ requests: SpectechRequestData[]; range: GanttRange; 
                                                 }}
                                                 onMouseEnter={e => {
                                                     const r = e.currentTarget.getBoundingClientRect();
-                                                    setTooltip({
-                                                        x: r.left, y: r.top,
-                                                        lines: [
-                                                            `#${req.id} · ${req.status_label}`,
-                                                            `${req.equipment_name}${req.plate_number ? ` · ${req.plate_number}` : ''}`,
-                                                            req.client_name ?? req.equipment_name,
-                                                            `${formatDateTime(req.requested_start)} → ${formatDateTime(req.requested_end)}`,
-                                                            ...(req.address ? [`📍 ${req.address}`] : []),
-                                                            ...(req.driver_name ? [`👤 ${req.driver_name}`] : []),
-                                                        ],
-                                                    });
+                                                        setTooltip({
+                                                            x: r.left, y: r.top,
+                                                            lines: [
+                                                                `#${req.id} · ${req.status_label}`,
+                                                                `${req.equipment_name}${req.plate_number ? ` · ${req.plate_number}` : ''}`,
+                                                                getInitiatorLabel(req),
+                                                                `${formatDateTime(req.requested_start)} → ${formatDateTime(req.requested_end)}`,
+                                                                ...(req.address ? [`📍 ${req.address}`] : []),
+                                                                ...(req.driver_name ? [`👤 ${req.driver_name}`] : []),
+                                                            ],
+                                                        });
                                                 }}
                                                 onMouseLeave={() => setTooltip(null)}
                                             >
                                                 <span className="truncate text-[10px] font-semibold">
-                                                    {req.plate_number ? `${req.plate_number} · ` : ''}{req.client_name ?? req.equipment_name}
+                                                    {req.plate_number ? `${req.plate_number} · ` : ''}{getInitiatorLabel(req) !== '—' ? getInitiatorLabel(req) : req.equipment_name}
                                                 </span>
                                             </div>
                                         </div>
@@ -582,7 +586,7 @@ export default function SpectechDashboard() {
                                                     className={`border-b border-[#E8E8E8] text-[#2C2C2C] hover:bg-[#FAFAFA] ${updatingId === req.id ? 'opacity-60' : ''}`}
                                                 >
                                                     <td className="px-3 py-2">#{req.id}</td>
-                                                    <td className="px-3 py-2">{req.client_name || '—'}</td>
+                                                    <td className="px-3 py-2">{getInitiatorLabel(req)}</td>
                                                     <td className="px-3 py-2">{req.equipment_name}</td>
                                                     <td className="px-3 py-2 whitespace-nowrap">
                                                         {req.requested_start && req.requested_end
@@ -665,7 +669,7 @@ export default function SpectechDashboard() {
                                                                     <div className="grid gap-2 text-xs text-[#2C2C2C] sm:grid-cols-2">
                                                                         <div className="rounded-md border border-[#ECECEC] bg-white px-3 py-2">
                                                                             <div className="text-[11px] text-[#888]">Инициатор</div>
-                                                                            <div className="font-medium">{req.client_name || '—'}</div>
+                                                                            <div className="font-medium">{getInitiatorLabel(req)}</div>
                                                                             {req.initiator_phone && <div className="mt-0.5 text-[11px] text-[#666]">{req.initiator_phone}</div>}
                                                                             {req.source_label && <div className="mt-0.5 text-[11px] text-blue-700">{req.source_label}</div>}
                                                                         </div>

@@ -1993,7 +1993,7 @@ function SpectechCreateForm({
         setTerminal(request.terminal ?? 'T1');
         setSelectedLocationId(presetLocation?.id ?? '');
         setZone(presetLocation?.building ?? (request.zone ?? ''));
-        setGate(presetLocation?.gate ?? (request.gate ?? ''));
+        setGate(request.gate ?? '');
         setAddress(request.address ?? '');
         setComment(request.comment ?? '');
         setPhotos(request.photo_urls ?? request.photos ?? []);
@@ -2006,15 +2006,14 @@ function SpectechCreateForm({
         }
 
         setZone(selectedLocation.building);
-        setGate(selectedLocation.gate === '-' ? '' : selectedLocation.gate);
         setAddress(buildSpectechAddress(
             normalizedTerminal,
             selectedLocation.building,
-            selectedLocation.gate === '-' ? null : selectedLocation.gate,
+            gate.trim() || null,
             formatLocationStatus(selectedLocation.status),
             selectedLocation.purpose,
         ));
-    }, [selectedLocation, normalizedTerminal]);
+    }, [selectedLocation, normalizedTerminal, gate]);
 
     useEffect(() => {
         if (hasPresetLocations) {
@@ -2271,31 +2270,34 @@ function SpectechCreateForm({
                                 setGate('');
                                 setAddress('');
                             }
+                            if (value) {
+                                setGate('');
+                            }
                         }}
                         required
                     >
                         <option value="">Выберите здание</option>
                         {filteredLocations.map((location) => (
                             <option key={location.id} value={location.id}>
-                                {location.building} · {location.gate} · {location.purpose}
+                                {location.building} · {location.purpose}
                             </option>
                         ))}
                     </select>
-                    {selectedLocation && (
-                        <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
-                            {formatLocationStatus(selectedLocation.status)} · {selectedLocation.purpose}
-                        </div>
-                    )}
+                        {selectedLocation && (
+                            <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, color: '#666' }}>
+                                {formatLocationStatus(selectedLocation.status)} · {selectedLocation.purpose}
+                            </div>
+                        )}
 
-                    <label>Гейт</label>
-                    <input style={{ ...inputStyle, background: '#f7f7f7' }} value={gate} readOnly />
+                    <label>Гейт для заявки</label>
+                    <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
                 </>
             ) : (
                 <>
                     <label>Зона / объект</label>
                     <input style={inputStyle} value={zone} onChange={(e) => setZone(e.target.value)} required />
 
-                    <label>Гейт</label>
+                    <label>Гейт для заявки</label>
                     <input style={inputStyle} value={gate} onChange={(e) => setGate(e.target.value)} />
                 </>
             )}
