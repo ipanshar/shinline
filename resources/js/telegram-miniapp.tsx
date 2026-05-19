@@ -198,12 +198,34 @@ interface ViolationIncidentItem {
     type_name: string | null;
     employee_full_name: string | null;
     employee_department: string | null;
+    employee_position: string | null;
     description: string | null;
     location_label: string | null;
     evidence_total_count: number;
     evidence_photo_count: number;
     evidence_video_count: number;
     evidences: ViolationEvidenceItem[];
+}
+
+interface ViolationRecognitionCandidate {
+    employee_id: number | null;
+    group_key: string | null;
+    full_name: string | null;
+    department: string | null;
+    position: string | null;
+    iin: string | null;
+    status: string | null;
+    source: string | null;
+    source_label: string | null;
+    reference_image_url: string | null;
+    similarity: number | null;
+}
+
+interface ViolationRecognitionResult {
+    matched: boolean;
+    threshold: number | null;
+    best_match: ViolationRecognitionCandidate | null;
+    candidates: ViolationRecognitionCandidate[];
 }
 
 interface ViolationTypeOption {
@@ -340,6 +362,8 @@ const utilizationStatusLabels: Record<string, string> = {
 const violationStatusLabels: Record<string, string> = {
     draft_processing: 'Обработка',
     pending_review: 'На проверке',
+    unknown_manual: 'Ждёт идентификации',
+    recognized_confirmed: 'Личность подтверждена',
     approved: 'Подтверждено',
     rejected: 'Отклонено',
     resolved: 'Рассмотрено',
@@ -493,6 +517,14 @@ const formatDateTimeLabel = (value?: string | null) => {
         hour: '2-digit',
         minute: '2-digit',
     });
+};
+
+const formatSimilarityPercent = (value?: number | null) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '—';
+    }
+
+    return `${(value * 100).toFixed(1)}%`;
 };
 
 const Wrap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -657,6 +689,11 @@ function ViolationsCreateView({
     const [manualPosition, setManualPosition] = useState('');
     const [locationLabel, setLocationLabel] = useState('');
     const [description, setDescription] = useState('');
+    const [recognitionFile, setRecognitionFile] = useState<File | null>(null);
+    const [recognitionBusy, setRecognitionBusy] = useState(false);
+    const [recognitionError, setRecognitionError] = useState<string | null>(null);
+    const [recognitionResult, setRecognitionResult] = useState<ViolationRecognitionResult | null>(null);
+    const [lastAutofill, setLastAutofill] = useState<{ fullName: string; department: string; position: string } | null>(null);
     const [files, setFiles] = useState<File[]>([]);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
@@ -713,6 +750,86 @@ function ViolationsCreateView({
         setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
     };
 
+    const clearRecognitionAutofill = () => {
+        if (!lastAutofill) {
+            return;
+        }
+
+        if (manualFullName === lastAutofill.fullName) {
+            setManualFullName('');
+        }
+
+        if (manualDepartment === lastAutofill.department) {
+            setManualDepartment('');
+        }
+
+        if (manualPosition === lastAutofill.position) {
+            setManualPosition('');
+        }
+
+        setLastAutofill(null);
+    };
+
+    const clearRecognition = () => {
+        clearRecognitionAutofill();
+        setRecognitionFile(null);
+        setRecognitionError(null);
+        setRecognitionResult(null);
+    };
+
+    const handleRecognitionSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = event.target.files?.[0] ?? null;
+        event.target.value = '';
+
+        if (!selectedFile) {
+            return;
+        }
+
+        clearRecognitionAutofill();
+        setRecognitionBusy(true);
+        setRecognitionError(null);
+        setRecognitionResult(null);
+        setErr(null);
+
+        try {
+            const preparedFile = await prepareViolationUploadFile(selectedFile);
+            setRecognitionFile(preparedFile);
+
+            const formData = new FormData();
+            formData.append('init_data', initData);
+            formData.append('recognition_file', preparedFile);
+
+            const response = await axios.post('/api/telegram/miniapp/violations/recognize', formData, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            const nextResult = (response.data?.data ?? null) as ViolationRecognitionResult | null;
+            setRecognitionResult(nextResult);
+
+            const bestMatch = nextResult?.matched ? nextResult.best_match : null;
+            if (bestMatch?.full_name) {
+                const autofill = {
+                    fullName: bestMatch.full_name ?? '',
+                    department: bestMatch.department ?? '',
+                    position: bestMatch.position ?? '',
+                };
+
+                setManualFullName(autofill.fullName);
+                setManualDepartment(autofill.department);
+                setManualPosition(autofill.position);
+                setLastAutofill(autofill);
+            } else {
+                setLastAutofill(null);
+            }
+        } catch (error: any) {
+            setRecognitionError(getErrorMessage(error, 'Не удалось распознать сотрудника по фото'));
+            setRecognitionResult(null);
+            setLastAutofill(null);
+        } finally {
+            setRecognitionBusy(false);
+        }
+    };
+
     const submit = async (event: FormEvent) => {
         event.preventDefault();
 
@@ -726,6 +843,21 @@ function ViolationsCreateView({
             return;
         }
 
+        if (recognitionBusy) {
+            setErr('Дождитесь завершения распознавания по фото сотрудника');
+            return;
+        }
+
+        if (!manualFullName.trim() && !recognitionFile) {
+            setErr('Укажите ФИО нарушителя вручную или сначала сделайте фото для распознавания');
+            return;
+        }
+
+        if (!manualFullName.trim() && recognitionError) {
+            setErr('Распознавание не завершилось. Либо укажите ФИО вручную, либо сделайте фото ещё раз.');
+            return;
+        }
+
         setBusy(true);
         setErr(null);
 
@@ -734,7 +866,10 @@ function ViolationsCreateView({
             formData.append('init_data', initData);
             formData.append('type_id', String(typeId));
             formData.append('occurred_at', occurredAt ? new Date(occurredAt).toISOString() : new Date().toISOString());
-            formData.append('manual_full_name', manualFullName.trim());
+
+            if (manualFullName.trim()) {
+                formData.append('manual_full_name', manualFullName.trim());
+            }
 
             if (manualDepartment.trim()) {
                 formData.append('manual_department', manualDepartment.trim());
@@ -750,6 +885,10 @@ function ViolationsCreateView({
 
             if (description.trim()) {
                 formData.append('description', description.trim());
+            }
+
+            if (recognitionFile) {
+                formData.append('recognition_file', recognitionFile);
             }
 
             files.forEach((file) => {
@@ -772,7 +911,7 @@ function ViolationsCreateView({
         <form onSubmit={submit}>
             <h3 style={{ marginBottom: 8 }}>Фиксация нарушения</h3>
             <p style={{ marginTop: 0, color: '#555' }}>
-                Пока доступна ручная фиксация. Распознавание через Face ID будет подключено следующим этапом.
+                Сначала сделайте отдельное фото сотрудника для распознавания. Ниже отдельно приложите фото или видео как доказательства нарушения.
             </p>
             <label>Категория</label>
             <select
@@ -806,6 +945,75 @@ function ViolationsCreateView({
                 <div style={{ marginTop: -6, marginBottom: 12, color: '#666', fontSize: 12 }}>{selectedCategory.description}</div>
             )}
 
+            <label>Фото сотрудника для распознавания</label>
+            <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                capture="environment"
+                onChange={handleRecognitionSelection}
+                style={{ ...inputStyle, padding: 8 }}
+            />
+            <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                Это фото используется только для поиска сотрудника. Доказательства нарушения загружаются отдельно ниже.
+            </div>
+
+            {recognitionFile && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #ddd', borderRadius: 10, padding: '10px 12px', marginBottom: 12, background: '#fafafa' }}>
+                    <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{recognitionFile.name}</div>
+                        <div style={{ fontSize: 12, color: '#666' }}>
+                            Фото для распознавания · {(recognitionFile.size / 1024 / 1024).toFixed(2)} MB
+                        </div>
+                    </div>
+                    <button type="button" style={{ ...smallButtonStyle, background: '#f3f4f6', color: '#111827' }} onClick={clearRecognition}>
+                        Убрать
+                    </button>
+                </div>
+            )}
+
+            {recognitionBusy && (
+                <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: '#eef6ff', color: '#0f4c81', fontSize: 14 }}>
+                    Ищем сотрудника по фото...
+                </div>
+            )}
+
+            {recognitionError && (
+                <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: '#fff1f1', color: '#b42318', fontSize: 14 }}>
+                    {recognitionError}
+                </div>
+            )}
+
+            {recognitionResult?.best_match && !recognitionBusy && !recognitionError && (
+                <div
+                    style={{
+                        marginBottom: 12,
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        border: `1px solid ${recognitionResult.matched ? '#b7e1c0' : '#f4d58d'}`,
+                        background: recognitionResult.matched ? '#ecfdf3' : '#fff7e6',
+                        color: recognitionResult.matched ? '#166534' : '#8a5a00',
+                    }}
+                >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                        {recognitionResult.matched ? 'Сотрудник найден' : 'Точного совпадения нет'}
+                    </div>
+                    <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                        {recognitionResult.best_match.full_name || 'Без имени'}
+                        {recognitionResult.best_match.department ? ` · ${recognitionResult.best_match.department}` : ''}
+                        {recognitionResult.best_match.position ? ` · ${recognitionResult.best_match.position}` : ''}
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 4, opacity: 0.9 }}>
+                        Совпадение: {formatSimilarityPercent(recognitionResult.best_match.similarity)}
+                        {recognitionResult.best_match.source_label ? ` · ${recognitionResult.best_match.source_label}` : ''}
+                    </div>
+                    {!recognitionResult.matched && (
+                        <div style={{ fontSize: 12, marginTop: 6 }}>
+                            Можно заполнить ФИО вручную. Если не знаете сотрудника, сохраните нарушение без ФИО: оно уйдёт в очередь СБ на идентификацию.
+                        </div>
+                    )}
+                </div>
+            )}
+
             <label>Дата и время</label>
             <input
                 style={inputStyle}
@@ -816,7 +1024,12 @@ function ViolationsCreateView({
             />
 
             <label>ФИО нарушителя</label>
-            <input style={inputStyle} value={manualFullName} onChange={(event) => setManualFullName(event.target.value)} required />
+            <input
+                style={inputStyle}
+                value={manualFullName}
+                onChange={(event) => setManualFullName(event.target.value)}
+                required={!recognitionResult?.matched && !recognitionFile}
+            />
 
             <label>Отдел</label>
             <input style={inputStyle} value={manualDepartment} onChange={(event) => setManualDepartment(event.target.value)} placeholder="Необязательно" />

@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    'faceid' => [
+        'base_url' => env('FACEID_API_URL', 'http://127.0.0.1:8008'),
+        'timeout' => env('FACEID_API_TIMEOUT', 12),
+        'connect_timeout' => env('FACEID_API_CONNECT_TIMEOUT', 5),
+        'python_executable' => env('FACEID_PYTHON_EXECUTABLE', base_path('testFaceID/.venv/Scripts/python.exe')),
+        'reference_manifest_path' => env('FACEID_REFERENCE_MANIFEST_PATH', storage_path('app/private/faceid/reference-manifest.json')),
+        'import_manifest_path' => env('FACEID_IMPORT_MANIFEST_PATH', storage_path('app/private/faceid/import-manifest.json')),
+        'cache_dir' => env('FACEID_CACHE_DIR', base_path('testFaceID/backend/cache')),
+        'auto_sync_after_migrate' => env('FACEID_AUTO_SYNC_AFTER_MIGRATE', true),
+        'auto_restart_service_after_sync' => env('FACEID_AUTO_RESTART_SERVICE_AFTER_SYNC', false),
+        'restart_service' => env('FACEID_RESTART_SERVICE'),
+        'nssm_path' => env('FACEID_NSSM_PATH', 'nssm'),
+    ],
+
 ];

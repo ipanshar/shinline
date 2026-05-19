@@ -10,6 +10,7 @@ use Database\Seeders\PermissionsSeeder;
 use Database\Seeders\ViolationCatalogSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
 use Tests\TestCase;
@@ -28,6 +29,7 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
         config()->set('telegram.bots.mybot.token', $this->token);
         config()->set('telegram.init_data_ttl', 86400);
         config()->set('telegram.admin_chat_ids', []);
+        config()->set('services.faceid.base_url', 'http://127.0.0.1:8008');
 
         $messaging = Mockery::mock(TelegramMessagingService::class);
         $messaging->shouldReceive('sendText')->zeroOrMoreTimes();
@@ -106,6 +108,183 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
         Storage::disk('public')->assertExists(\App\Models\ViolationEvidence::query()->firstOrFail()->path);
     }
 
+    public function test_security_user_can_recognize_employee_photo_for_violation_form(): void
+    {
+        $initData = $this->makeInitData(['id' => 7103, 'first_name' => 'Recognizer']);
+        $user = $this->approveSecurityUser('7103', 'Recognizer User', 'tg7103@example.com', '+77000007103');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => true,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'employeeId' => 501,
+                    'groupKey' => 'iin:123456789012|name:ivan_ivanov',
+                    'name' => 'Иван Иванов',
+                    'source' => 'sigur-photo',
+                    'referenceImageUrl' => '/reference-images/test.jpg',
+                    'similarity' => 0.8123,
+                    'profile' => [
+                        'department' => 'Цех розлива',
+                        'role' => 'EMP',
+                        'iin' => '123456789012',
+                        'status' => 'AVAILABLE',
+                        'sourceLabel' => 'Sigur photo',
+                    ],
+                ],
+                'candidates' => [],
+            ], 200),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/violations/recognize', [
+            'init_data' => $initData,
+            'recognition_file' => UploadedFile::fake()->create('recognize.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.matched', true)
+            ->assertJsonPath('data.best_match.full_name', 'Иван Иванов')
+            ->assertJsonPath('data.best_match.department', 'Цех розлива')
+            ->assertJsonPath('data.best_match.position', 'EMP');
+
+        $this->assertSame(1, Http::recorded()->count());
+        $this->assertSame($user->id, TelegramBotChat::query()->where('chat_id', '7103')->value('approved_user_id'));
+    }
+
+    public function test_violation_creation_can_use_recognition_photo_to_autofill_identity(): void
+    {
+        $initData = $this->makeInitData(['id' => 7104, 'first_name' => 'AutoFill']);
+        $user = $this->approveSecurityUser('7104', 'AutoFill User', 'tg7104@example.com', '+77000007104');
+        $typeId = \App\Models\ViolationType::query()->where('key', 'no_ppe')->value('id');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => true,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'employeeId' => 777,
+                    'groupKey' => 'iin:777777777777|name:petr_petrov',
+                    'name' => 'Пётр Петров',
+                    'source' => 'sigur-personalimg',
+                    'referenceImageUrl' => '/reference-images/petr.jpg',
+                    'similarity' => 0.7642,
+                    'imageHash' => 'abc123',
+                    'profile' => [
+                        'department' => 'Склад ГП',
+                        'role' => 'EMP',
+                        'iin' => '777777777777',
+                        'status' => 'AVAILABLE',
+                        'sourceLabel' => 'Sigur personalimg',
+                    ],
+                ],
+                'candidates' => [],
+            ], 200),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/violations/incidents', [
+            'init_data' => $initData,
+            'type_id' => $typeId,
+            'occurred_at' => now()->toDateTimeString(),
+            'description' => 'Нарушение с автоопределением личности.',
+            'recognition_file' => UploadedFile::fake()->create('employee.jpg', 64, 'image/jpeg'),
+            'files' => [UploadedFile::fake()->create('proof.jpg', 64, 'image/jpeg')],
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.employee_full_name', 'Пётр Петров')
+            ->assertJsonPath('data.employee_department', 'Склад ГП')
+            ->assertJsonPath('data.employee_position', 'EMP');
+
+        $this->assertDatabaseHas('violation_incidents', [
+            'reported_by_user_id' => $user->id,
+            'employee_full_name' => 'Пётр Петров',
+            'employee_department' => 'Склад ГП',
+            'employee_position' => 'EMP',
+            'recognition_status' => 'matched',
+        ]);
+
+        $this->assertDatabaseHas('violation_employees', [
+            'business_key' => 'faceid:iin:777777777777|name:petr_petrov',
+            'source_system' => 'sigur',
+            'external_ref' => '777',
+            'full_name' => 'Пётр Петров',
+            'department' => 'Склад ГП',
+            'position' => 'EMP',
+        ]);
+
+        $this->assertDatabaseHas('violation_recognition_attempts', [
+            'service_name' => 'faceid_python',
+            'status' => 'matched',
+            'matched' => true,
+            'recognized_full_name' => 'Пётр Петров',
+        ]);
+    }
+
+    public function test_unknown_recognition_can_be_saved_for_security_manual_identification(): void
+    {
+        $initData = $this->makeInitData(['id' => 7105, 'first_name' => 'Unknown']);
+        $user = $this->approveSecurityUser('7105', 'Unknown User', 'tg7105@example.com', '+77000007105');
+        $typeId = \App\Models\ViolationType::query()->where('key', 'no_ppe')->value('id');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'employeeId' => 999,
+                    'groupKey' => 'candidate:999',
+                    'name' => 'Похожий кандидат',
+                    'source' => 'sigur-photo',
+                    'referenceImageUrl' => '/reference-images/candidate.jpg',
+                    'similarity' => 0.4321,
+                    'profile' => [
+                        'department' => 'Неизвестно',
+                        'role' => 'EMP',
+                        'sourceLabel' => 'Sigur photo',
+                    ],
+                ],
+                'candidates' => [],
+            ], 200),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/violations/incidents', [
+            'init_data' => $initData,
+            'type_id' => $typeId,
+            'occurred_at' => now()->toDateTimeString(),
+            'description' => 'Не удалось определить личность автоматически.',
+            'recognition_file' => UploadedFile::fake()->create('unknown.jpg', 64, 'image/jpeg'),
+            'files' => [UploadedFile::fake()->create('proof.jpg', 64, 'image/jpeg')],
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.employee_full_name', null)
+            ->assertJsonPath('data.recognition_status', 'unknown')
+            ->assertJsonPath('data.workflow_status', 'unknown_manual')
+            ->assertJsonPath('data.evidence_photo_count', 1);
+
+        $incidentId = \App\Models\ViolationIncident::query()->value('id');
+
+        $this->assertDatabaseHas('violation_incidents', [
+            'id' => $incidentId,
+            'reported_by_user_id' => $user->id,
+            'employee_full_name' => null,
+            'recognition_status' => 'unknown',
+            'workflow_status' => 'unknown_manual',
+        ]);
+
+        $this->assertDatabaseHas('violation_evidences', [
+            'incident_id' => $incidentId,
+            'media_role' => 'recognition_probe',
+            'media_kind' => 'photo',
+        ]);
+    }
+
     public function test_non_security_user_cannot_create_violation(): void
     {
         $initData = $this->makeInitData(['id' => 7102, 'first_name' => 'NoAccess']);
@@ -137,6 +316,31 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
         ], [
             'X-Telegram-Init-Data' => $initData,
         ])->assertStatus(403);
+    }
+
+    private function approveSecurityUser(string $chatId, string $name, string $email, string $phone): User
+    {
+        $user = User::create([
+            'name' => $name,
+            'login' => 'tg_' . $chatId,
+            'email' => $email,
+            'password' => 'x',
+            'phone' => $phone,
+        ]);
+
+        $role = Role::findByName('Служба безопасности');
+        $this->assertNotNull($role);
+        $user->roles()->attach($role->id);
+
+        TelegramBotChat::create([
+            'chat_id' => $chatId,
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => $name,
+            'display_phone' => $phone,
+        ]);
+
+        return $user;
     }
 
     private function makeInitData(array $user): string

@@ -28,15 +28,55 @@ def resolve_dump_path() -> Path:
     return dump_path
 
 
+def resolve_directory_path(env_name: str, default_relative_path: str) -> Path:
+    override = os.getenv(env_name, "").strip()
+    if not override:
+        return (PROJECT_DIR / default_relative_path).resolve()
+
+    path = Path(override).expanduser()
+    if not path.is_absolute():
+        path = (PROJECT_DIR / path).resolve()
+
+    return path
+
+
+def resolve_file_path(env_name: str, default_relative_path: str) -> Path:
+    override = os.getenv(env_name, "").strip()
+    if not override:
+        return (PROJECT_DIR / default_relative_path).resolve()
+
+    path = Path(override).expanduser()
+    if not path.is_absolute():
+        path = (PROJECT_DIR / path).resolve()
+
+    return path
+
+
 DUMP_PATH = resolve_dump_path()
-REFERENCE_DIR = PROJECT_DIR / "backend" / "reference_images"
+REFERENCE_DIR = resolve_directory_path("FACEID_REFERENCE_DIR", "backend/reference_images")
+REFERENCE_MANIFEST_PATH = resolve_file_path(
+    "FACEID_REFERENCE_MANIFEST_PATH",
+    "backend/cache/reference-manifest.json",
+)
+CACHE_DIR = resolve_directory_path("FACEID_CACHE_DIR", "backend/cache")
 REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class FaceServiceController:
-    def __init__(self, project_dir: Path, dump_path: Path) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        dump_path: Path,
+        reference_dir: Path,
+        cache_dir: Path,
+        reference_manifest_path: Path,
+    ) -> None:
         self.project_dir = project_dir
         self.dump_path = dump_path
+        self.reference_dir = reference_dir
+        self.cache_dir = cache_dir
+        self.reference_manifest_path = reference_manifest_path
         self._lock = Lock()
         self._service: FaceSearchService | None = None
         self._loading = False
@@ -61,6 +101,7 @@ class FaceServiceController:
         if service is None:
             return {
                 "dumpPath": self.dump_path.as_posix(),
+                "referenceManifestPath": self.reference_manifest_path.as_posix(),
                 "referenceSourceCount": 0,
                 "indexedCount": 0,
                 "skippedCount": 0,
@@ -102,7 +143,13 @@ class FaceServiceController:
                 current.rebuild_index()
                 service = current
             else:
-                service = FaceSearchService(self.project_dir, self.dump_path)
+                service = FaceSearchService(
+                    self.project_dir,
+                    self.dump_path,
+                    reference_dir=self.reference_dir,
+                    cache_dir=self.cache_dir,
+                    reference_manifest_path=self.reference_manifest_path,
+                )
         except Exception as error:  # pragma: no cover - runtime bootstrap protection
             LOGGER.exception("Failed to prepare Face ID service")
             with self._lock:
@@ -116,7 +163,13 @@ class FaceServiceController:
             self._error = None
 
 
-controller = FaceServiceController(PROJECT_DIR, DUMP_PATH)
+controller = FaceServiceController(
+    PROJECT_DIR,
+    DUMP_PATH,
+    REFERENCE_DIR,
+    CACHE_DIR,
+    REFERENCE_MANIFEST_PATH,
+)
 
 app = FastAPI(title="Face ID Prototype", version="0.2.0")
 app.add_middleware(

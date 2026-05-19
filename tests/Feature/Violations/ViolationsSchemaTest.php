@@ -20,6 +20,7 @@ class ViolationsSchemaTest extends TestCase
         $this->assertTrue(Schema::hasTable('violation_employees'));
         $this->assertTrue(Schema::hasTable('violation_incidents'));
         $this->assertTrue(Schema::hasTable('violation_evidences'));
+        $this->assertTrue(Schema::hasTable('violation_employee_face_references'));
         $this->assertTrue(Schema::hasTable('violation_recognition_attempts'));
         $this->assertTrue(Schema::hasTable('violation_status_histories'));
         $this->assertTrue(Schema::hasTable('violation_categories'));
@@ -162,6 +163,23 @@ class ViolationsSchemaTest extends TestCase
             'note' => 'Инцидент создан и отправлен на проверку.',
         ]);
 
+        $employee->faceReferences()->create([
+            'source_system' => 'sigur',
+            'source' => 'sigur-personalimg',
+            'external_ref' => 'EMP-100',
+            'source_image_id' => '1001',
+            'group_key' => $employee->business_key,
+            'disk' => 'faceid_references',
+            'path' => 'sigur_dump/ivan-1.jpg',
+            'file_name' => 'ivan-1.jpg',
+            'mime_type' => 'image/jpeg',
+            'file_size' => 1024,
+            'sha1' => str_repeat('c', 40),
+            'is_primary' => true,
+            'is_active' => true,
+            'meta' => ['source_label' => 'Sigur personalimg'],
+        ]);
+
         $incident->refresh();
 
         $this->assertNotEmpty($incident->incident_uid);
@@ -170,6 +188,7 @@ class ViolationsSchemaTest extends TestCase
         $this->assertCount(2, $incident->evidences);
         $this->assertCount(1, $incident->recognitionAttempts);
         $this->assertCount(1, $incident->statusHistory);
+        $this->assertCount(1, $employee->faceReferences);
         $this->assertSame('photo', $incident->primary_evidence_kind);
         $this->assertEquals('0.8123', (string) $incident->recognition_similarity);
         $this->assertSame($employee->id, $incident->employee?->id);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ViolationCategory;
 use App\Models\ViolationIncident;
 use App\Models\ViolationType;
+use App\Services\Violations\ViolationIncidentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -19,7 +20,7 @@ class ViolationAdminController extends Controller
             ->with([
                 'reporter:id,name',
                 'reviewer:id,name',
-                'evidences:id,incident_id,media_kind,path,is_primary,sort_order',
+                'evidences:id,incident_id,media_role,media_kind,path,is_primary,sort_order',
             ])
             ->orderByDesc('occurred_at')
             ->orderByDesc('id');
@@ -46,6 +47,25 @@ class ViolationAdminController extends Controller
             ->values();
 
         return response()->json(['data' => $items]);
+    }
+
+    public function resolveIdentity(Request $request, ViolationIncident $incident, ViolationIncidentService $incidentService): JsonResponse
+    {
+        $validated = $request->validate([
+            'employee_full_name' => ['required', 'string', 'max:160'],
+            'employee_department' => ['nullable', 'string', 'max:160'],
+            'employee_position' => ['nullable', 'string', 'max:160'],
+            'review_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $user = $request->user();
+        if (! $user) {
+            abort(401);
+        }
+
+        $resolved = $incidentService->resolveUnknownIncidentIdentity($incident, $user, $validated);
+
+        return response()->json(['data' => $this->formatIncident($resolved)]);
     }
 
     public function catalog(): JsonResponse
@@ -158,6 +178,11 @@ class ViolationAdminController extends Controller
      */
     private function formatIncident(ViolationIncident $incident): array
     {
+        $originalEvidences = $incident->evidences
+            ->filter(fn ($evidence) => $evidence->media_role === 'original')
+            ->values();
+        $recognitionProbe = $incident->evidences->firstWhere('media_role', 'recognition_probe');
+
         return [
             'id' => $incident->id,
             'incident_uid' => $incident->incident_uid,
@@ -180,7 +205,14 @@ class ViolationAdminController extends Controller
             'recognition_similarity' => $incident->recognition_similarity,
             'review_note' => $incident->review_note,
             'rejection_reason' => $incident->rejection_reason,
-            'evidences' => $incident->evidences->map(fn ($evidence) => [
+            'identity_requires_manual_review' => $incident->workflow_status === ViolationIncident::STATUS_UNKNOWN_MANUAL,
+            'recognition_probe' => $recognitionProbe ? [
+                'id' => $recognitionProbe->id,
+                'media_kind' => $recognitionProbe->media_kind,
+                'url' => $this->storageUrl($recognitionProbe->path),
+                'is_primary' => false,
+            ] : null,
+            'evidences' => $originalEvidences->map(fn ($evidence) => [
                 'id' => $evidence->id,
                 'media_kind' => $evidence->media_kind,
                 'url' => $this->storageUrl($evidence->path),

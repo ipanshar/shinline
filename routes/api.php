@@ -237,6 +237,7 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     // Нарушители (Mini App)
     Route::get('/telegram/miniapp/violations/catalog', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'catalog']);
     Route::get('/telegram/miniapp/violations/incidents', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'incidents']);
+    Route::post('/telegram/miniapp/violations/recognize', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'recognize']);
     Route::post('/telegram/miniapp/violations/incidents', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'create']);
 
     // Legacy endpoints (оставлены для обратной совместимости)
