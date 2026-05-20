@@ -2823,7 +2823,7 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);

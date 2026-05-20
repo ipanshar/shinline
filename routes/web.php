@@ -317,6 +317,7 @@ Route::get('/spectech/catalog',     [RouteController::class, 'spectechCatalog'])
 Route::get('/spectech/requests',    [RouteController::class, 'spectechRequests'])->middleware('permission:spectech.view');
 Route::get('/spectech/dashboard',   [RouteController::class, 'spectechDashboard'])->middleware('permission:spectech.manage');
 Route::get('/spectech/locations',   [RouteController::class, 'spectechLocations'])->middleware('permission:spectech.view');
+Route::get('/spectech/locations/scheme-file', [RouteController::class, 'spectechTerminalScheme'])->middleware('permission:spectech.view');
 Route::get('/spectech/references',  [RouteController::class, 'spectechReferences'])->middleware('permission:spectech.view');
 Route::get('/spectech/planning',    [RouteController::class, 'spectechPlanning'])->middleware('permission:spectech.view');
 Route::get('/spectech/reports',     [RouteController::class, 'spectechReports'])->middleware('permission:spectech.manage');

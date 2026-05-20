@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class RouteController extends Controller
 {
@@ -116,6 +117,22 @@ class RouteController extends Controller
     }
     public function spectechLocations(){
         return Inertia::render('spectech/locations');
+    }
+    public function spectechTerminalScheme(): BinaryFileResponse
+    {
+        $pdfPath = public_path('notification/terminal-map.pdf');
+        if (is_file($pdfPath)) {
+            return response()->file($pdfPath, [
+                'Content-Type' => 'application/pdf',
+            ]);
+        }
+
+        $excelPath = base_path('2026 Навигация территории ШЛ.xlsx');
+        if (!is_file($excelPath)) {
+            abort(404, 'Файл схемы терминалов не найден');
+        }
+
+        return response()->download($excelPath, 'terminal-scheme.xlsx');
     }
     public function spectechReferences(){
         return Inertia::render('spectech/references');
