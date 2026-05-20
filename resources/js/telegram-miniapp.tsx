@@ -244,9 +244,18 @@ interface ViolationCategoryOption {
     types: ViolationTypeOption[];
 }
 
+type RecognitionCameraZoomMode = 'none' | 'hardware' | 'digital';
+
+interface RecognitionCameraZoomRange {
+    min: number;
+    max: number;
+    step: number;
+}
+
 const MAX_REQUEST_PHOTOS = 5;
 const UNKNOWN_TRUCK_CONFIRMATION_LIMIT = 2;
 const VIOLATION_RECOGNITION_CONFIRMATION_LIMIT = 3;
+const DEFAULT_RECOGNITION_ZOOM_RANGE: RecognitionCameraZoomRange = { min: 1, max: 3, step: 0.1 };
 
 
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
@@ -735,6 +744,9 @@ function ViolationsCreateView({
     const [confirmedRecognitionCandidate, setConfirmedRecognitionCandidate] = useState<ViolationRecognitionCandidate | null>(null);
     const [recognitionRejectedAll, setRecognitionRejectedAll] = useState(false);
     const [recognitionCameraOpen, setRecognitionCameraOpen] = useState(false);
+    const [recognitionZoomMode, setRecognitionZoomMode] = useState<RecognitionCameraZoomMode>('none');
+    const [recognitionZoomRange, setRecognitionZoomRange] = useState<RecognitionCameraZoomRange>(DEFAULT_RECOGNITION_ZOOM_RANGE);
+    const [recognitionZoomValue, setRecognitionZoomValue] = useState(1);
     const [lastAutofill, setLastAutofill] = useState<{ fullName: string; department: string; position: string } | null>(null);
     const [files, setFiles] = useState<File[]>([]);
     const [busy, setBusy] = useState(false);
@@ -768,6 +780,12 @@ function ViolationsCreateView({
         setTypeId(nextType.id);
     }, [selectedCategory, typeId]);
 
+    const resetRecognitionZoom = useCallback(() => {
+        setRecognitionZoomMode('none');
+        setRecognitionZoomRange(DEFAULT_RECOGNITION_ZOOM_RANGE);
+        setRecognitionZoomValue(1);
+    }, []);
+
     const stopRecognitionCamera = useCallback(() => {
         if (recognitionStreamRef.current) {
             recognitionStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -779,7 +797,8 @@ function ViolationsCreateView({
         }
 
         setRecognitionCameraOpen(false);
-    }, []);
+        resetRecognitionZoom();
+    }, [resetRecognitionZoom]);
 
     useEffect(() => {
         return () => {
@@ -949,6 +968,80 @@ function ViolationsCreateView({
         await runRecognitionForFile(selectedFile);
     };
 
+    const initializeRecognitionZoom = async (stream: MediaStream) => {
+        const track = stream.getVideoTracks()[0] as (MediaStreamTrack & {
+            getCapabilities?: () => MediaTrackCapabilities & { zoom?: { min?: number; max?: number; step?: number } };
+            getSettings?: () => MediaTrackSettings & { zoom?: number };
+        }) | undefined;
+
+        if (!track) {
+            resetRecognitionZoom();
+            return;
+        }
+
+        const capabilities = typeof track.getCapabilities === 'function' ? track.getCapabilities() : null;
+        const settings = typeof track.getSettings === 'function' ? track.getSettings() : null;
+        const zoomCapabilities = capabilities?.zoom;
+
+        if (
+            zoomCapabilities
+            && typeof zoomCapabilities.min === 'number'
+            && typeof zoomCapabilities.max === 'number'
+            && zoomCapabilities.max > zoomCapabilities.min
+        ) {
+            const nextRange = {
+                min: Math.max(1, zoomCapabilities.min),
+                max: Math.max(1, zoomCapabilities.max),
+                step: typeof zoomCapabilities.step === 'number' && zoomCapabilities.step > 0
+                    ? zoomCapabilities.step
+                    : 0.1,
+            } satisfies RecognitionCameraZoomRange;
+            const nextValue = typeof settings?.zoom === 'number'
+                ? Math.min(nextRange.max, Math.max(nextRange.min, settings.zoom))
+                : nextRange.min;
+
+            setRecognitionZoomMode('hardware');
+            setRecognitionZoomRange(nextRange);
+            setRecognitionZoomValue(nextValue);
+            return;
+        }
+
+        setRecognitionZoomMode('digital');
+        setRecognitionZoomRange(DEFAULT_RECOGNITION_ZOOM_RANGE);
+        setRecognitionZoomValue(1);
+    };
+
+    const updateRecognitionZoom = async (rawValue: number) => {
+        const nextValue = Math.min(
+            recognitionZoomRange.max,
+            Math.max(recognitionZoomRange.min, rawValue),
+        );
+
+        setRecognitionZoomValue(nextValue);
+
+        if (recognitionZoomMode !== 'hardware') {
+            return;
+        }
+
+        const track = recognitionStreamRef.current?.getVideoTracks()[0];
+        if (!track || typeof track.applyConstraints !== 'function') {
+            return;
+        }
+
+        try {
+            await track.applyConstraints({
+                advanced: [{ zoom: nextValue } as MediaTrackConstraintSet],
+            });
+        } catch {
+            setRecognitionZoomMode('digital');
+            setRecognitionZoomRange((current) => ({
+                min: 1,
+                max: Math.max(current.max, DEFAULT_RECOGNITION_ZOOM_RANGE.max),
+                step: DEFAULT_RECOGNITION_ZOOM_RANGE.step,
+            }));
+        }
+    };
+
     const startRecognitionCamera = async () => {
         if (recognitionBusy) {
             return;
@@ -971,6 +1064,7 @@ function ViolationsCreateView({
                 audio: false,
             });
 
+            await initializeRecognitionZoom(stream);
             recognitionStreamRef.current = stream;
             setRecognitionCameraOpen(true);
             setErr(null);
@@ -1004,7 +1098,27 @@ function ViolationsCreateView({
                 return;
             }
 
-            context.drawImage(recognitionVideoRef.current, 0, 0, canvas.width, canvas.height);
+            if (recognitionZoomMode === 'digital' && recognitionZoomValue > 1) {
+                const sourceWidth = recognitionVideoRef.current.videoWidth / recognitionZoomValue;
+                const sourceHeight = recognitionVideoRef.current.videoHeight / recognitionZoomValue;
+                const sourceX = (recognitionVideoRef.current.videoWidth - sourceWidth) / 2;
+                const sourceY = (recognitionVideoRef.current.videoHeight - sourceHeight) / 2;
+
+                context.drawImage(
+                    recognitionVideoRef.current,
+                    sourceX,
+                    sourceY,
+                    sourceWidth,
+                    sourceHeight,
+                    0,
+                    0,
+                    canvas.width,
+                    canvas.height,
+                );
+            } else {
+                context.drawImage(recognitionVideoRef.current, 0, 0, canvas.width, canvas.height);
+            }
+
             const compressedDataUrl = await compressImageDataUrl(canvas.toDataURL('image/jpeg', 0.92));
             const capturedFile = await dataUrlToFile(compressedDataUrl, 'recognition-camera.jpg');
 
@@ -1183,8 +1297,66 @@ function ViolationsCreateView({
                 <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15, 23, 42, 0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                     <div style={{ width: '100%', maxWidth: 560, borderRadius: 18, padding: 14, background: '#111827', boxShadow: '0 24px 80px rgba(0,0,0,0.45)' }}>
                         <div style={{ color: '#fff', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Сделайте фото сотрудника</div>
-                        <video ref={recognitionVideoRef} autoPlay playsInline muted style={{ width: '100%', maxHeight: '70vh', borderRadius: 12, display: 'block', background: '#000', objectFit: 'cover' }} />
+                        <div style={{ overflow: 'hidden', borderRadius: 12, background: '#000' }}>
+                            <video
+                                ref={recognitionVideoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                style={{
+                                    width: '100%',
+                                    maxHeight: '70vh',
+                                    borderRadius: 12,
+                                    display: 'block',
+                                    background: '#000',
+                                    objectFit: 'cover',
+                                    transform: recognitionZoomMode === 'digital' ? `scale(${recognitionZoomValue})` : undefined,
+                                    transformOrigin: 'center center',
+                                    transition: 'transform 120ms ease-out',
+                                }}
+                            />
+                        </div>
                         <canvas ref={recognitionCanvasRef} style={{ display: 'none' }} />
+                        {recognitionZoomMode !== 'none' && (
+                            <div style={{ marginTop: 12, borderRadius: 12, background: '#0f172a', padding: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, color: '#fff', fontSize: 13, marginBottom: 8 }}>
+                                    <span>Приближение камеры</span>
+                                    <span>x{recognitionZoomValue.toFixed(1)}</span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 48px', gap: 10, alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        style={{ ...smallButtonStyle, padding: '10px 0', background: '#1e293b', color: '#fff' }}
+                                        onClick={() => void updateRecognitionZoom(recognitionZoomValue - recognitionZoomRange.step)}
+                                        disabled={recognitionZoomValue <= recognitionZoomRange.min}
+                                    >
+                                        -
+                                    </button>
+                                    <input
+                                        type="range"
+                                        min={recognitionZoomRange.min}
+                                        max={recognitionZoomRange.max}
+                                        step={recognitionZoomRange.step}
+                                        value={recognitionZoomValue}
+                                        onChange={(event) => void updateRecognitionZoom(Number(event.target.value))}
+                                        style={{ width: '100%' }}
+                                    />
+                                    <button
+                                        type="button"
+                                        style={{ ...smallButtonStyle, padding: '10px 0', background: '#1e293b', color: '#fff' }}
+                                        onClick={() => void updateRecognitionZoom(recognitionZoomValue + recognitionZoomRange.step)}
+                                        disabled={recognitionZoomValue >= recognitionZoomRange.max}
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                                <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 8 }}>
+                                    {recognitionZoomMode === 'hardware'
+                                        ? 'Используется приближение самой камеры устройства.'
+                                        : 'Если камера не поддерживает аппаратный zoom, используется программное приближение кадра.'}
+                                </div>
+                            </div>
+                        )}
                         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                             <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff', padding: '12px 14px' }} onClick={() => void captureRecognitionPhoto()}>
                                 Сделать фото
