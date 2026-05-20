@@ -48,4 +48,12 @@ class ViolationEmployee extends Model
     {
         return $this->hasMany(ViolationEmployeeFaceReference::class, 'employee_id')->orderByDesc('is_primary')->orderBy('id');
     }
+
+    public function primaryFaceReference()
+    {
+        return $this->hasOne(ViolationEmployeeFaceReference::class, 'employee_id')
+            ->where('is_active', true)
+            ->orderByDesc('is_primary')
+            ->orderBy('id');
+    }
 }
