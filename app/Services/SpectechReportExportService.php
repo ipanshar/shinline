@@ -35,12 +35,19 @@ class SpectechReportExportService
         $this->buildAnalyticsBlock($sheet, $report);
         $this->buildJournalBlock($sheet, $report);
 
-        $path = tempnam(sys_get_temp_dir(), 'spectech_report_');
+        $directory = storage_path('app/reports');
+        if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
+            throw new \RuntimeException('Не удалось создать директорию для отчётов: ' . $directory);
+        }
+
+        $path = tempnam($directory, 'spectech_report_');
         if ($path === false) {
             throw new \RuntimeException('Не удалось создать временный файл для отчёта');
         }
 
         $xlsxPath = $path . '.xlsx';
+        @unlink($path);
+
         $writer = new Xlsx($spreadsheet);
         $writer->setPreCalculateFormulas(false);
         $writer->save($xlsxPath);

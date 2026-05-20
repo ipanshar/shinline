@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Throwable;
 
 class SpectechReportController extends Controller
 {
@@ -29,7 +30,14 @@ class SpectechReportController extends Controller
     ): BinaryFileResponse {
         [$from, $to] = $this->resolvePeriod($request);
         $report = $service->build($from, $to);
-        $filePath = $exporter->export($report);
+        try {
+            $filePath = $exporter->export($report);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            abort(500, 'Не удалось сформировать Excel-отчёт. Проверьте зависимости Composer и права на storage/app/reports.');
+        }
+
         $filename = sprintf(
             'spectech-weekly-report_%s_%s.xlsx',
             $from->format('Y-m-d'),
