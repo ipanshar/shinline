@@ -352,6 +352,9 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
                     ],
                 ],
             ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response([
+                'status' => 'ok',
+            ], 200),
         ]);
 
         $response = $this->post('/api/telegram/miniapp/violations/incidents', [
@@ -391,6 +394,139 @@ class TelegramMiniAppViolationsControllerTest extends TestCase
             'source' => 'recognition_probe',
             'disk' => 'faceid_references',
             'is_active' => true,
+        ]);
+
+        Http::assertSent(fn ($request) => $request->url() === 'http://127.0.0.1:8008/api/rebuild' && $request->method() === 'POST');
+    }
+
+    public function test_second_incident_can_match_employee_saved_from_first_manual_reference(): void
+    {
+        $initData = $this->makeInitData(['id' => 7108, 'first_name' => 'Repeat']);
+        $user = $this->approveSecurityUser('7108', 'Repeat User', 'tg7108@example.com', '+77000007108');
+        $typeId = \App\Models\ViolationType::query()->where('key', 'no_ppe')->value('id');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'referenceKey' => 'sigur-photo:1000:1',
+                    'employeeId' => 1000,
+                    'groupKey' => 'candidate:1000',
+                    'name' => 'Кандидат 1',
+                    'source' => 'sigur-photo',
+                    'referenceImageUrl' => '/reference-images/candidate-1.jpg',
+                    'similarity' => 0.4888,
+                    'profile' => [
+                        'department' => 'Цех 1',
+                        'role' => 'EMP',
+                        'sourceLabel' => 'Sigur photo',
+                    ],
+                ],
+                'candidates' => [
+                    [
+                        'referenceKey' => 'sigur-photo:1001:2',
+                        'employeeId' => 1001,
+                        'groupKey' => 'candidate:1001',
+                        'name' => 'Кандидат 2',
+                        'source' => 'sigur-photo',
+                        'referenceImageUrl' => '/reference-images/candidate-2.jpg',
+                        'similarity' => 0.4622,
+                        'profile' => [
+                            'department' => 'Цех 2',
+                            'role' => 'EMP',
+                            'sourceLabel' => 'Sigur photo',
+                        ],
+                    ],
+                    [
+                        'referenceKey' => 'sigur-photo:1002:3',
+                        'employeeId' => 1002,
+                        'groupKey' => 'candidate:1002',
+                        'name' => 'Кандидат 3',
+                        'source' => 'sigur-photo',
+                        'referenceImageUrl' => '/reference-images/candidate-3.jpg',
+                        'similarity' => 0.4511,
+                        'profile' => [
+                            'department' => 'Цех 3',
+                            'role' => 'EMP',
+                            'sourceLabel' => 'Sigur photo',
+                        ],
+                    ],
+                ],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response([
+                'status' => 'ok',
+            ], 200),
+        ]);
+
+        $firstResponse = $this->post('/api/telegram/miniapp/violations/incidents', [
+            'init_data' => $initData,
+            'type_id' => $typeId,
+            'occurred_at' => now()->toDateTimeString(),
+            'description' => 'Первое нарушение с ручным сохранением нового эталона.',
+            'manual_full_name' => 'Тестовый Сотрудник',
+            'manual_department' => 'Склад ГП',
+            'manual_position' => 'EMP',
+            'recognition_rejected_all' => '1',
+            'recognition_file' => UploadedFile::fake()->create('unknown.jpg', 64, 'image/jpeg'),
+            'files' => [UploadedFile::fake()->create('proof-1.jpg', 64, 'image/jpeg')],
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $firstResponse->assertCreated();
+
+        $employee = \App\Models\ViolationEmployee::query()->sole();
+        Http::assertSent(fn ($request) => $request->url() === 'http://127.0.0.1:8008/api/rebuild' && $request->method() === 'POST');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => true,
+                'threshold' => 0.5,
+                'bestMatch' => [
+                    'referenceKey' => 'recognition_probe:' . $employee->id . ':1',
+                    'employeeId' => $employee->id,
+                    'groupKey' => $employee->business_key,
+                    'name' => $employee->full_name,
+                    'source' => 'recognition_probe',
+                    'referenceImageUrl' => '/reference-images/manual/test.jpg',
+                    'similarity' => 0.9812,
+                    'profile' => [
+                        'department' => $employee->department,
+                        'role' => $employee->position,
+                        'status' => $employee->employment_status,
+                        'businessKey' => $employee->business_key,
+                        'groupKey' => $employee->business_key,
+                        'sourceLabel' => 'Telegram manual reference',
+                    ],
+                ],
+                'candidates' => [],
+            ], 200),
+        ]);
+
+        $secondResponse = $this->post('/api/telegram/miniapp/violations/incidents', [
+            'init_data' => $initData,
+            'type_id' => $typeId,
+            'occurred_at' => now()->toDateTimeString(),
+            'description' => 'Повторное нарушение должно найти только что сохранённый эталон.',
+            'recognition_file' => UploadedFile::fake()->create('repeat.jpg', 64, 'image/jpeg'),
+            'files' => [UploadedFile::fake()->create('proof-2.jpg', 64, 'image/jpeg')],
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $secondResponse->assertCreated()
+            ->assertJsonPath('data.employee_full_name', 'Тестовый Сотрудник')
+            ->assertJsonPath('data.employee_department', 'Склад ГП')
+            ->assertJsonPath('data.employee_position', 'EMP')
+            ->assertJsonPath('data.recognition_status', 'matched');
+
+        $this->assertDatabaseCount('violation_employees', 1);
+        $this->assertDatabaseHas('violation_incidents', [
+            'reported_by_user_id' => $user->id,
+            'employee_id' => $employee->id,
+            'employee_full_name' => 'Тестовый Сотрудник',
+            'recognition_status' => 'matched',
         ]);
     }
 

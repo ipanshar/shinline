@@ -94,9 +94,47 @@ class FaceIdRecognitionService
         ];
     }
 
+    /**
+     * @return array{ok: bool, error: ?string, http_status: ?int}
+     */
+    public function requestRuntimeRebuild(): array
+    {
+        try {
+            $response = Http::timeout(3)
+                ->connectTimeout(1)
+                ->acceptJson()
+                ->post($this->rebuildUrl());
+        } catch (\Throwable $exception) {
+            return [
+                'ok' => false,
+                'error' => $exception->getMessage(),
+                'http_status' => null,
+            ];
+        }
+
+        if (! $response->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'Face ID runtime rebuild failed with HTTP ' . $response->status() . '.',
+                'http_status' => $response->status(),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'http_status' => $response->status(),
+        ];
+    }
+
     private function searchUrl(): string
     {
         return rtrim((string) config('services.faceid.base_url', 'http://127.0.0.1:8008'), '/') . '/api/search';
+    }
+
+    private function rebuildUrl(): string
+    {
+        return rtrim((string) config('services.faceid.base_url', 'http://127.0.0.1:8008'), '/') . '/api/rebuild';
     }
 
     private function resolveUploadedFilePath(UploadedFile $file): ?string

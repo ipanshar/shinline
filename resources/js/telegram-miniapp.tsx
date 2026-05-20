@@ -734,10 +734,15 @@ function ViolationsCreateView({
     const [recognitionReviewIndex, setRecognitionReviewIndex] = useState(0);
     const [confirmedRecognitionCandidate, setConfirmedRecognitionCandidate] = useState<ViolationRecognitionCandidate | null>(null);
     const [recognitionRejectedAll, setRecognitionRejectedAll] = useState(false);
+    const [recognitionCameraOpen, setRecognitionCameraOpen] = useState(false);
     const [lastAutofill, setLastAutofill] = useState<{ fullName: string; department: string; position: string } | null>(null);
     const [files, setFiles] = useState<File[]>([]);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const recognitionVideoRef = useRef<HTMLVideoElement | null>(null);
+    const recognitionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const recognitionStreamRef = useRef<MediaStream | null>(null);
+    const recognitionGalleryInputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
         if (catalog.length === 0) {
@@ -762,6 +767,34 @@ function ViolationsCreateView({
         const nextType = activeTypes.find((type) => type.id === typeId) ?? activeTypes[0];
         setTypeId(nextType.id);
     }, [selectedCategory, typeId]);
+
+    const stopRecognitionCamera = useCallback(() => {
+        if (recognitionStreamRef.current) {
+            recognitionStreamRef.current.getTracks().forEach((track) => track.stop());
+            recognitionStreamRef.current = null;
+        }
+
+        if (recognitionVideoRef.current) {
+            recognitionVideoRef.current.srcObject = null;
+        }
+
+        setRecognitionCameraOpen(false);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            stopRecognitionCamera();
+        };
+    }, [stopRecognitionCamera]);
+
+    useEffect(() => {
+        if (!recognitionCameraOpen || !recognitionVideoRef.current || !recognitionStreamRef.current) {
+            return;
+        }
+
+        recognitionVideoRef.current.srcObject = recognitionStreamRef.current;
+        void recognitionVideoRef.current.play().catch(() => undefined);
+    }, [recognitionCameraOpen]);
 
     const handleFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = Array.from(event.target.files ?? []);
@@ -812,6 +845,7 @@ function ViolationsCreateView({
     };
 
     const clearRecognition = () => {
+        stopRecognitionCamera();
         clearRecognitionAutofill();
         setRecognitionFile(null);
         setRecognitionError(null);
@@ -860,14 +894,12 @@ function ViolationsCreateView({
         setRecognitionRejectedAll(true);
     };
 
-    const handleRecognitionSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const selectedFile = event.target.files?.[0] ?? null;
-        event.target.value = '';
-
+    const runRecognitionForFile = async (selectedFile: File | null) => {
         if (!selectedFile) {
             return;
         }
 
+        stopRecognitionCamera();
         clearRecognitionAutofill();
         setRecognitionBusy(true);
         setRecognitionError(null);
@@ -907,6 +939,78 @@ function ViolationsCreateView({
             setLastAutofill(null);
         } finally {
             setRecognitionBusy(false);
+        }
+    };
+
+    const handleRecognitionSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = event.target.files?.[0] ?? null;
+        event.target.value = '';
+
+        await runRecognitionForFile(selectedFile);
+    };
+
+    const startRecognitionCamera = async () => {
+        if (recognitionBusy) {
+            return;
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setErr('Не удалось открыть камеру на этом устройстве. Можно выбрать фото из галереи.');
+            return;
+        }
+
+        clearRecognition();
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
+                audio: false,
+            });
+
+            recognitionStreamRef.current = stream;
+            setRecognitionCameraOpen(true);
+            setErr(null);
+        } catch {
+            setErr('Не удалось получить доступ к камере. Можно выбрать фото из галереи.');
+        }
+    };
+
+    const openRecognitionGallery = () => {
+        recognitionGalleryInputRef.current?.click();
+    };
+
+    const captureRecognitionPhoto = async () => {
+        if (!recognitionVideoRef.current || !recognitionCanvasRef.current) {
+            return;
+        }
+
+        if (recognitionVideoRef.current.videoWidth === 0 || recognitionVideoRef.current.videoHeight === 0) {
+            setErr('Камера ещё не готова. Попробуйте ещё раз.');
+            return;
+        }
+
+        try {
+            const canvas = recognitionCanvasRef.current;
+            canvas.width = recognitionVideoRef.current.videoWidth;
+            canvas.height = recognitionVideoRef.current.videoHeight;
+
+            const context = canvas.getContext('2d');
+            if (!context) {
+                setErr('Не удалось обработать снимок.');
+                return;
+            }
+
+            context.drawImage(recognitionVideoRef.current, 0, 0, canvas.width, canvas.height);
+            const compressedDataUrl = await compressImageDataUrl(canvas.toDataURL('image/jpeg', 0.92));
+            const capturedFile = await dataUrlToFile(compressedDataUrl, 'recognition-camera.jpg');
+
+            await runRecognitionForFile(capturedFile);
+        } catch {
+            setErr('Не удалось сделать фото сотрудника.');
         }
     };
 
@@ -1044,16 +1148,56 @@ function ViolationsCreateView({
             )}
 
             <label>Фото сотрудника для распознавания</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '4px 0 12px' }}>
+                <button
+                    type="button"
+                    style={{
+                        ...smallButtonStyle,
+                        padding: '12px 14px',
+                        background: recognitionCameraOpen ? '#dbeafe' : '#2481cc',
+                        color: recognitionCameraOpen ? '#1d4ed8' : '#fff',
+                    }}
+                    onClick={() => void startRecognitionCamera()}
+                    disabled={recognitionBusy || recognitionCameraOpen}
+                >
+                    {recognitionCameraOpen
+                        ? 'Камера открыта'
+                        : (recognitionFile ? 'Переснять камерой' : 'Сделать фото камерой')}
+                </button>
+                <button
+                    type="button"
+                    style={{ ...smallButtonStyle, padding: '12px 14px', background: '#f3f4f6', color: '#111827' }}
+                    onClick={openRecognitionGallery}
+                    disabled={recognitionBusy}
+                >
+                    Выбрать из галереи
+                </button>
+            </div>
             <input
+                ref={recognitionGalleryInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                capture="environment"
+                accept="image/*"
                 onChange={handleRecognitionSelection}
-                style={{ ...inputStyle, padding: 8 }}
+                style={{ display: 'none' }}
             />
             <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
-                Это фото используется только для поиска сотрудника. Доказательства нарушения загружаются отдельно ниже.
+                Для определения личности сначала снимайте сотрудника камерой. Фото и видео самого нарушения загружаются отдельно ниже.
             </div>
+
+            {recognitionCameraOpen && (
+                <div style={{ border: '1px solid #ddd', borderRadius: 12, padding: 12, marginBottom: 12, background: '#111' }}>
+                    <video ref={recognitionVideoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 8, display: 'block', background: '#000' }} />
+                    <canvas ref={recognitionCanvasRef} style={{ display: 'none' }} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff' }} onClick={() => void captureRecognitionPhoto()}>
+                            Сделать фото
+                        </button>
+                        <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#e0e0e0', color: '#222' }} onClick={stopRecognitionCamera}>
+                            Отмена
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {recognitionFile && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #ddd', borderRadius: 10, padding: '10px 12px', marginBottom: 12, background: '#fafafa' }}>
@@ -1122,10 +1266,10 @@ function ViolationsCreateView({
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
                                 <button type="button" style={{ ...smallButtonStyle, background: '#166534', color: '#fff' }} onClick={() => applyRecognitionCandidate(currentRecognitionCandidate)}>
-                                    Это он
+                                    Это он(-а)
                                 </button>
                                 <button type="button" style={{ ...smallButtonStyle, background: '#b42318', color: '#fff' }} onClick={moveToNextRecognitionCandidate}>
-                                    Не он
+                                    Это не он(-а)
                                 </button>
                             </div>
                         </>

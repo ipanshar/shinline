@@ -447,6 +447,12 @@ class ViolationIncidentService
 
     private function recognitionBusinessKey(array $candidate): string
     {
+        $profile = $this->candidateProfile($candidate);
+        $profileBusinessKey = $this->nullableTrim($profile['businessKey'] ?? null);
+        if ($profileBusinessKey) {
+            return $profileBusinessKey;
+        }
+
         $groupKey = $this->nullableTrim($candidate['groupKey'] ?? null);
         if ($groupKey) {
             return 'faceid:' . $groupKey;
@@ -797,10 +803,22 @@ class ViolationIncidentService
     private function refreshFaceReferenceManifestSilently(): void
     {
         try {
-            $this->faceReferenceManifest->exportActiveManifest();
+            $manifest = $this->faceReferenceManifest->exportActiveManifest();
         } catch (\Throwable $exception) {
             Log::warning('Failed to refresh face reference manifest', [
                 'error' => $exception->getMessage(),
+            ]);
+
+            return;
+        }
+
+        $rebuild = $this->faceIdRecognition->requestRuntimeRebuild();
+        if (! ($rebuild['ok'] ?? false)) {
+            Log::warning('Failed to rebuild faceid runtime after manifest refresh', [
+                'error' => $rebuild['error'] ?? 'unknown',
+                'http_status' => $rebuild['http_status'] ?? null,
+                'manifest_path' => $manifest['path'] ?? null,
+                'manifest_count' => $manifest['count'] ?? null,
             ]);
         }
     }
