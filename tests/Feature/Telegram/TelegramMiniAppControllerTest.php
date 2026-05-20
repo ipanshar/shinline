@@ -57,7 +57,40 @@ class TelegramMiniAppControllerTest extends TestCase
         $this->postJson('/api/telegram/miniapp/session', ['init_data' => $initData])
             ->assertOk()
             ->assertJsonPath('data.approval_status', TelegramBotChat::APPROVAL_NONE)
-            ->assertJsonPath('data.chat_id', '7001');
+            ->assertJsonPath('data.chat_id', '7001')
+            ->assertJsonPath('data.can_record_violations', false)
+            ->assertJsonPath('data.can_review_violations', false);
+    }
+
+    public function test_session_returns_violations_flags_for_security_service_user(): void
+    {
+        $initData = $this->makeInitData(['id' => 7010, 'first_name' => 'Security']);
+
+        $user = User::create([
+            'name' => 'Security User',
+            'login' => 'tg_7010',
+            'email' => 'tg7010@example.com',
+            'password' => 'x',
+            'phone' => '+77000007010',
+        ]);
+
+        $role = Role::findByName('Служба безопасности');
+        $this->assertNotNull($role);
+        $user->roles()->attach($role->id);
+
+        TelegramBotChat::create([
+            'chat_id' => '7010',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'Security User',
+            'display_phone' => '+77000007010',
+        ]);
+
+        $this->postJson('/api/telegram/miniapp/session', ['init_data' => $initData])
+            ->assertOk()
+            ->assertJsonPath('data.approval_status', TelegramBotChat::APPROVAL_APPROVED)
+            ->assertJsonPath('data.can_record_violations', true)
+            ->assertJsonPath('data.can_review_violations', true);
     }
 
     public function test_register_moves_to_awaiting_review(): void

@@ -23,7 +23,6 @@ use App\Events\MessageSent;
 use App\Models\EntryPermit;
 use App\Models\Visitor;
 use App\Models\Weighing;
-use App\Models\WeighingRequirement;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssTelegramEventRegistry;
 use App\Services\DssTelegramNotificationManager;
@@ -630,6 +629,7 @@ class TaskCotroller extends Controller
                     $validate['plan_date'] ?? now()->format('Y-m-d H:i:s'),
                     $endDate,
                     $integrationIssuerId,
+                    $needsWeighing,
                 );
 
                 if ($visitor && (int) $visitor->yard_id === (int) $yard->id && (int) $visitor->entry_permit_id !== (int) $permit->id) {
@@ -1438,14 +1438,10 @@ class TaskCotroller extends Controller
         $taskWeighing = TaskWeighing::where('task_id', $task_id)->where('yard_id', $yard_id)->first();
         
         if ($taskWeighing && $weighing) {
-            // Задача уже существует, проверяем WeighingRequirement
-            $this->syncWeighingRequirement($task_id, $yard_id, $truck_id, $plate_number, true);
             return 1;
         } else if ($taskWeighing && $weighing == null) {
-            // Удаляем задачу на взвешивания
+            // Удаляем задачу на взвешивания (старая система)
             TaskWeighing::where('task_id', $task_id)->where('yard_id', $yard_id)->delete();
-            // Также удаляем требование в новой системе (если не было взвешиваний)
-            $this->syncWeighingRequirement($task_id, $yard_id, $truck_id, $plate_number, false);
             return 0;
         } else if ($taskWeighing == null && $weighing) {
             // Создаем задание на взвешивания в старой системе
@@ -1461,144 +1457,10 @@ class TaskCotroller extends Controller
                 'statuse_weighing_id' => 2,
                 'yard_id' => $yard_id,
             ]);
-            // Создаем требование в новой системе
-            $this->syncWeighingRequirement($task_id, $yard_id, $truck_id, $plate_number, true);
             return 1;
         }
         
         return 0;
-    }
-
-    private function findActiveVisitorForWeighingRequirement(int $yard_id, int $task_id, ?int $truck_id = null, ?string $plate_number = null): ?Visitor
-    {
-        $baseQuery = Visitor::query()
-            ->where('yard_id', $yard_id)
-            ->whereNull('exit_date');
-
-        if ($task_id) {
-            $visitor = (clone $baseQuery)
-                ->where('task_id', $task_id)
-                ->orderByDesc('entry_date')
-                ->first();
-
-            if ($visitor) {
-                return $visitor;
-            }
-        }
-
-        if ($truck_id) {
-            $visitor = (clone $baseQuery)
-                ->where('truck_id', $truck_id)
-                ->orderByDesc('entry_date')
-                ->first();
-
-            if ($visitor) {
-                return $visitor;
-            }
-        }
-
-        if ($plate_number) {
-            return (clone $baseQuery)
-                ->where('plate_number', $plate_number)
-                ->orderByDesc('entry_date')
-                ->first();
-        }
-
-        return null;
-    }
-
-    /**
-     * Синхронизирует WeighingRequirement с TaskWeighing
-     * @param int $task_id ID задачи
-     * @param int $yard_id ID двора
-     * @param int|null $truck_id ID грузовика
-     * @param string|null $plate_number Номер ТС
-     * @param bool $needsWeighing Требуется ли взвешивание
-     */
-    private function syncWeighingRequirement($task_id, $yard_id, $truck_id = null, $plate_number = null, $needsWeighing = true)
-    {
-        // Если нет truck_id - пытаемся получить из задачи
-        if (!$truck_id) {
-            $task = Task::find($task_id);
-            if ($task && $task->truck_id) {
-                $truck_id = $task->truck_id;
-            }
-        }
-        
-        // Получаем plate_number из truck если не передан
-        if (!$plate_number && $truck_id) {
-            $truck = Truck::find($truck_id);
-            $plate_number = $truck ? $truck->plate_number : null;
-        }
-        
-        // Если нет truck_id или plate_number - не создаём требование
-        if (!$truck_id || !$plate_number) {
-            return;
-        }
-        
-        // Ищем существующее требование по task_id и yard_id
-        $requirement = WeighingRequirement::where('task_id', $task_id)
-            ->where('yard_id', $yard_id)
-            ->first();
-
-        $visitor = $this->findActiveVisitorForWeighingRequirement(
-            $yard_id,
-            $task_id,
-            $truck_id,
-            $plate_number
-        );
-        
-        if ($needsWeighing) {
-            // Если требование не существует - создаем
-            if (!$requirement) {
-                if (!$visitor) {
-                    return;
-                }
-
-                WeighingRequirement::create([
-                    'yard_id' => $yard_id,
-                    'visitor_id' => $visitor->id,
-                    'task_id' => $task_id,
-                    'truck_id' => $truck_id,
-                    'plate_number' => $plate_number,
-                    'required_type' => WeighingRequirement::TYPE_BOTH,
-                    'reason' => WeighingRequirement::REASON_TASK,
-                    'status' => WeighingRequirement::STATUS_PENDING,
-                ]);
-            } else {
-                // Обновляем существующее требование если нужно
-                $updateData = [];
-                if ($truck_id && $requirement->truck_id !== $truck_id) {
-                    $updateData['truck_id'] = $truck_id;
-                    // При смене truck обновляем plate_number
-                    $updateData['plate_number'] = $plate_number;
-                }
-                if ($plate_number && $requirement->plate_number !== $plate_number) {
-                    $updateData['plate_number'] = $plate_number;
-                }
-                if ($visitor && $requirement->visitor_id !== $visitor->id) {
-                    $updateData['visitor_id'] = $visitor->id;
-                }
-                // Если статус skipped - восстанавливаем на pending
-                if ($requirement->status === WeighingRequirement::STATUS_SKIPPED) {
-                    $updateData['status'] = WeighingRequirement::STATUS_PENDING;
-                    $updateData['skipped_reason'] = null;
-                    $updateData['skipped_by_user_id'] = null;
-                    $updateData['skipped_at'] = null;
-                }
-                if (!empty($updateData)) {
-                    $requirement->update($updateData);
-                }
-            }
-        } else {
-            // Удаляем требование только если нет связанных взвешиваний
-            if ($requirement && 
-                $requirement->status === WeighingRequirement::STATUS_PENDING &&
-                !$requirement->entry_weighing_id && 
-                !$requirement->exit_weighing_id) {
-                $requirement->delete();
-            }
-        }
     }
 
     /**
@@ -1720,7 +1582,7 @@ class TaskCotroller extends Controller
         return $task;
     }
 
-    private function getPermitById($truck_id, $yard_id, $user_id = null, $task_id = null, $one_permission = true, $begin_date = null, $end_date = null, $granted_by_user_id = null)
+    private function getPermitById($truck_id, $yard_id, $user_id = null, $task_id = null, $one_permission = true, $begin_date = null, $end_date = null, $granted_by_user_id = null, $weighing_required = null)
     {
         $status_id = Status::where('key', 'active')->first()->id;
         $onePermission = (bool) $one_permission;
@@ -1735,6 +1597,7 @@ class TaskCotroller extends Controller
             'begin_date' => $begin_date,
             'end_date' => $end_date,
             'status_id' => $status_id,
+            'weighing_required' => $weighing_required,
         ];
 
         $query = EntryPermit::where('truck_id', $truck_id)->where('yard_id', $yard_id)->where('status_id', $status_id);
@@ -1746,7 +1609,7 @@ class TaskCotroller extends Controller
 
         $permit = $query->first();
 
-        if ($permit && (($granted_by_user_id && !$permit->granted_by_user_id) || !$permit->exit_permit_required)) {
+        if ($permit && (($granted_by_user_id && !$permit->granted_by_user_id) || !$permit->exit_permit_required || ($weighing_required !== null && $permit->weighing_required === null))) {
             $updateData = [];
 
             if ($granted_by_user_id && !$permit->granted_by_user_id) {
@@ -1755,6 +1618,11 @@ class TaskCotroller extends Controller
 
             if (!$permit->exit_permit_required) {
                 $updateData['exit_permit_required'] = true;
+            }
+
+            // Устанавливаем флаг взвешивания только если он ещё не задан явно
+            if ($weighing_required !== null && $permit->weighing_required === null) {
+                $updateData['weighing_required'] = $weighing_required;
             }
 
             $permit->update($updateData);
@@ -1770,19 +1638,6 @@ class TaskCotroller extends Controller
             });
 
             $this->permitVehicleService->syncPermitVehicleSafely($permit);
-
-            if ($onePermission && $task_id !== null) {
-                $truck = Truck::find($truck_id);
-
-                $this->createUpdateTaskWeighing(
-                    $task_id,
-                    true,
-                    $yard_id,
-                    1,
-                    $truck_id,
-                    $truck?->plate_number
-                );
-            }
         }
 
         return $permit;

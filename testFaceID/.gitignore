@@ -1,0 +1,9 @@
+.venv/
+frontend/node_modules/
+frontend/dist/
+backend/cache/
+backend/models/
+backend/reference_images/
+__pycache__/
+*.pyc
+*.sql

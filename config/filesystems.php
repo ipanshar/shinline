@@ -47,6 +47,13 @@ return [
             'report' => false,
         ],
 
+        'faceid_references' => [
+            'driver' => 'local',
+            'root' => env('FACEID_REFERENCE_STORE_DIR', storage_path('app/private/faceid/references')),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
