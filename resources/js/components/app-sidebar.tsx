@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin, CalendarRange, Terminal } from 'lucide-react';
+import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin, CalendarRange, FileSpreadsheet, Terminal } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -205,6 +205,12 @@ export function AppSidebar() {
                     title: 'Панель оператора',
                     href: '/spectech/dashboard',
                     icon: LayoutDashboard,
+                    permission: 'spectech.manage',
+                },
+                {
+                    title: 'Отчёт',
+                    href: '/spectech/reports',
+                    icon: FileSpreadsheet,
                     permission: 'spectech.manage',
                 },
                 {
