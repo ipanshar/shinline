@@ -501,6 +501,7 @@ class SpectechRequestController extends Controller
 
         $initiatorName = $r->initiator_name ?: $r->user?->name;
         $initiatorPhone = $r->initiator_phone ?: $r->user?->phone;
+        $conflictInfo = (new SpectechAvailabilityService())->getRequestConflictInfo($r);
 
         return [
             'id'             => $r->id,
@@ -533,7 +534,7 @@ class SpectechRequestController extends Controller
             'source_label'   => $r->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id'    => $r->schedule_id,
             'from_scheduling'=> (bool) $r->from_scheduling,
-            'conflict_info'  => $r->conflict_info ?? [],
+            'conflict_info'  => $conflictInfo,
             'cancellation_reason' => $r->cancellation_reason,
             'cancelled_by'        => $r->cancelled_by,
             'created_at'     => $r->created_at?->toIso8601String(),

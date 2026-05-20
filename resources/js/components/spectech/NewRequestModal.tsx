@@ -39,9 +39,15 @@ interface AvailabilityCheckResult {
         plate_number: string | null;
         free_at: string;
         conflicts: Array<{
-            from: string;
-            to: string;
-            purpose: string;
+            from?: string | null;
+            to?: string | null;
+            purpose?: string | null;
+            request_id?: number | null;
+            schedule_id?: number;
+            initiator_name?: string | null;
+            initiator_phone?: string | null;
+            location?: string | null;
+            address?: string | null;
         }>;
     }>;
 }
@@ -576,8 +582,22 @@ const NewRequestModal: React.FC<Props> = ({ open, onClose, onSaved, initialReque
                                                                     {conflict.conflicts.length > 0 && (
                                                                         <div className="mt-1 space-y-1 text-gray-500">
                                                                             {conflict.conflicts.map((c, ci) => (
-                                                                                <div key={ci} className="italic">
-                                                                                    • {c.from} - {c.to}: {c.purpose}
+                                                                                <div key={ci} className="rounded border border-orange-100 bg-orange-50/50 px-2 py-1">
+                                                                                    <div className="font-medium text-gray-700">
+                                                                                        {c.request_id ? `Заявка #${c.request_id}` : c.schedule_id ? `План #${c.schedule_id}` : 'Конфликтующая заявка'}
+                                                                                    </div>
+                                                                                    <div className="text-gray-600">
+                                                                                        {c.from || '—'} - {c.to || '—'}: {c.purpose || '—'}
+                                                                                    </div>
+                                                                                    <div className="text-gray-600">
+                                                                                        Инициатор: <strong>{c.initiator_name || '—'}</strong>
+                                                                                        {c.initiator_phone ? ` · ${c.initiator_phone}` : ''}
+                                                                                    </div>
+                                                                                    {(c.location || c.address) && (
+                                                                                        <div className="text-gray-500">
+                                                                                            {[c.location, c.address].filter(Boolean).join(' · ')}
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
                                                                             ))}
                                                                         </div>

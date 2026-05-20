@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\SpectechRequest;
 use App\Models\SpectechSchedule;
 use App\Models\Truck;
 use App\Models\TruckCategory;
@@ -37,21 +38,7 @@ class SpectechAvailabilityService
         $start = $this->normalizeDateTime($start);
         $end = $this->normalizeDateTime($end);
 
-        $conflicts = SpectechSchedule::where('truck_id', $truckId)
-            ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
-            ->where('scheduled_start', '<', $end)
-            ->where('scheduled_end', '>', $start)
-            ->when($excludeScheduleId, fn ($q) => $q->where('id', '!=', $excludeScheduleId))
-            ->orderBy('scheduled_start')
-            ->get(['id', 'scheduled_start', 'scheduled_end', 'purpose', 'status'])
-            ->map(fn ($s) => [
-                'id' => $s->id,
-                'scheduled_start' => $s->scheduled_start?->format('d.m.Y H:i'),
-                'scheduled_end' => $s->scheduled_end?->format('d.m.Y H:i'),
-                'purpose' => $s->purpose,
-                'status_label' => SpectechSchedule::STATUS_LABELS[$s->status] ?? $s->status,
-            ])
-            ->toArray();
+        $conflicts = $this->getTruckConflictSchedules($truckId, $start, $end, $excludeScheduleId);
 
         if (empty($conflicts)) {
             return null;
@@ -134,19 +121,7 @@ class SpectechAvailabilityService
 
             if ($busy) {
                 $freeAt = SpectechSchedule::getNextFreeAt($t->id, $start, $end, $excludeScheduleId);
-                $conflicts = SpectechSchedule::where('truck_id', $t->id)
-                    ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
-                    ->where('scheduled_start', '<', $end)
-                    ->where('scheduled_end', '>', $start)
-                    ->when($excludeScheduleId, fn ($q) => $q->where('id', '!=', $excludeScheduleId))
-                    ->orderBy('scheduled_start')
-                    ->get(['scheduled_start', 'scheduled_end', 'purpose'])
-                    ->map(fn ($s) => [
-                        'from' => $s->scheduled_start?->format('d.m.Y H:i'),
-                        'to' => $s->scheduled_end?->format('d.m.Y H:i'),
-                        'purpose' => $s->purpose,
-                    ])
-                    ->toArray();
+                $conflicts = $this->getTruckConflictSchedules($t->id, $start, $end, $excludeScheduleId);
 
                 $conflictInfo[] = [
                     'truck_id' => $t->id,
@@ -159,6 +134,128 @@ class SpectechAvailabilityService
         }
 
         return $conflictInfo;
+    }
+
+    public function getRequestConflictInfo(SpectechRequest $request): array
+    {
+        $storedConflictInfo = $request->conflict_info ?? [];
+
+        if (! $this->shouldRefreshStoredConflictInfo($storedConflictInfo)) {
+            return $storedConflictInfo;
+        }
+
+        if (! $request->truck_id || ! $request->requested_start || ! $request->requested_end) {
+            return $storedConflictInfo;
+        }
+
+        $liveConflictInfo = $this->getTypeConflictInfo(
+            (int) $request->truck_id,
+            $request->requested_start->toIso8601String(),
+            $request->requested_end->toIso8601String(),
+            $request->schedule_id ? (int) $request->schedule_id : null,
+        );
+
+        $liveConflictInfo = $this->excludeRequestFromConflictInfo($liveConflictInfo, (int) $request->id);
+
+        return ! empty($liveConflictInfo) ? $liveConflictInfo : $storedConflictInfo;
+    }
+
+    public function getTruckConflictSchedules(int $truckId, string $start, string $end, ?int $excludeScheduleId = null): array
+    {
+        $start = $this->normalizeDateTime($start);
+        $end = $this->normalizeDateTime($end);
+
+        return SpectechSchedule::query()
+            ->with(['spectechRequest.user', 'user'])
+            ->where('truck_id', $truckId)
+            ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
+            ->where('scheduled_start', '<', $end)
+            ->where('scheduled_end', '>', $start)
+            ->when($excludeScheduleId, fn ($query) => $query->where('id', '!=', $excludeScheduleId))
+            ->orderBy('scheduled_start')
+            ->get()
+            ->map(fn (SpectechSchedule $schedule) => $this->formatScheduleConflict($schedule))
+            ->toArray();
+    }
+
+    private function formatScheduleConflict(SpectechSchedule $schedule): array
+    {
+        $request = $schedule->spectechRequest;
+        $initiatorName = $request?->initiator_name
+            ?: $request?->user?->name
+            ?: $schedule->user?->name
+            ?: '—';
+        $initiatorPhone = $request?->initiator_phone
+            ?: $request?->user?->phone
+            ?: $schedule->user?->phone;
+
+        $locationParts = array_filter([
+            $request?->terminal,
+            $request?->zone,
+            $request?->gate,
+        ], fn ($value) => filled($value));
+
+        return [
+            'id' => $schedule->id,
+            'schedule_id' => $schedule->id,
+            'request_id' => $request?->id,
+            'from' => $schedule->scheduled_start?->format('d.m.Y H:i'),
+            'to' => $schedule->scheduled_end?->format('d.m.Y H:i'),
+            'scheduled_start' => $schedule->scheduled_start?->format('d.m.Y H:i'),
+            'scheduled_end' => $schedule->scheduled_end?->format('d.m.Y H:i'),
+            'purpose' => $schedule->purpose,
+            'status_label' => SpectechSchedule::STATUS_LABELS[$schedule->status] ?? $schedule->status,
+            'initiator_name' => $initiatorName,
+            'initiator_phone' => $initiatorPhone,
+            'location' => implode(' / ', $locationParts),
+            'address' => $request?->address ?: $schedule->address,
+        ];
+    }
+
+    private function shouldRefreshStoredConflictInfo(array $conflictInfo): bool
+    {
+        if (empty($conflictInfo)) {
+            return false;
+        }
+
+        foreach ($conflictInfo as $truckConflict) {
+            if (! is_array($truckConflict)) {
+                return true;
+            }
+
+            $conflicts = $truckConflict['conflicts'] ?? [];
+            if (! is_array($conflicts) || empty($conflicts)) {
+                return true;
+            }
+
+            foreach ($conflicts as $conflict) {
+                if (! is_array($conflict)) {
+                    return true;
+                }
+
+                $hasIdentifier = ! empty($conflict['request_id']) || ! empty($conflict['schedule_id']);
+                $hasInitiatorFields = array_key_exists('initiator_name', $conflict)
+                    && array_key_exists('initiator_phone', $conflict);
+
+                if (! $hasIdentifier || ! $hasInitiatorFields) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function excludeRequestFromConflictInfo(array $conflictInfo, int $requestId): array
+    {
+        return array_values(array_filter(array_map(function (array $truckConflict) use ($requestId) {
+            $truckConflict['conflicts'] = array_values(array_filter(
+                $truckConflict['conflicts'] ?? [],
+                fn ($conflict) => ! is_array($conflict) || (int) ($conflict['request_id'] ?? 0) !== $requestId,
+            ));
+
+            return empty($truckConflict['conflicts']) ? null : $truckConflict;
+        }, $conflictInfo)));
     }
 
     /**

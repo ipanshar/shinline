@@ -922,6 +922,7 @@ class TelegramMiniAppController extends Controller
         )));
         $initiatorName = $this->resolveInitiatorName(['initiator_name' => $item->initiator_name], $item->user?->name);
         $initiatorPhone = $this->resolveInitiatorPhone(['initiator_phone' => $item->initiator_phone], $item->user?->phone);
+        $conflictInfo = (new SpectechAvailabilityService())->getRequestConflictInfo($item);
 
         return [
             'id' => $item->id,
@@ -955,7 +956,7 @@ class TelegramMiniAppController extends Controller
             'source_label' => $item->user?->telegramApprovedChat ? 'Telegram Mini App' : 'Веб-кабинет',
             'schedule_id' => $item->schedule_id,
             'from_scheduling' => (bool) $item->from_scheduling,
-            'conflict_info' => $item->conflict_info ?? [],
+            'conflict_info' => $conflictInfo,
             'cancellation_reason' => $item->cancellation_reason,
             'cancelled_by'        => $item->cancelled_by,
             'created_at' => $item->created_at?->toIso8601String(),

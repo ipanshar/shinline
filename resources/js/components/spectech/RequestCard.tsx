@@ -33,7 +33,21 @@ export interface SpectechRequestData {
         truck_name: string;
         plate_number?: string | null;
         free_at?: string;
-        conflicts?: Array<{ from: string; to: string; purpose: string }>;
+        conflicts?: Array<{
+            id?: number;
+            schedule_id?: number;
+            request_id?: number | null;
+            from?: string | null;
+            to?: string | null;
+            scheduled_start?: string | null;
+            scheduled_end?: string | null;
+            purpose?: string | null;
+            status_label?: string | null;
+            initiator_name?: string | null;
+            initiator_phone?: string | null;
+            location?: string | null;
+            address?: string | null;
+        }>;
     }>;
     status_frozen?: boolean;
     status_frozen_reason?: string | null;
