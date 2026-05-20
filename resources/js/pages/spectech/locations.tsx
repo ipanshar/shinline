@@ -70,12 +70,12 @@ export default function SpectechLocations() {
                         Зоны терминалов
                     </h1>
                     <a
-                        href="/notification/terminal-map.pdf"
+                        href="/spectech/locations/scheme-file"
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted"
                     >
-                        Открыть PDF-схему
+                        Открыть схему
                     </a>
                 </div>
 
