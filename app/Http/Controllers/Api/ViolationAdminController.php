@@ -21,6 +21,8 @@ class ViolationAdminController extends Controller
                 'reporter:id,name',
                 'reviewer:id,name',
                 'evidences:id,incident_id,media_role,media_kind,path,is_primary,sort_order',
+                'employee:id,full_name',
+                'employee.primaryFaceReference:id,employee_id,path,is_primary',
             ])
             ->orderByDesc('occurred_at')
             ->orderByDesc('id');
@@ -182,6 +184,7 @@ class ViolationAdminController extends Controller
             ->filter(fn ($evidence) => $evidence->media_role === 'original')
             ->values();
         $recognitionProbe = $incident->evidences->firstWhere('media_role', 'recognition_probe');
+        $employeeReference = $incident->employee?->primaryFaceReference;
 
         return [
             'id' => $incident->id,
@@ -206,6 +209,12 @@ class ViolationAdminController extends Controller
             'review_note' => $incident->review_note,
             'rejection_reason' => $incident->rejection_reason,
             'identity_requires_manual_review' => $incident->workflow_status === ViolationIncident::STATUS_UNKNOWN_MANUAL,
+            'employee_reference' => $employeeReference ? [
+                'id' => $employeeReference->id,
+                'media_kind' => 'photo',
+                'url' => $this->referenceImageUrl($employeeReference->path),
+                'is_primary' => (bool) $employeeReference->is_primary,
+            ] : null,
             'recognition_probe' => $recognitionProbe ? [
                 'id' => $recognitionProbe->id,
                 'media_kind' => $recognitionProbe->media_kind,
@@ -230,6 +239,17 @@ class ViolationAdminController extends Controller
         $normalized = str_replace('\\', '/', ltrim($path, '/'));
 
         return '/storage/' . $normalized;
+    }
+
+    private function referenceImageUrl(?string $path): ?string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', ltrim($path, '/'));
+
+        return '/reference-images/' . $normalized;
     }
 
     private function normalizedKey(mixed $explicitKey, string $fallbackName): string

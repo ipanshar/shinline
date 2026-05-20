@@ -45,6 +45,7 @@ interface ViolationIncident {
     review_note: string | null;
     rejection_reason: string | null;
     identity_requires_manual_review: boolean;
+    employee_reference: ViolationEvidence | null;
     recognition_probe: ViolationEvidence | null;
     evidences: ViolationEvidence[];
 }
@@ -494,6 +495,7 @@ export default function ViolationsPage() {
                         <div className="space-y-3">
                             {incidents.map((incident) => {
                                 const primaryEvidence = incident.evidences.find((evidence) => evidence.is_primary) ?? incident.evidences[0] ?? null;
+                                const hasVisuals = Boolean(incident.employee_reference?.url || primaryEvidence?.url);
 
                                 return (
                                     <article key={incident.id} className="rounded-xl border border-[#ECECEC] bg-[#FCFCFC] p-4">
@@ -528,11 +530,31 @@ export default function ViolationsPage() {
                                             <p className="mt-3 text-sm leading-6 text-[#444]">{incident.description}</p>
                                         )}
 
-                                        <EvidencePreview
-                                            evidence={primaryEvidence}
-                                            alt={incident.type_name || 'Доказательство'}
-                                            onOpen={(evidence) => setPreview({ evidence, title: incident.type_name || 'Доказательство' })}
-                                        />
+                                        {hasVisuals && (
+                                            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                                                {incident.employee_reference?.url && (
+                                                    <div>
+                                                        <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Эталонное фото нарушителя</div>
+                                                        <EvidencePreview
+                                                            evidence={incident.employee_reference}
+                                                            alt={incident.employee_full_name || 'Эталонное фото нарушителя'}
+                                                            onOpen={(evidence) => setPreview({ evidence, title: incident.employee_full_name ? `Эталонное фото: ${incident.employee_full_name}` : 'Эталонное фото нарушителя' })}
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                {primaryEvidence?.url && (
+                                                    <div>
+                                                        <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Улика по нарушению</div>
+                                                        <EvidencePreview
+                                                            evidence={primaryEvidence}
+                                                            alt={incident.type_name || 'Доказательство'}
+                                                            onOpen={(evidence) => setPreview({ evidence, title: incident.type_name || 'Доказательство' })}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
                                         {(incident.review_note || incident.rejection_reason) && (
                                             <div className="mt-3 rounded-lg border border-[#E9D8A6] bg-[#FFF8DB] px-3 py-2 text-sm text-[#6B5B1A]">
