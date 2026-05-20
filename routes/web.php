@@ -30,6 +30,7 @@ use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\ClientRegistrationController;
 use App\Http\Controllers\Api\SpectechScheduleController;
 use App\Http\Controllers\Api\SpectechRequestController;
+use App\Http\Controllers\Api\SpectechReportController;
 use App\Http\Controllers\Api\UtilizationRequestController;
 
 Route::get('/', function () {
@@ -312,6 +313,7 @@ Route::get('/spectech/dashboard',   [RouteController::class, 'spectechDashboard'
 Route::get('/spectech/locations',   [RouteController::class, 'spectechLocations'])->middleware('permission:spectech.view');
 Route::get('/spectech/references',  [RouteController::class, 'spectechReferences'])->middleware('permission:spectech.view');
 Route::get('/spectech/planning',    [RouteController::class, 'spectechPlanning'])->middleware('permission:spectech.view');
+Route::get('/spectech/reports',     [RouteController::class, 'spectechReports'])->middleware('permission:spectech.manage');
 
 // API заявок (JSON)
 Route::get('/spectech/api/requests',                      [SpectechRequestController::class, 'index'])->middleware('permission:spectech.view');
@@ -345,6 +347,8 @@ Route::patch('/spectech/api/schedule/{id}/status',          [SpectechScheduleCon
 Route::delete('/spectech/api/schedule/{id}',                [SpectechScheduleController::class, 'cancel'])->middleware('permission:spectech.view');
 Route::get('/spectech/api/schedule/equipment-types',        [SpectechScheduleController::class, 'equipmentTypes'])->middleware('permission:spectech.view');
 Route::get('/spectech/api/schedule/check-availability',     [SpectechScheduleController::class, 'checkAvailability'])->middleware('permission:spectech.view');
+Route::get('/spectech/api/reports/weekly',                   [SpectechReportController::class, 'weekly'])->middleware('permission:spectech.manage');
+Route::get('/spectech/reports/export',                       [SpectechReportController::class, 'exportWeekly'])->middleware('permission:spectech.manage');
 
 // Utilization (отдельный модуль)
 Route::get('/utilization/requests', [RouteController::class, 'utilizationRequests'])->middleware('permission:utilization.view');

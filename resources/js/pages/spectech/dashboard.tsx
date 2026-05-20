@@ -6,7 +6,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LayoutDashboard, RefreshCw, Search, TimerReset } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileSpreadsheet, LayoutDashboard, RefreshCw, Search, TimerReset } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { XCircle } from 'lucide-react';
@@ -454,6 +454,13 @@ export default function SpectechDashboard() {
                             <Button variant="outline" size="sm" onClick={() => void fetchRequests()} disabled={loading}>
                                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                             </Button>
+                            <a
+                                href="/spectech/reports"
+                                className="inline-flex h-8 items-center gap-2 rounded-md border border-[#E0E0E0] bg-white px-3 text-xs text-[#1A1A1A] hover:bg-[#FAFAFA]"
+                            >
+                                <FileSpreadsheet className="h-4 w-4 text-red-600" />
+                                Отчёт
+                            </a>
                             <div className="flex items-center gap-2">
                             <div className="flex rounded-md border border-[#E0E0E0] overflow-hidden">
                                 <button
