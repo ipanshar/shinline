@@ -144,6 +144,18 @@ class User extends Authenticatable
             || $this->hasAnyRole(['Оператор', 'Оператор спецтехники']);
     }
 
+    public function canRecordViolations(): bool
+    {
+        return $this->hasPermission('violations.record')
+            || $this->hasRole('Служба безопасности');
+    }
+
+    public function canReviewViolations(): bool
+    {
+        return $this->hasPermission('violations.review')
+            || $this->hasRole('Служба безопасности');
+    }
+
     /**
      * Получить все разрешения пользователя (через его роли)
      */

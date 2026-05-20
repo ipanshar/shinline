@@ -17,6 +17,9 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\CleanupOldTasksAndPermits::class,
         \App\Console\Commands\ForceCloseVisitors::class,
         \App\Console\Commands\DssPurgeVehicleSyncCommand::class,
+        \App\Console\Commands\CleanupGarbageTrucks::class,
+        \App\Console\Commands\AutoSkipStaleWeighingCommand::class,
+        \App\Console\Commands\AutoClosePendingVisitorsCommand::class,
     ];
 
     /**
@@ -43,10 +46,25 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/dss-health-check.log'));
 
+        $schedule->command('weighing:auto-skip-stale --hours=24')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/weighing-auto-skip.log'));
+
+        $schedule->command('visitors:auto-close-pending --hours=2')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/visitors-auto-close-pending.log'));
+
         $schedule->command('dss:monitor-alerts')
             ->everyFiveMinutes()
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/dss-monitor-alerts.log'));
+
+        $schedule->command('violations:sync-faceid-runtime --json')
+            ->dailyAt('02:20')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/violations-faceid-sync.log'));
 
         $schedule->command('some:command')->daily();
     }

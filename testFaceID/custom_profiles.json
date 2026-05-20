@@ -1,0 +1,19 @@
+[
+  {
+    "imageId": 900001,
+    "employeeId": 900001,
+    "name": "Серик",
+    "imagePath": "photo_2026-05-15_16-43-43.jpg",
+    "referenceFileName": "custom_serik_example.jpg",
+    "source": "custom-demo",
+    "profile": {
+      "sourceLabel": "Кастомный пример",
+      "role": "Инженер по автоматизации",
+      "department": "Демо-отдел Face ID",
+      "city": "Алматы",
+      "phone": "+7 777 245 19 84",
+      "email": "serik.demo@shinline.local",
+      "note": "Тестовый профиль для локальной проверки поиска по лицу"
+    }
+  }
+]

@@ -72,6 +72,8 @@ interface SessionPayload {
     };
     user: { id: number; name: string; phone: string | null } | null;
     can_manage_spectech: boolean;
+    can_record_violations: boolean;
+    can_review_violations: boolean;
     yards: YardOption[];
 }
 
@@ -179,8 +181,72 @@ interface UtilizationRequestItem {
     created_at?: string | null;
 }
 
+interface ViolationEvidenceItem {
+    id: number;
+    media_kind: 'photo' | 'video';
+    url: string | null;
+    is_primary: boolean;
+}
+
+interface ViolationIncidentItem {
+    id: number;
+    incident_uid: string;
+    workflow_status: string;
+    recognition_status: string;
+    occurred_at: string | null;
+    category_name: string | null;
+    type_name: string | null;
+    employee_full_name: string | null;
+    employee_department: string | null;
+    employee_position: string | null;
+    description: string | null;
+    location_label: string | null;
+    evidence_total_count: number;
+    evidence_photo_count: number;
+    evidence_video_count: number;
+    evidences: ViolationEvidenceItem[];
+}
+
+interface ViolationRecognitionCandidate {
+    reference_key: string | null;
+    employee_id: number | null;
+    group_key: string | null;
+    full_name: string | null;
+    department: string | null;
+    position: string | null;
+    iin: string | null;
+    status: string | null;
+    source: string | null;
+    source_label: string | null;
+    reference_image_url: string | null;
+    similarity: number | null;
+}
+
+interface ViolationRecognitionResult {
+    matched: boolean;
+    threshold: number | null;
+    best_match: ViolationRecognitionCandidate | null;
+    candidates: ViolationRecognitionCandidate[];
+}
+
+interface ViolationTypeOption {
+    id: number;
+    key: string;
+    name: string;
+    description?: string | null;
+}
+
+interface ViolationCategoryOption {
+    id: number;
+    key: string;
+    name: string;
+    description?: string | null;
+    types: ViolationTypeOption[];
+}
+
 const MAX_REQUEST_PHOTOS = 5;
 const UNKNOWN_TRUCK_CONFIRMATION_LIMIT = 2;
+const VIOLATION_RECOGNITION_CONFIRMATION_LIMIT = 3;
 
 
 const STATUS_LABELS: Record<SessionPayload['approval_status'], string> = {
@@ -295,6 +361,17 @@ const utilizationStatusLabels: Record<string, string> = {
     rejected: 'Отклонена',
 };
 
+const violationStatusLabels: Record<string, string> = {
+    draft_processing: 'Обработка',
+    pending_review: 'На проверке',
+    unknown_manual: 'Ждёт идентификации',
+    recognized_confirmed: 'Личность подтверждена',
+    approved: 'Подтверждено',
+    rejected: 'Отклонено',
+    resolved: 'Рассмотрено',
+    closed: 'Закрыто',
+};
+
 const emptyVisitVehicle = (): VisitVehicle => ({
     plate_number: '',
     brand: null,
@@ -384,6 +461,36 @@ const compressImageDataUrl = async (dataUrl: string): Promise<string> => {
     }
 };
 
+const dataUrlToFile = async (dataUrl: string, originalName: string, lastModified?: number) => {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const baseName = originalName.replace(/\.[^.]+$/, '') || 'upload';
+
+    return new File([blob], `${baseName}.jpg`, {
+        type: blob.type || 'image/jpeg',
+        lastModified: lastModified ?? Date.now(),
+    });
+};
+
+const prepareViolationUploadFile = async (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/')) {
+        return file;
+    }
+
+    try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const compressedDataUrl = await compressImageDataUrl(dataUrl);
+
+        if (compressedDataUrl === dataUrl && file.size <= 2 * 1024 * 1024) {
+            return file;
+        }
+
+        return await dataUrlToFile(compressedDataUrl, file.name, file.lastModified);
+    } catch {
+        return file;
+    }
+};
+
 const getErrorMessage = (error: any, fallback: string) => {
     const validationErrors = error?.response?.data?.errors;
 
@@ -398,6 +505,63 @@ const getErrorMessage = (error: any, fallback: string) => {
     }
 
     return error?.response?.data?.message ?? fallback;
+};
+
+const formatDateTimeLabel = (value?: string | null) => {
+    if (!value) {
+        return '—';
+    }
+
+    return new Date(value).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const formatSimilarityPercent = (value?: number | null) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '—';
+    }
+
+    return `${(value * 100).toFixed(1)}%`;
+};
+
+const recognitionCandidateIdentity = (candidate: ViolationRecognitionCandidate) => (
+    candidate.reference_key
+    || candidate.group_key
+    || `${candidate.employee_id ?? 'candidate'}:${candidate.full_name ?? ''}:${candidate.source ?? ''}`
+);
+
+const getRecognitionReviewCandidates = (result: ViolationRecognitionResult | null): ViolationRecognitionCandidate[] => {
+    if (!result) {
+        return [];
+    }
+
+    const seen = new Set<string>();
+    const unique: ViolationRecognitionCandidate[] = [];
+
+    for (const candidate of [result.best_match, ...result.candidates]) {
+        if (!candidate) {
+            continue;
+        }
+
+        const key = recognitionCandidateIdentity(candidate);
+        if (seen.has(key)) {
+            continue;
+        }
+
+        seen.add(key);
+        unique.push(candidate);
+
+        if (unique.length >= VIOLATION_RECOGNITION_CONFIRMATION_LIMIT) {
+            break;
+        }
+    }
+
+    return unique;
 };
 
 const Wrap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -474,6 +638,8 @@ function Dashboard({
     onCreate,
     onVisits,
     onExitPermits,
+    onViolationsCreate,
+    onViolationsList,
     onSpectechCreate,
     onSpectechRequests,
     onUtilizationCreate,
@@ -484,6 +650,8 @@ function Dashboard({
     onCreate: () => void;
     onVisits: () => void;
     onExitPermits: () => void;
+    onViolationsCreate: () => void;
+    onViolationsList: () => void;
     onSpectechCreate: () => void;
     onSpectechRequests: () => void;
     onUtilizationCreate: () => void;
@@ -496,6 +664,13 @@ function Dashboard({
             <p>Площадки: {session.yards.length === 0 ? 'не назначены' : session.yards.map((y) => y.name).join(', ')}</p>
             <button style={btn} onClick={onCreate} disabled={session.yards.length === 0}>Создать гостевой визит</button>
             <button style={btn} onClick={onExitPermits} disabled={session.yards.length === 0}>Разрешить выезд ТС</button>
+            {session.can_record_violations && (
+                <>
+                    <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
+                    <button style={btnDanger} onClick={onViolationsCreate}>Зафиксировать нарушение</button>
+                    <button style={btnSecondary} onClick={onViolationsList}>Мои нарушения</button>
+                </>
+            )}
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btn} onClick={onSpectechCreate}>Заявка на спецтехнику</button>
             <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
@@ -524,6 +699,763 @@ function UtilizationActions({
             <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>Аварийный вызов техслужб доступен отдельно, без ожидания одобрения.</p>
             <button style={btn} onClick={onCreate}>Аварийный вызов техслужб</button>
             <button style={btnSecondary} onClick={onRequests}>Мои заявки на аварийный вызов</button>
+        </>
+    );
+}
+
+function ViolationsCreateView({
+    initData,
+    catalog,
+    loadingCatalog,
+    onCreated,
+    onViewList,
+    onBack,
+}: {
+    initData: string;
+    catalog: ViolationCategoryOption[];
+    loadingCatalog: boolean;
+    onCreated: () => void | Promise<void>;
+    onViewList: () => void;
+    onBack: () => void;
+}) {
+    const [categoryId, setCategoryId] = useState<number | ''>('');
+    const [typeId, setTypeId] = useState<number | ''>('');
+    const [occurredAt, setOccurredAt] = useState(() => toDateTimeLocalValue(new Date().toISOString()));
+    const [manualFullName, setManualFullName] = useState('');
+    const [manualDepartment, setManualDepartment] = useState('');
+    const [manualPosition, setManualPosition] = useState('');
+    const [locationLabel, setLocationLabel] = useState('');
+    const [description, setDescription] = useState('');
+    const [recognitionFile, setRecognitionFile] = useState<File | null>(null);
+    const [recognitionBusy, setRecognitionBusy] = useState(false);
+    const [recognitionError, setRecognitionError] = useState<string | null>(null);
+    const [recognitionResult, setRecognitionResult] = useState<ViolationRecognitionResult | null>(null);
+    const [recognitionReviewCandidates, setRecognitionReviewCandidates] = useState<ViolationRecognitionCandidate[]>([]);
+    const [recognitionReviewIndex, setRecognitionReviewIndex] = useState(0);
+    const [confirmedRecognitionCandidate, setConfirmedRecognitionCandidate] = useState<ViolationRecognitionCandidate | null>(null);
+    const [recognitionRejectedAll, setRecognitionRejectedAll] = useState(false);
+    const [recognitionCameraOpen, setRecognitionCameraOpen] = useState(false);
+    const [lastAutofill, setLastAutofill] = useState<{ fullName: string; department: string; position: string } | null>(null);
+    const [files, setFiles] = useState<File[]>([]);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const recognitionVideoRef = useRef<HTMLVideoElement | null>(null);
+    const recognitionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const recognitionStreamRef = useRef<MediaStream | null>(null);
+    const recognitionGalleryInputRef = useRef<HTMLInputElement | null>(null);
+
+    useEffect(() => {
+        if (catalog.length === 0) {
+            setCategoryId('');
+            return;
+        }
+
+        const nextCategory = catalog.find((category) => category.id === categoryId) ?? catalog[0];
+        setCategoryId(nextCategory.id);
+    }, [catalog, categoryId]);
+
+    const selectedCategory = catalog.find((category) => category.id === categoryId) ?? null;
+
+    useEffect(() => {
+        const activeTypes = selectedCategory?.types ?? [];
+
+        if (activeTypes.length === 0) {
+            setTypeId('');
+            return;
+        }
+
+        const nextType = activeTypes.find((type) => type.id === typeId) ?? activeTypes[0];
+        setTypeId(nextType.id);
+    }, [selectedCategory, typeId]);
+
+    const stopRecognitionCamera = useCallback(() => {
+        if (recognitionStreamRef.current) {
+            recognitionStreamRef.current.getTracks().forEach((track) => track.stop());
+            recognitionStreamRef.current = null;
+        }
+
+        if (recognitionVideoRef.current) {
+            recognitionVideoRef.current.srcObject = null;
+        }
+
+        setRecognitionCameraOpen(false);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            stopRecognitionCamera();
+        };
+    }, [stopRecognitionCamera]);
+
+    useEffect(() => {
+        if (!recognitionCameraOpen || !recognitionVideoRef.current || !recognitionStreamRef.current) {
+            return;
+        }
+
+        recognitionVideoRef.current.srcObject = recognitionStreamRef.current;
+        void recognitionVideoRef.current.play().catch(() => undefined);
+    }, [recognitionCameraOpen]);
+
+    const handleFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFiles = Array.from(event.target.files ?? []);
+
+        if (selectedFiles.length === 0) {
+            return;
+        }
+
+        try {
+            const availableSlots = Math.max(0, 5 - files.length);
+            const preparedFiles = await Promise.all(
+                selectedFiles
+                    .slice(0, availableSlots)
+                    .map((file) => prepareViolationUploadFile(file)),
+            );
+
+            setFiles((current) => [...current, ...preparedFiles].slice(0, 5));
+            setErr(null);
+        } catch (error) {
+            setErr(error instanceof Error ? error.message : 'Не удалось подготовить файлы');
+        } finally {
+            event.target.value = '';
+        }
+    };
+
+    const removeFile = (index: number) => {
+        setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    };
+
+    const clearRecognitionAutofill = () => {
+        if (!lastAutofill) {
+            return;
+        }
+
+        if (manualFullName === lastAutofill.fullName) {
+            setManualFullName('');
+        }
+
+        if (manualDepartment === lastAutofill.department) {
+            setManualDepartment('');
+        }
+
+        if (manualPosition === lastAutofill.position) {
+            setManualPosition('');
+        }
+
+        setLastAutofill(null);
+    };
+
+    const clearRecognition = () => {
+        stopRecognitionCamera();
+        clearRecognitionAutofill();
+        setRecognitionFile(null);
+        setRecognitionError(null);
+        setRecognitionResult(null);
+        setRecognitionReviewCandidates([]);
+        setRecognitionReviewIndex(0);
+        setConfirmedRecognitionCandidate(null);
+        setRecognitionRejectedAll(false);
+    };
+
+    const currentRecognitionCandidate = recognitionReviewCandidates[recognitionReviewIndex] ?? null;
+
+    const applyRecognitionCandidate = (candidate: ViolationRecognitionCandidate | null) => {
+        clearRecognitionAutofill();
+
+        if (!candidate?.full_name) {
+            setConfirmedRecognitionCandidate(null);
+            return;
+        }
+
+        const autofill = {
+            fullName: candidate.full_name ?? '',
+            department: candidate.department ?? '',
+            position: candidate.position ?? '',
+        };
+
+        setManualFullName(autofill.fullName);
+        setManualDepartment(autofill.department);
+        setManualPosition(autofill.position);
+        setLastAutofill(autofill);
+        setConfirmedRecognitionCandidate(candidate);
+        setRecognitionRejectedAll(false);
+    };
+
+    const moveToNextRecognitionCandidate = () => {
+        clearRecognitionAutofill();
+        setConfirmedRecognitionCandidate(null);
+
+        const nextIndex = recognitionReviewIndex + 1;
+        if (nextIndex < recognitionReviewCandidates.length) {
+            setRecognitionReviewIndex(nextIndex);
+            setRecognitionRejectedAll(false);
+            return;
+        }
+
+        setRecognitionRejectedAll(true);
+    };
+
+    const runRecognitionForFile = async (selectedFile: File | null) => {
+        if (!selectedFile) {
+            return;
+        }
+
+        stopRecognitionCamera();
+        clearRecognitionAutofill();
+        setRecognitionBusy(true);
+        setRecognitionError(null);
+        setRecognitionResult(null);
+        setRecognitionReviewCandidates([]);
+        setRecognitionReviewIndex(0);
+        setConfirmedRecognitionCandidate(null);
+        setRecognitionRejectedAll(false);
+        setErr(null);
+
+        try {
+            const preparedFile = await prepareViolationUploadFile(selectedFile);
+            setRecognitionFile(preparedFile);
+
+            const formData = new FormData();
+            formData.append('init_data', initData);
+            formData.append('recognition_file', preparedFile);
+
+            const response = await axios.post('/api/telegram/miniapp/violations/recognize', formData, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            const nextResult = (response.data?.data ?? null) as ViolationRecognitionResult | null;
+            const reviewCandidates = getRecognitionReviewCandidates(nextResult);
+            setRecognitionResult(nextResult);
+            setRecognitionReviewCandidates(reviewCandidates);
+            setRecognitionReviewIndex(0);
+            setRecognitionRejectedAll(reviewCandidates.length === 0);
+            setLastAutofill(null);
+        } catch (error: any) {
+            setRecognitionError(getErrorMessage(error, 'Не удалось распознать сотрудника по фото'));
+            setRecognitionResult(null);
+            setRecognitionReviewCandidates([]);
+            setRecognitionReviewIndex(0);
+            setConfirmedRecognitionCandidate(null);
+            setRecognitionRejectedAll(false);
+            setLastAutofill(null);
+        } finally {
+            setRecognitionBusy(false);
+        }
+    };
+
+    const handleRecognitionSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = event.target.files?.[0] ?? null;
+        event.target.value = '';
+
+        await runRecognitionForFile(selectedFile);
+    };
+
+    const startRecognitionCamera = async () => {
+        if (recognitionBusy) {
+            return;
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setErr('Не удалось открыть камеру на этом устройстве. Можно выбрать фото из галереи.');
+            return;
+        }
+
+        clearRecognition();
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
+                audio: false,
+            });
+
+            recognitionStreamRef.current = stream;
+            setRecognitionCameraOpen(true);
+            setErr(null);
+        } catch {
+            setErr('Не удалось получить доступ к камере. Можно выбрать фото из галереи.');
+        }
+    };
+
+    const openRecognitionGallery = () => {
+        recognitionGalleryInputRef.current?.click();
+    };
+
+    const captureRecognitionPhoto = async () => {
+        if (!recognitionVideoRef.current || !recognitionCanvasRef.current) {
+            return;
+        }
+
+        if (recognitionVideoRef.current.videoWidth === 0 || recognitionVideoRef.current.videoHeight === 0) {
+            setErr('Камера ещё не готова. Попробуйте ещё раз.');
+            return;
+        }
+
+        try {
+            const canvas = recognitionCanvasRef.current;
+            canvas.width = recognitionVideoRef.current.videoWidth;
+            canvas.height = recognitionVideoRef.current.videoHeight;
+
+            const context = canvas.getContext('2d');
+            if (!context) {
+                setErr('Не удалось обработать снимок.');
+                return;
+            }
+
+            context.drawImage(recognitionVideoRef.current, 0, 0, canvas.width, canvas.height);
+            const compressedDataUrl = await compressImageDataUrl(canvas.toDataURL('image/jpeg', 0.92));
+            const capturedFile = await dataUrlToFile(compressedDataUrl, 'recognition-camera.jpg');
+
+            await runRecognitionForFile(capturedFile);
+        } catch {
+            setErr('Не удалось сделать фото сотрудника.');
+        }
+    };
+
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+
+        if (!typeId) {
+            setErr('Выберите тип нарушения');
+            return;
+        }
+
+        if (recognitionBusy) {
+            setErr('Дождитесь завершения распознавания по фото сотрудника');
+            return;
+        }
+
+        if (recognitionFile && !recognitionError && !confirmedRecognitionCandidate && !recognitionRejectedAll && recognitionReviewCandidates.length > 0) {
+            setErr('Проверьте эталонное фото кандидата: подтвердите сотрудника или отклоните до трёх вариантов.');
+            return;
+        }
+
+        if (!manualFullName.trim() && !recognitionFile) {
+            setErr('Укажите ФИО нарушителя вручную или сначала сделайте фото для распознавания');
+            return;
+        }
+
+        if (!manualFullName.trim() && recognitionError) {
+            setErr('Распознавание не завершилось. Либо укажите ФИО вручную, либо сделайте фото ещё раз.');
+            return;
+        }
+
+        if (recognitionRejectedAll && !manualFullName.trim()) {
+            setErr('После трёх отклонённых кандидатов укажите ФИО вручную. Это фото станет новым эталонным.');
+            return;
+        }
+
+        setBusy(true);
+        setErr(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('init_data', initData);
+            formData.append('type_id', String(typeId));
+            formData.append('occurred_at', occurredAt ? new Date(occurredAt).toISOString() : new Date().toISOString());
+
+            if (manualFullName.trim()) {
+                formData.append('manual_full_name', manualFullName.trim());
+            }
+
+            if (manualDepartment.trim()) {
+                formData.append('manual_department', manualDepartment.trim());
+            }
+
+            if (manualPosition.trim()) {
+                formData.append('manual_position', manualPosition.trim());
+            }
+
+            if (locationLabel.trim()) {
+                formData.append('location_label', locationLabel.trim());
+            }
+
+            if (description.trim()) {
+                formData.append('description', description.trim());
+            }
+
+            if (recognitionFile) {
+                formData.append('recognition_file', recognitionFile);
+            }
+
+            if (confirmedRecognitionCandidate?.reference_key) {
+                formData.append('recognition_confirmed_reference_key', confirmedRecognitionCandidate.reference_key);
+            }
+
+            if (recognitionRejectedAll) {
+                formData.append('recognition_rejected_all', '1');
+            }
+
+            files.forEach((file) => {
+                formData.append('files[]', file);
+            });
+
+            await axios.post('/api/telegram/miniapp/violations/incidents', formData, {
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+
+            await onCreated();
+        } catch (error: any) {
+            setErr(getErrorMessage(error, 'Не удалось сохранить нарушение'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <form onSubmit={submit}>
+            <h3 style={{ marginBottom: 8 }}>Фиксация нарушения</h3>
+            <p style={{ marginTop: 0, color: '#555' }}>
+                Сначала сделайте отдельное фото сотрудника для распознавания. Ниже отдельно приложите фото или видео как доказательства нарушения.
+            </p>
+            <label>Категория</label>
+            <select
+                style={inputStyle}
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value ? Number(event.target.value) : '')}
+                disabled={loadingCatalog || catalog.length === 0}
+                required
+            >
+                <option value="">{loadingCatalog ? 'Загрузка...' : 'Выберите категорию'}</option>
+                {catalog.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+            </select>
+
+            <label>Тип нарушения</label>
+            <select
+                style={inputStyle}
+                value={typeId}
+                onChange={(event) => setTypeId(event.target.value ? Number(event.target.value) : '')}
+                disabled={!selectedCategory || selectedCategory.types.length === 0}
+                required
+            >
+                <option value="">{!selectedCategory ? 'Сначала выберите категорию' : 'Выберите тип нарушения'}</option>
+                {(selectedCategory?.types ?? []).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                ))}
+            </select>
+
+            {selectedCategory?.description && (
+                <div style={{ marginTop: -6, marginBottom: 12, color: '#666', fontSize: 12 }}>{selectedCategory.description}</div>
+            )}
+
+            <label>Фото сотрудника для распознавания</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '4px 0 12px' }}>
+                <button
+                    type="button"
+                    style={{
+                        ...smallButtonStyle,
+                        padding: '12px 14px',
+                        background: recognitionCameraOpen ? '#dbeafe' : '#2481cc',
+                        color: recognitionCameraOpen ? '#1d4ed8' : '#fff',
+                    }}
+                    onClick={() => void startRecognitionCamera()}
+                    disabled={recognitionBusy || recognitionCameraOpen}
+                >
+                    {recognitionCameraOpen
+                        ? 'Камера открыта'
+                        : (recognitionFile ? 'Переснять камерой' : 'Сделать фото камерой')}
+                </button>
+                <button
+                    type="button"
+                    style={{ ...smallButtonStyle, padding: '12px 14px', background: '#f3f4f6', color: '#111827' }}
+                    onClick={openRecognitionGallery}
+                    disabled={recognitionBusy}
+                >
+                    Выбрать из галереи
+                </button>
+            </div>
+            <input
+                ref={recognitionGalleryInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleRecognitionSelection}
+                style={{ display: 'none' }}
+            />
+            <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                Для определения личности сначала снимайте сотрудника камерой. Фото и видео самого нарушения загружаются отдельно ниже.
+            </div>
+
+            {recognitionCameraOpen && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15, 23, 42, 0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ width: '100%', maxWidth: 560, borderRadius: 18, padding: 14, background: '#111827', boxShadow: '0 24px 80px rgba(0,0,0,0.45)' }}>
+                        <div style={{ color: '#fff', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Сделайте фото сотрудника</div>
+                        <video ref={recognitionVideoRef} autoPlay playsInline muted style={{ width: '100%', maxHeight: '70vh', borderRadius: 12, display: 'block', background: '#000', objectFit: 'cover' }} />
+                        <canvas ref={recognitionCanvasRef} style={{ display: 'none' }} />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff', padding: '12px 14px' }} onClick={() => void captureRecognitionPhoto()}>
+                                Сделать фото
+                            </button>
+                            <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#e5e7eb', color: '#111827', padding: '12px 14px' }} onClick={stopRecognitionCamera}>
+                                Отмена
+                            </button>
+                        </div>
+                        <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 10 }}>
+                            Камера открыта поверх формы, поэтому прокручивать страницу вниз не нужно.
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {recognitionFile && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #ddd', borderRadius: 10, padding: '10px 12px', marginBottom: 12, background: '#fafafa' }}>
+                    <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{recognitionFile.name}</div>
+                        <div style={{ fontSize: 12, color: '#666' }}>
+                            Фото для распознавания · {(recognitionFile.size / 1024 / 1024).toFixed(2)} MB
+                        </div>
+                    </div>
+                    <button type="button" style={{ ...smallButtonStyle, background: '#f3f4f6', color: '#111827' }} onClick={clearRecognition}>
+                        Убрать
+                    </button>
+                </div>
+            )}
+
+            {recognitionBusy && (
+                <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: '#eef6ff', color: '#0f4c81', fontSize: 14 }}>
+                    Ищем сотрудника по фото...
+                </div>
+            )}
+
+            {recognitionError && (
+                <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: '#fff1f1', color: '#b42318', fontSize: 14 }}>
+                    {recognitionError}
+                </div>
+            )}
+
+            {recognitionResult?.best_match && !recognitionBusy && !recognitionError && (
+                <div
+                    style={{
+                        marginBottom: 12,
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        border: `1px solid ${recognitionResult.matched ? '#b7e1c0' : '#f4d58d'}`,
+                        background: recognitionResult.matched ? '#ecfdf3' : '#fff7e6',
+                        color: recognitionResult.matched ? '#166534' : '#8a5a00',
+                    }}
+                >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                        {confirmedRecognitionCandidate
+                            ? 'Кандидат подтверждён'
+                            : (recognitionRejectedAll
+                                ? 'Кандидаты отклонены'
+                                : 'Проверьте эталонное фото кандидата')}
+                    </div>
+                    {currentRecognitionCandidate && !recognitionRejectedAll && (
+                        <>
+                            <div style={{ fontSize: 12, marginBottom: 10, opacity: 0.9 }}>
+                                Кандидат {Math.min(recognitionReviewIndex + 1, recognitionReviewCandidates.length)} из {recognitionReviewCandidates.length}
+                            </div>
+                            {currentRecognitionCandidate.reference_image_url && (
+                                <img
+                                    src={currentRecognitionCandidate.reference_image_url}
+                                    alt={currentRecognitionCandidate.full_name || 'Эталонное фото'}
+                                    style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, display: 'block', marginBottom: 10, background: '#111' }}
+                                />
+                            )}
+                            <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                                {currentRecognitionCandidate.full_name || 'Без имени'}
+                                {currentRecognitionCandidate.department ? ` · ${currentRecognitionCandidate.department}` : ''}
+                                {currentRecognitionCandidate.position ? ` · ${currentRecognitionCandidate.position}` : ''}
+                            </div>
+                            <div style={{ fontSize: 12, marginTop: 4, opacity: 0.9 }}>
+                                Совпадение: {formatSimilarityPercent(currentRecognitionCandidate.similarity)}
+                                {currentRecognitionCandidate.source_label ? ` · ${currentRecognitionCandidate.source_label}` : ''}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+                                <button type="button" style={{ ...smallButtonStyle, background: '#166534', color: '#fff' }} onClick={() => applyRecognitionCandidate(currentRecognitionCandidate)}>
+                                    Это он(-а)
+                                </button>
+                                <button type="button" style={{ ...smallButtonStyle, background: '#b42318', color: '#fff' }} onClick={moveToNextRecognitionCandidate}>
+                                    Это не он(-а)
+                                </button>
+                            </div>
+                        </>
+                    )}
+                    {confirmedRecognitionCandidate && (
+                        <div style={{ fontSize: 12, marginTop: 8 }}>
+                            Охранник подтвердил сотрудника по эталонному фото. Данные подставлены в форму.
+                        </div>
+                    )}
+                    {recognitionRejectedAll && (
+                        <div style={{ fontSize: 12, marginTop: 8 }}>
+                            Три кандидата отклонены. Заполните сотрудника вручную ниже. Фото для распознавания будет сохранено как новый эталон.
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <label>Дата и время</label>
+            <input
+                style={inputStyle}
+                type="datetime-local"
+                value={occurredAt}
+                onChange={(event) => setOccurredAt(event.target.value)}
+                required
+            />
+
+            <label>ФИО нарушителя</label>
+            <input
+                style={inputStyle}
+                value={manualFullName}
+                onChange={(event) => setManualFullName(event.target.value)}
+                required={recognitionRejectedAll || (!confirmedRecognitionCandidate && !recognitionFile)}
+            />
+
+            <label>Отдел</label>
+            <input style={inputStyle} value={manualDepartment} onChange={(event) => setManualDepartment(event.target.value)} placeholder="Необязательно" />
+
+            <label>Должность</label>
+            <input style={inputStyle} value={manualPosition} onChange={(event) => setManualPosition(event.target.value)} placeholder="Необязательно" />
+
+            <label>Локация</label>
+            <input style={inputStyle} value={locationLabel} onChange={(event) => setLocationLabel(event.target.value)} placeholder="КПП, цех, склад" />
+
+            <label>Описание</label>
+            <textarea style={{ ...inputStyle, minHeight: 72 }} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Что произошло" />
+
+            <label>Фото или видео нарушения</label>
+            <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm"
+                multiple
+                onChange={handleFileSelection}
+                style={{ ...inputStyle, padding: 8 }}
+            />
+            <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                Необязательно. До 5 файлов. Поддерживаются фото и видео. Фото автоматически сжимаются перед отправкой.
+            </div>
+
+            {files.length > 0 && (
+                <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                    {files.map((file, index) => (
+                        <div key={`${file.name}-${index}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #ddd', borderRadius: 10, padding: '10px 12px' }}>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                                <div style={{ fontSize: 12, color: '#666' }}>
+                                    {file.type.startsWith('video/') ? 'Видео' : 'Фото'} · {(file.size / 1024 / 1024).toFixed(2)} MB
+                                </div>
+                            </div>
+                            <button type="button" style={{ ...smallButtonStyle, background: '#fdecea', color: '#b42318' }} onClick={() => removeFile(index)}>
+                                Убрать
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {err && <p style={{ color: 'crimson' }}>{err}</p>}
+            <button type="submit" disabled={busy || loadingCatalog || catalog.length === 0} style={btnDanger}>{busy ? 'Сохранение…' : 'Сохранить нарушение'}</button>
+            <button type="button" style={btnSecondary} onClick={onViewList}>Мои нарушения</button>
+            <button type="button" style={btnSecondary} onClick={onBack}>← Назад</button>
+        </form>
+    );
+}
+
+function ViolationsIncidentList({
+    incidents,
+    loading,
+    onReload,
+    onCreate,
+    onBack,
+}: {
+    incidents: ViolationIncidentItem[];
+    loading: boolean;
+    onReload: () => void;
+    onCreate: () => void;
+    onBack: () => void;
+}) {
+    const [preview, setPreview] = useState<{ evidence: ViolationEvidenceItem; title: string } | null>(null);
+
+    return (
+        <>
+            <h3 style={{ marginBottom: 8 }}>Мои нарушения</h3>
+            <button type="button" style={btnSecondary} onClick={onReload} disabled={loading}>
+                {loading ? 'Обновление…' : 'Обновить'}
+            </button>
+            {loading && incidents.length === 0 && <p>Загрузка списка...</p>}
+            {!loading && incidents.length === 0 && <p>Вы ещё не зафиксировали ни одного нарушения.</p>}
+            {incidents.map((incident) => {
+                const evidences = incident.evidences.filter((evidence) => Boolean(evidence.url));
+
+                return (
+                    <div key={incident.id} style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
+                            <div>
+                                <div style={{ fontWeight: 700 }}>{incident.employee_full_name || 'Без ФИО'}</div>
+                                <div style={{ fontSize: 13, color: '#555' }}>{incident.category_name || '—'} / {incident.type_name || '—'}</div>
+                            </div>
+                            <span style={{ padding: '4px 8px', borderRadius: 999, background: '#f3f4f6', color: '#111827', fontSize: 12, whiteSpace: 'nowrap' }}>
+                                {violationStatusLabels[incident.workflow_status] || incident.workflow_status}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#444', display: 'grid', gap: 4 }}>
+                            <div>Когда: {formatDateTimeLabel(incident.occurred_at)}</div>
+                            {incident.employee_department && <div>Отдел: {incident.employee_department}</div>}
+                            {incident.location_label && <div>Локация: {incident.location_label}</div>}
+                            {incident.description && <div>Описание: {incident.description}</div>}
+                            <div>Доказательства: {incident.evidence_photo_count} фото / {incident.evidence_video_count} видео</div>
+                        </div>
+                        {evidences.length > 0 && (
+                            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: evidences.length > 1 ? 'repeat(2, minmax(0, 1fr))' : '1fr', marginTop: 10 }}>
+                                {evidences.map((evidence) => (
+                                    evidence.media_kind === 'photo'
+                                        ? (
+                                            <button
+                                                key={evidence.id}
+                                                type="button"
+                                                onClick={() => setPreview({ evidence, title: incident.type_name || 'Нарушение' })}
+                                                style={{ border: 'none', padding: 0, background: 'transparent', cursor: 'zoom-in' }}
+                                            >
+                                                <img
+                                                    src={evidence.url ?? ''}
+                                                    alt={incident.type_name || 'Нарушение'}
+                                                    style={{ width: '100%', borderRadius: 10, maxHeight: 220, objectFit: 'cover', display: 'block' }}
+                                                />
+                                            </button>
+                                        )
+                                        : (
+                                            <video
+                                                key={evidence.id}
+                                                src={evidence.url ?? ''}
+                                                controls
+                                                style={{ width: '100%', borderRadius: 10, maxHeight: 220, background: '#111' }}
+                                            />
+                                        )
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+            <button type="button" style={btnDanger} onClick={onCreate}>Зафиксировать новое нарушение</button>
+            <button type="button" style={btnSecondary} onClick={onBack}>← Назад</button>
+            {preview?.evidence.url && (
+                <div
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.88)', zIndex: 1000, padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setPreview(null)}
+                >
+                    <div
+                        style={{ width: '100%', maxWidth: 960, display: 'grid', gap: 12 }}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, color: '#fff' }}>
+                            <div style={{ fontWeight: 700 }}>{preview.title}</div>
+                            <button type="button" style={{ ...smallButtonStyle, background: '#fff', color: '#111' }} onClick={() => setPreview(null)}>
+                                Закрыть
+                            </button>
+                        </div>
+                        <img
+                            src={preview.evidence.url}
+                            alt={preview.title}
+                            style={{ width: '100%', maxHeight: '82vh', objectFit: 'contain', borderRadius: 12, background: '#111' }}
+                        />
+                    </div>
+                </div>
+            )}
         </>
     );
 }
@@ -1891,11 +2823,15 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
     const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
+    const [violationCatalog, setViolationCatalog] = useState<ViolationCategoryOption[]>([]);
+    const [violationCatalogLoading, setViolationCatalogLoading] = useState(false);
+    const [violationIncidents, setViolationIncidents] = useState<ViolationIncidentItem[]>([]);
+    const [violationIncidentsLoading, setViolationIncidentsLoading] = useState(false);
     const [selectedVisit, setSelectedVisit] = useState<VisitItem | null>(null);
     const [selectedSpectechRequest, setSelectedSpectechRequest] = useState<SpectechRequestItem | null>(null);
     const [spectechEditSource, setSpectechEditSource] = useState<'requests' | 'operator'>('requests');
@@ -2131,6 +3067,55 @@ function TelegramMiniApp() {
         setView('utilization-requests');
     }, [loadUtilizationRequests]);
 
+    const loadViolationCatalog = useCallback(async () => {
+        if (!initData || !session?.can_record_violations) return;
+
+        setViolationCatalogLoading(true);
+        try {
+            const response = await axios.get<{ data: ViolationCategoryOption[] }>('/api/telegram/miniapp/violations/catalog', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setViolationCatalog(response.data.data ?? []);
+        } catch {
+            setViolationCatalog([]);
+        } finally {
+            setViolationCatalogLoading(false);
+        }
+    }, [initData, session?.can_record_violations]);
+
+    const loadViolationIncidents = useCallback(async () => {
+        if (!initData || !session?.can_record_violations) return;
+
+        setViolationIncidentsLoading(true);
+        try {
+            const response = await axios.get<{ data: ViolationIncidentItem[] }>('/api/telegram/miniapp/violations/incidents', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setViolationIncidents(response.data.data ?? []);
+        } catch {
+            setViolationIncidents([]);
+        } finally {
+            setViolationIncidentsLoading(false);
+        }
+    }, [initData, session?.can_record_violations]);
+
+    useEffect(() => {
+        if (view !== 'violations-create' || !session?.can_record_violations) return;
+        void loadViolationCatalog();
+    }, [view, session?.can_record_violations, loadViolationCatalog]);
+
+    useEffect(() => {
+        if (view !== 'violations-list' || !session?.can_record_violations) return;
+        void loadViolationIncidents();
+    }, [view, session?.can_record_violations, loadViolationIncidents]);
+
+    const handleViolationCreated = useCallback(async () => {
+        await loadViolationIncidents();
+        setView('violations-list');
+    }, [loadViolationIncidents]);
+
     if (loading) {
         return (
             <Wrap>
@@ -2192,6 +3177,8 @@ function TelegramMiniApp() {
                     onCreate={() => setView('create')}
                     onVisits={() => setView('visits')}
                     onExitPermits={() => setView('exit-permits')}
+                    onViolationsCreate={() => setView('violations-create')}
+                    onViolationsList={() => setView('violations-list')}
                     onSpectechCreate={() => setView('spectech-create')}
                     onSpectechRequests={() => setView('spectech-requests')}
                     onUtilizationCreate={() => setView('utilization-create')}
@@ -2311,6 +3298,27 @@ function TelegramMiniApp() {
                     yards={session.yards}
                     visitors={activeVisitors}
                     onReload={loadActiveVisitors}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'violations-create' && session.can_record_violations && (
+                <ViolationsCreateView
+                    initData={initData}
+                    catalog={violationCatalog}
+                    loadingCatalog={violationCatalogLoading}
+                    onCreated={handleViolationCreated}
+                    onViewList={() => setView('violations-list')}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'violations-list' && session.can_record_violations && (
+                <ViolationsIncidentList
+                    incidents={violationIncidents}
+                    loading={violationIncidentsLoading}
+                    onReload={() => void loadViolationIncidents()}
+                    onCreate={() => setView('violations-create')}
                     onBack={() => setView('home')}
                 />
             )}

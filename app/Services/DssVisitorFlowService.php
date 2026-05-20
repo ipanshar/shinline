@@ -9,6 +9,7 @@ use App\Models\EntryPermit;
 use App\Models\GuestVisit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Models\TaskWeighing;
 use App\Models\Truck;
 use App\Models\User;
 use App\Models\VehicleCapture;
@@ -350,6 +351,13 @@ class DssVisitorFlowService
             $this->createAutomaticExitPermitForIntegrationPermit($visitor, $permit);
             $this->weighingService->createRequirement($visitor);
 
+            // Привязываем TaskWeighing записи задания к конкретному визиту
+            if ($visitor->task_id) {
+                TaskWeighing::where('task_id', $visitor->task_id)
+                    ->whereNull('visitor_id')
+                    ->update(['visitor_id' => $visitor->id]);
+            }
+
             // self_barrier_mode: нестрогий двор — открываем шлагбаум въезда автоматически
             if ($this->shouldAutoOpenBarrier($yard, $autoConfirm)) {
                 $this->openBarrierSafely($device->id, 'entry', $plateNo);
@@ -411,12 +419,16 @@ class DssVisitorFlowService
         $captureMoment = $captureTime ?? now();
         $normalizedPlate = $this->normalizePlate($plateNo);
 
+        // Ищем любой недавний Visitor (pending ИЛИ confirmed) для того же устройства
+        // в 5-минутном окне. Это защищает от дублей, когда webhook и daemon обрабатывают
+        // одну и ту же физическую фиксацию с небольшим временны́м сдвигом и создают
+        // два разных VehicleCapture (из-за разницы captureTime / alarmTime).
         $query = Visitor::query()
             ->where('yard_id', $yardId)
             ->where('entrance_device_id', $device->id)
-            ->where('confirmation_status', Visitor::CONFIRMATION_PENDING)
+            ->whereIn('confirmation_status', [Visitor::CONFIRMATION_PENDING, Visitor::CONFIRMATION_CONFIRMED])
             ->whereNull('exit_date')
-            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(2));
+            ->where('entry_date', '>=', $captureMoment->copy()->subMinutes(5));
 
         if ($truck) {
             $query->where('truck_id', $truck->id);

@@ -11,11 +11,13 @@ use App\Models\EntryPermit;
 use App\Models\ExitPermit;
 use App\Models\Status;
 use App\Models\Task;
+use App\Models\TaskWeighing;
 use App\Models\Truck;
 use App\Models\TruckModel;
 use App\Models\VehicleCapture;
 use App\Models\Visitor;
 use App\Models\Yard;
+use App\Models\WeighingRequirement;
 use App\Services\DssMediaService;
 use App\Services\DssPermitVehicleService;
 use App\Services\DssParkingService;
@@ -167,6 +169,13 @@ class VisitorsCotroller extends Controller
                     'yard_id' => $Visitor->yard_id,
                     'yard_weighing_required' => $Visitor->yard?->weighing_required,
                 ]);
+            }
+
+            // Привязываем TaskWeighing записи задания к конкретному визиту
+            if ($task) {
+                TaskWeighing::where('task_id', $task->id)
+                    ->whereNull('visitor_id')
+                    ->update(['visitor_id' => $Visitor->id]);
             }
 
             if ($task) {
@@ -1229,6 +1238,7 @@ class VisitorsCotroller extends Controller
                     'loading_points_count' => $loadingCount,
                     'has_weighing_task' => $weighingRequirement !== null,
                     'weighing_reason' => $weighingRequirement['reason'] ?? null,
+                    'weighing_required_type' => $weighingRequirement['required_type'] ?? null,
                     'pending_reason' => $pendingReason['code'],
                     'pending_reason_text' => $pendingReason['text'],
                     'capture_id' => $capture?->id,
@@ -1473,6 +1483,8 @@ class VisitorsCotroller extends Controller
                 'override_exit_permit' => 'nullable|boolean',
                 'override_reason' => 'nullable|string|max:500',
                 'open_barrier' => 'nullable|boolean',
+                'release_without_visit' => 'nullable|boolean',
+                'release_reason' => 'nullable|string|max:500',
             ]);
 
             $review = CheckpointExitReview::findOrFail($validate['review_id']);
@@ -1483,6 +1495,44 @@ class VisitorsCotroller extends Controller
                 ], 400);
             }
 
+            // Выпуск без активного визита: ТС заехало через ворота без камеры
+            if (!empty($validate['release_without_visit'])) {
+                $releaseReason = trim((string) ($validate['release_reason'] ?? ''));
+                if ($releaseReason === '') {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Укажите причину выпуска ТС без активного визита.',
+                        'code' => 'release_reason_required',
+                    ], 422);
+                }
+
+                $device = Devaice::find($review->device_id);
+
+                $review->status = 'confirmed';
+                $review->resolved_at = now();
+                $review->resolved_by_user_id = $validate['operator_user_id'];
+                $review->resolved_visitor_id = null;
+                $review->note = ($review->note ? $review->note . "\n" : '')
+                    . 'Выпуск без визита. Причина: ' . $releaseReason;
+                $review->save();
+
+                $shouldOpenBarrier = !empty($validate['open_barrier']);
+                $barrierOpenResult = null;
+                if ($shouldOpenBarrier && $device?->id) {
+                    $barrierOpenResult = $this->dssParkingService->openBarrierForDevice($device->id);
+                }
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'ТС выпущено без визита',
+                    'data' => [
+                        'barrier_open_requested' => $shouldOpenBarrier,
+                        'barrier_opened' => isset($barrierOpenResult['success']) && $barrierOpenResult['success'] === true,
+                        'barrier_open_error' => $barrierOpenResult['error'] ?? null,
+                    ],
+                ], 200);
+            }
+
             $visitor = !empty($validate['visitor_id'])
                 ? Visitor::find($validate['visitor_id'])
                 : $this->resolveSingleExitCandidate($review);
@@ -1491,6 +1541,7 @@ class VisitorsCotroller extends Controller
                 return response()->json([
                     'status' => false,
                     'message' => 'Не удалось определить активный визит для выезда',
+                    'code' => 'no_active_visit',
                 ], 422);
             }
 
@@ -2353,6 +2404,25 @@ class VisitorsCotroller extends Controller
     {
         $exitPermit = $this->exitPermitService->findActiveForVisitor($visitor);
 
+        $weighingReq = WeighingRequirement::query()
+            ->where('visitor_id', $visitor->id)
+            ->whereNotIn('status', [WeighingRequirement::STATUS_COMPLETED, WeighingRequirement::STATUS_SKIPPED])
+            ->with(['entryWeighing', 'exitWeighing'])
+            ->orderByDesc('id')
+            ->first();
+
+        $weighingData = $weighingReq ? [
+            'status' => $weighingReq->status,
+            'required_type' => $weighingReq->required_type,
+            'reason' => $weighingReq->reason,
+            'needs_entry' => $weighingReq->needsEntryWeighing(),
+            'needs_exit' => $weighingReq->needsExitWeighing(),
+            'entry_weight' => $weighingReq->entryWeighing?->weight !== null ? (float) $weighingReq->entryWeighing->weight : null,
+            'entry_weighed_at' => $weighingReq->entryWeighing?->weighed_at?->format('Y-m-d H:i:s'),
+            'exit_weight' => $weighingReq->exitWeighing?->weight !== null ? (float) $weighingReq->exitWeighing->weight : null,
+            'exit_weighed_at' => $weighingReq->exitWeighing?->weighed_at?->format('Y-m-d H:i:s'),
+        ] : null;
+
         return array_merge([
             'visitor_id' => $visitor->id,
             'plate_number' => $visitor->plate_number,
@@ -2364,6 +2434,7 @@ class VisitorsCotroller extends Controller
             'exit_permit_required' => $this->exitPermitService->isRequiredForVisitor($visitor),
             'has_active_exit_permit' => $exitPermit !== null,
             'exit_permit' => $this->buildExitPermitPayload($exitPermit),
+            'weighing' => $weighingData,
             'is_exact_truck_match' => false,
             'is_exact_plate_match' => false,
         ], $overrides);
@@ -2611,6 +2682,13 @@ class VisitorsCotroller extends Controller
 
         // Создаём требование на взвешивание (если нужно)
         $this->weighingService->createRequirement($visitor);
+
+        // Привязываем TaskWeighing записи задания к конкретному визиту
+        if ($visitor->task_id) {
+            TaskWeighing::where('task_id', $visitor->task_id)
+                ->whereNull('visitor_id')
+                ->update(['visitor_id' => $visitor->id]);
+        }
     }
 
     /**

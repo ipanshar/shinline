@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminCommandsController;
+use App\Http\Controllers\FaceIdReferenceImageController;
 use App\Http\Controllers\Api\RegionController;
 use App\Http\Controllers\Api\UsersController;
 use Illuminate\Support\Facades\Route;
@@ -44,6 +46,7 @@ Route::get('/client-registration', [ClientRegistrationController::class, 'showFo
 Route::post('/client-registration', [ClientRegistrationController::class, 'store'])->name('client.registration.store');
 // Публичный вход для Telegram Mini App (без авторизации через сайт)
 Route::get('/telegram/app', [RouteController::class, 'telegramMiniApp']);
+Route::get('/reference-images/{path}', [FaceIdReferenceImageController::class, 'show'])->where('path', '.*');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');
@@ -53,6 +56,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 Route::get('/integration_whatsapp_business', [RouteController::class, 'whatsappBusinessSettings']);
 Route::get('/roles_permissions', [RouteController::class, 'rolespermissions']);//Админка
+Route::get('/admin/commands', [RouteController::class, 'adminCommands']);
+Route::post('/admin/commands/run', [AdminCommandsController::class, 'run']);
+Route::get('/admin/commands/list', [AdminCommandsController::class, 'index']);
 Route::get('/trucks', [RouteController::class, 'trucks']);
 Route::get('/tasks', [RouteController::class, 'tasks'])->middleware('permission:tasks.view');
 Route::get('/tasks/scheduling', [RouteController::class, 'taskHourlySchedule'])->middleware('permission:tasks.schedule');
@@ -354,6 +360,16 @@ Route::get('/spectech/reports/export',                       [SpectechReportCont
 Route::get('/utilization/requests', [RouteController::class, 'utilizationRequests'])->middleware('permission:utilization.view');
 Route::get('/utilization/api/requests', [UtilizationRequestController::class, 'index'])->middleware('permission:utilization.view');
 Route::patch('/utilization/api/requests/{id}/status', [UtilizationRequestController::class, 'updateStatus'])->middleware('permission:utilization.manage');
+
+// Violations (отдельный модуль)
+Route::get('/violations', [RouteController::class, 'violations'])->middleware('permission:violations.review');
+Route::get('/violations/api/incidents', [\App\Http\Controllers\Api\ViolationAdminController::class, 'incidents'])->middleware('permission:violations.review');
+Route::get('/violations/api/catalog', [\App\Http\Controllers\Api\ViolationAdminController::class, 'catalog'])->middleware('permission:violations.review');
+Route::post('/violations/api/incidents/{incident}/resolve-identity', [\App\Http\Controllers\Api\ViolationAdminController::class, 'resolveIdentity'])->middleware('permission:violations.review');
+Route::post('/violations/api/categories', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertCategory'])->middleware('permission:violations.settings');
+Route::patch('/violations/api/categories/{category}', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertCategory'])->middleware('permission:violations.settings');
+Route::post('/violations/api/types', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertType'])->middleware('permission:violations.settings');
+Route::patch('/violations/api/types/{type}', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertType'])->middleware('permission:violations.settings');
 
 //Zone routes
 Route::post('/zones/getzones', [\App\Http\Controllers\ZoneController::class, 'getZones']); // Получить все зоны
