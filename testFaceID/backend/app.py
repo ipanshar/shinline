@@ -82,6 +82,7 @@ class FaceServiceController:
         self._service: FaceSearchService | None = None
         self._loading = False
         self._error: str | None = None
+        self._pending_rebuild = False
 
     def ensure_started(self) -> None:
         self._start_background_load(force_rebuild=False)
@@ -92,6 +93,10 @@ class FaceServiceController:
     def current_service(self) -> FaceSearchService | None:
         with self._lock:
             return self._service
+
+    def is_loading(self) -> bool:
+        with self._lock:
+            return self._loading
 
     def status_payload(self) -> dict[str, Any]:
         service = self.current_service()
@@ -124,6 +129,8 @@ class FaceServiceController:
     def _start_background_load(self, force_rebuild: bool) -> None:
         with self._lock:
             if self._loading:
+                if force_rebuild:
+                    self._pending_rebuild = True
                 return
 
             self._loading = True
@@ -138,30 +145,40 @@ class FaceServiceController:
         thread.start()
 
     def _load_service(self, force_rebuild: bool) -> None:
-        try:
-            current = self.current_service()
-            if force_rebuild and current is not None:
-                current.rebuild_index()
-                service = current
-            else:
-                service = FaceSearchService(
-                    self.project_dir,
-                    self.dump_path,
-                    reference_dir=self.reference_dir,
-                    cache_dir=self.cache_dir,
-                    reference_manifest_path=self.reference_manifest_path,
-                )
-        except Exception as error:  # pragma: no cover - runtime bootstrap protection
-            LOGGER.exception("Failed to prepare Face ID service")
-            with self._lock:
-                self._loading = False
-                self._error = str(error)
-            return
+        next_force_rebuild = force_rebuild
 
-        with self._lock:
-            self._service = service
-            self._loading = False
-            self._error = None
+        while True:
+            try:
+                current = self.current_service()
+                if next_force_rebuild and current is not None:
+                    current.rebuild_index()
+                    service = current
+                else:
+                    service = FaceSearchService(
+                        self.project_dir,
+                        self.dump_path,
+                        reference_dir=self.reference_dir,
+                        cache_dir=self.cache_dir,
+                        reference_manifest_path=self.reference_manifest_path,
+                    )
+            except Exception as error:  # pragma: no cover - runtime bootstrap protection
+                LOGGER.exception("Failed to prepare Face ID service")
+                with self._lock:
+                    self._loading = False
+                    self._error = str(error)
+                return
+
+            with self._lock:
+                self._service = service
+                self._error = None
+
+                if not self._pending_rebuild:
+                    self._loading = False
+                    return
+
+                self._pending_rebuild = False
+
+            next_force_rebuild = True
 
 
 controller = FaceServiceController(
@@ -200,11 +217,26 @@ def get_status() -> dict[str, object]:
 @app.post("/api/rebuild")
 def rebuild_index() -> dict[str, object]:
     controller.request_rebuild()
-    return controller.status_payload()
+    return {
+        "queued": True,
+        "loading": controller.is_loading(),
+        "ready": controller.current_service() is not None,
+    }
 
 
 @app.post("/api/search")
 async def search_face(file: UploadFile = File(...)) -> dict[str, object]:
+    if controller.is_loading():
+        controller.ensure_started()
+        return {
+            "matched": False,
+            "threshold": COSINE_MATCH_THRESHOLD,
+            "bestMatch": None,
+            "candidates": [],
+            "error": "Face ID обновляет эталоны. Подождите несколько секунд и попробуйте снова.",
+            "loading": True,
+        }
+
     service = controller.current_service()
     if service is None:
         controller.ensure_started()
