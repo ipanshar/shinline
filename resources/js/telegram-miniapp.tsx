@@ -118,6 +118,22 @@ interface SpectechTruckOption {
     plate_number?: string | null;
 }
 
+interface SpectechConflictDetail {
+    id?: number;
+    schedule_id?: number;
+    request_id?: number | null;
+    from?: string | null;
+    to?: string | null;
+    scheduled_start?: string | null;
+    scheduled_end?: string | null;
+    purpose?: string | null;
+    status_label?: string | null;
+    initiator_name?: string | null;
+    initiator_phone?: string | null;
+    location?: string | null;
+    address?: string | null;
+}
+
 interface SpectechRequestItem {
     id: number;
     equipment_id: number;
@@ -145,7 +161,7 @@ interface SpectechRequestItem {
         truck_name: string;
         plate_number?: string | null;
         free_at?: string;
-        conflicts?: Array<{ from: string; to: string; purpose: string }>;
+        conflicts?: SpectechConflictDetail[];
     }>;
     client_name?: string | null;
     source_label?: string | null;
@@ -2803,6 +2819,33 @@ function SpectechRequestList({
     onBack: () => void;
     onCancel: (request: SpectechRequestItem) => void;
 }) {
+    const renderConflictDetails = (request: SpectechRequestItem) => (
+        <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
+            <strong>Техника занята на выбранный период</strong>
+            <div style={{ marginTop: 4 }}>Заявка принята, диспетчер скорректирует планирование.</div>
+            <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                {(request.conflict_info ?? []).map((conflict, idx) => (
+                    <div key={`${conflict.truck_name}-${idx}`} style={{ border: '1px solid #ffd38a', borderRadius: 6, padding: 6, background: '#fff' }}>
+                        <div style={{ fontWeight: 700 }}>
+                            {conflict.truck_name}{conflict.plate_number ? ` (${conflict.plate_number})` : ''}
+                        </div>
+                        {conflict.free_at && <div>Свободна с: {conflict.free_at}</div>}
+                        {(conflict.conflicts ?? []).map((item, itemIdx) => (
+                            <div key={`${item.request_id ?? item.schedule_id ?? itemIdx}`} style={{ marginTop: 6, borderTop: '1px solid #ffe0a6', paddingTop: 6 }}>
+                                <div style={{ fontWeight: 700 }}>
+                                    {item.request_id ? `Заявка #${item.request_id}` : item.schedule_id ? `План #${item.schedule_id}` : 'Конфликтующая заявка'}
+                                </div>
+                                <div>{item.from || item.scheduled_start || '—'} — {item.to || item.scheduled_end || '—'}</div>
+                                <div>Инициатор: <strong>{item.initiator_name || '—'}</strong>{item.initiator_phone ? ` · ${item.initiator_phone}` : ''}</div>
+                                {item.purpose && <div>Суть: {item.purpose}</div>}
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
     return (
         <>
             <h3>Мои заявки на спецтехнику</h3>
@@ -2845,12 +2888,7 @@ function SpectechRequestList({
                                 <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
                             </div>
                         )}
-                        {(request.conflict_info ?? []).length > 0 && (
-                            <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
-                                <strong>Техника занята на выбранный период</strong>
-                                <div style={{ marginTop: 4 }}>Заявка принята, диспетчер скорректирует планирование.</div>
-                            </div>
-                        )}
+                        {(request.conflict_info ?? []).length > 0 && renderConflictDetails(request)}
                         {canModify && (
                             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                 <button type="button" style={{ ...btnSecondary, marginBottom: 0 }} onClick={() => onEdit(request)}>
@@ -2894,6 +2932,33 @@ function SpectechOperatorList({
     onBack: () => void;
 }) {
     const [busyId, setBusyId] = useState<number | null>(null);
+
+    const renderConflictDetails = (request: SpectechRequestItem) => (
+        <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
+            <strong>Техника занята на выбранный период</strong>
+            <div style={{ marginTop: 4 }}>Заявка принята, требуется регулировка диспетчером.</div>
+            <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                {(request.conflict_info ?? []).map((conflict, idx) => (
+                    <div key={`${conflict.truck_name}-${idx}`} style={{ border: '1px solid #ffd38a', borderRadius: 6, padding: 6, background: '#fff' }}>
+                        <div style={{ fontWeight: 700 }}>
+                            {conflict.truck_name}{conflict.plate_number ? ` (${conflict.plate_number})` : ''}
+                        </div>
+                        {conflict.free_at && <div>Свободна с: {conflict.free_at}</div>}
+                        {(conflict.conflicts ?? []).map((item, itemIdx) => (
+                            <div key={`${item.request_id ?? item.schedule_id ?? itemIdx}`} style={{ marginTop: 6, borderTop: '1px solid #ffe0a6', paddingTop: 6 }}>
+                                <div style={{ fontWeight: 700 }}>
+                                    {item.request_id ? `Заявка #${item.request_id}` : item.schedule_id ? `План #${item.schedule_id}` : 'Конфликтующая заявка'}
+                                </div>
+                                <div>{item.from || item.scheduled_start || '—'} — {item.to || item.scheduled_end || '—'}</div>
+                                <div>Инициатор: <strong>{item.initiator_name || '—'}</strong>{item.initiator_phone ? ` · ${item.initiator_phone}` : ''}</div>
+                                {item.purpose && <div>Суть: {item.purpose}</div>}
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 
     const handleAdvance = async (request: SpectechRequestItem) => {
         const nextStatus = nextSpectechStatus[request.status];
@@ -2958,12 +3023,7 @@ function SpectechOperatorList({
                                 <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
                             </div>
                         )}
-                        {(request.conflict_info ?? []).length > 0 && (
-                            <div style={{ marginTop: 8, border: '1px solid #ffb74d', borderRadius: 8, padding: 8, background: '#fff8e1', color: '#7a4a00', fontSize: 14 }}>
-                                <strong>Техника занята на выбранный период</strong>
-                                <div style={{ marginTop: 4 }}>Заявка принята, требуется регулировка диспетчером.</div>
-                            </div>
-                        )}
+                        {(request.conflict_info ?? []).length > 0 && renderConflictDetails(request)}
 
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                             {nextSpectechStatus[request.status] && (

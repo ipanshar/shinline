@@ -722,11 +722,32 @@ export default function SpectechDashboard() {
                                                                             <div className="mt-1">Заявка принята, требуется регулировка диспетчером.</div>
                                                                             <div className="mt-2 space-y-1">
                                                                                 {(req.conflict_info ?? []).map((conflict, idx) => (
-                                                                                    <div key={`${conflict.truck_name}-${idx}`}>
+                                                                                    <div key={`${conflict.truck_name}-${idx}`} className="rounded-md border border-orange-100 bg-white/70 px-2 py-1.5">
                                                                                         <span className="font-medium">
                                                                                             {conflict.truck_name}{conflict.plate_number ? ` (${conflict.plate_number})` : ''}
                                                                                         </span>
                                                                                         {conflict.free_at && <span> · свободна с {conflict.free_at}</span>}
+                                                                                        {(conflict.conflicts ?? []).length > 0 && (
+                                                                                            <div className="mt-1 space-y-1 text-[11px] text-orange-900">
+                                                                                                {(conflict.conflicts ?? []).map((item, itemIdx) => (
+                                                                                                    <div key={`${item.request_id ?? item.schedule_id ?? itemIdx}`} className="rounded border border-orange-100 bg-orange-50/70 px-2 py-1">
+                                                                                                        <div className="font-semibold">
+                                                                                                            {item.request_id ? `Заявка #${item.request_id}` : item.schedule_id ? `План #${item.schedule_id}` : 'Конфликтующая заявка'}
+                                                                                                            {' · '}
+                                                                                                            {item.from || item.scheduled_start || '—'} — {item.to || item.scheduled_end || '—'}
+                                                                                                        </div>
+                                                                                                        <div>
+                                                                                                            Инициатор: <span className="font-medium">{item.initiator_name || '—'}</span>
+                                                                                                            {item.initiator_phone ? ` · ${item.initiator_phone}` : ''}
+                                                                                                        </div>
+                                                                                                        {item.purpose && <div>Суть: {item.purpose}</div>}
+                                                                                                        {(item.location || item.address) && (
+                                                                                                            <div>Место: {[item.location, item.address].filter(Boolean).join(' · ')}</div>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        )}
                                                                                     </div>
                                                                                 ))}
                                                                             </div>

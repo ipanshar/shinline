@@ -119,6 +119,7 @@ const RequestItem: React.FC<{
     const doneCount = timeline.filter(s => s.time).length;
     const progressPct = timeline.length > 0 ? Math.round((doneCount / timeline.length) * 100) : 0;
     const isCancelled = req.status === 'cancelled';
+    const hasPlanningConflict = (req.conflict_info ?? []).length > 0;
 
     const period = req.requested_start && req.requested_end
         ? `${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}`
@@ -189,6 +190,15 @@ const RequestItem: React.FC<{
                                 )}
                             </div>
                             <div className="mt-1 text-[12px] text-red-800">{req.cancellation_reason || 'Причина не указана'}</div>
+                        </div>
+                    )}
+                    {hasPlanningConflict && (
+                        <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-orange-700">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                Конфликт планирования
+                            </div>
+                            <div className="mt-1 text-[12px] text-orange-800">Детали конфликта доступны внутри заявки.</div>
                         </div>
                     )}
                 </div>
@@ -292,6 +302,34 @@ const RequestItem: React.FC<{
                                         )}
                                     </p>
                                     <p className="text-[12px] text-red-800">{req.cancellation_reason}</p>
+                                </div>
+                            )}
+                            {hasPlanningConflict && (
+                                <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                                    <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-orange-700">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        Конфликтует с заявками
+                                    </p>
+                                    <div className="space-y-1.5 text-[12px] text-orange-900">
+                                        {(req.conflict_info ?? []).map((conflict, idx) => (
+                                            <div key={`${conflict.truck_name}-${idx}`} className="rounded border border-orange-100 bg-white px-2 py-1">
+                                                <div className="font-medium">
+                                                    {conflict.truck_name}{conflict.plate_number ? ` (${conflict.plate_number})` : ''}
+                                                </div>
+                                                {conflict.free_at && <div>Свободна с: {conflict.free_at}</div>}
+                                                {(conflict.conflicts ?? []).map((item, itemIdx) => (
+                                                    <div key={`${item.request_id ?? item.schedule_id ?? itemIdx}`} className="mt-1 border-t border-orange-100 pt-1">
+                                                        <div className="font-semibold">
+                                                            {item.request_id ? `Заявка #${item.request_id}` : item.schedule_id ? `План #${item.schedule_id}` : 'Конфликтующая заявка'}
+                                                        </div>
+                                                        <div>{item.from || item.scheduled_start || '—'} — {item.to || item.scheduled_end || '—'}</div>
+                                                        <div>Инициатор: <span className="font-medium">{item.initiator_name || '—'}</span>{item.initiator_phone ? ` · ${item.initiator_phone}` : ''}</div>
+                                                        {item.purpose && <div>Суть: {item.purpose}</div>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                             {req.source_label && (
