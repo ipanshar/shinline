@@ -68,11 +68,12 @@ class FaceIdRecognitionService
         }
 
         $errorMessage = trim((string) ($payload['error'] ?? $payload['message'] ?? ''));
+        $loading = (bool) ($payload['loading'] ?? false);
         if ($errorMessage !== '') {
             return [
                 'ok' => false,
                 'error' => $errorMessage,
-                'error_type' => $response->successful() ? 'validation' : 'service',
+                'error_type' => (! $response->successful() || $loading) ? 'service' : 'validation',
                 'payload' => $payload,
             ];
         }

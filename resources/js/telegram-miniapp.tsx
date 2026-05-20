@@ -1022,11 +1022,6 @@ function ViolationsCreateView({
             return;
         }
 
-        if (files.length === 0) {
-            setErr('Добавьте хотя бы одно фото или видео');
-            return;
-        }
-
         if (recognitionBusy) {
             setErr('Дождитесь завершения распознавания по фото сотрудника');
             return;
@@ -1185,16 +1180,22 @@ function ViolationsCreateView({
             </div>
 
             {recognitionCameraOpen && (
-                <div style={{ border: '1px solid #ddd', borderRadius: 12, padding: 12, marginBottom: 12, background: '#111' }}>
-                    <video ref={recognitionVideoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 8, display: 'block', background: '#000' }} />
-                    <canvas ref={recognitionCanvasRef} style={{ display: 'none' }} />
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                        <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff' }} onClick={() => void captureRecognitionPhoto()}>
-                            Сделать фото
-                        </button>
-                        <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#e0e0e0', color: '#222' }} onClick={stopRecognitionCamera}>
-                            Отмена
-                        </button>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15, 23, 42, 0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ width: '100%', maxWidth: 560, borderRadius: 18, padding: 14, background: '#111827', boxShadow: '0 24px 80px rgba(0,0,0,0.45)' }}>
+                        <div style={{ color: '#fff', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Сделайте фото сотрудника</div>
+                        <video ref={recognitionVideoRef} autoPlay playsInline muted style={{ width: '100%', maxHeight: '70vh', borderRadius: 12, display: 'block', background: '#000', objectFit: 'cover' }} />
+                        <canvas ref={recognitionCanvasRef} style={{ display: 'none' }} />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff', padding: '12px 14px' }} onClick={() => void captureRecognitionPhoto()}>
+                                Сделать фото
+                            </button>
+                            <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#e5e7eb', color: '#111827', padding: '12px 14px' }} onClick={stopRecognitionCamera}>
+                                Отмена
+                            </button>
+                        </div>
+                        <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 10 }}>
+                            Камера открыта поверх формы, поэтому прокручивать страницу вниз не нужно.
+                        </div>
                     </div>
                 </div>
             )}
@@ -1316,7 +1317,7 @@ function ViolationsCreateView({
             <label>Описание</label>
             <textarea style={{ ...inputStyle, minHeight: 72 }} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Что произошло" />
 
-            <label>Фото или видео</label>
+            <label>Фото или видео нарушения</label>
             <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm"
@@ -1325,7 +1326,7 @@ function ViolationsCreateView({
                 style={{ ...inputStyle, padding: 8 }}
             />
             <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
-                До 5 файлов. Поддерживаются фото и видео. Фото автоматически сжимаются перед отправкой.
+                Необязательно. До 5 файлов. Поддерживаются фото и видео. Фото автоматически сжимаются перед отправкой.
             </div>
 
             {files.length > 0 && (

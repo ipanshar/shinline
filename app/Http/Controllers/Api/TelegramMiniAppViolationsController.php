@@ -87,17 +87,14 @@ class TelegramMiniAppViolationsController extends Controller
             'recognition_confirmed_reference_key' => ['nullable', 'string', 'max:255'],
             'recognition_rejected_all' => ['nullable', 'boolean'],
             'recognition_file' => ['nullable', 'file', 'max:15360', 'mimetypes:image/jpeg,image/png,image/webp,image/heic,image/heif'],
-            'files' => ['required', 'array', 'min:1', 'max:5'],
+            'files' => ['nullable', 'array', 'max:5'],
             'files.*' => [
-                'required',
                 'file',
                 'max:51200',
                 'mimetypes:image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm',
             ],
         ], [
-            'files.required' => 'Добавьте хотя бы одно фото или видео.',
             'files.array' => 'Файлы переданы в неверном формате.',
-            'files.min' => 'Добавьте хотя бы одно фото или видео.',
             'files.max' => 'Можно прикрепить не больше 5 файлов.',
             'recognition_file.file' => 'Фото для распознавания передано некорректно.',
             'recognition_file.max' => 'Фото для распознавания не должно превышать 15 МБ.',
