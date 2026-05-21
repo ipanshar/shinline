@@ -30,6 +30,7 @@ class ImportSigurLiveReferences extends Command
                 storeDir: $storeDir,
                 manifestPath: $importManifestPath,
                 writeFiles: ! $this->option('dry-run'),
+                summaryOnly: (bool) $this->option('dry-run'),
             );
         } catch (\Throwable $exception) {
             $this->error('Не удалось получить данные из БД Sigur: ' . $exception->getMessage());
