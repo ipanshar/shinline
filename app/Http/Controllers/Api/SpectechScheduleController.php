@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\SpectechSchedule;
 use App\Models\Truck;
 use App\Models\TruckCategory;
+use App\Services\SpectechAvailabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -102,6 +103,7 @@ class SpectechScheduleController extends Controller
 
         $available = [];
         $occupied  = [];
+        $availabilityService = new SpectechAvailabilityService();
 
         foreach ($allTrucks as $truck) {
             $isBusy = SpectechSchedule::isTruckOccupied($truck->id, $start, $end);
@@ -109,21 +111,7 @@ class SpectechScheduleController extends Controller
             if ($isBusy) {
                 $freeAt = SpectechSchedule::getNextFreeAt($truck->id, $start, $end);
 
-                // Детализация: какие периоды пересекаются
-                $conflicts = SpectechSchedule::where('truck_id', $truck->id)
-                    ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
-                    ->where('scheduled_start', '<', $end)
-                    ->where('scheduled_end', '>', $start)
-                    ->orderBy('scheduled_start')
-                    ->get(['id', 'scheduled_start', 'scheduled_end', 'purpose', 'status'])
-                    ->map(fn($s) => [
-                        'id'              => $s->id,
-                        'scheduled_start' => $s->scheduled_start?->format('d.m.Y H:i'),
-                        'scheduled_end'   => $s->scheduled_end?->format('d.m.Y H:i'),
-                        'purpose'         => $s->purpose,
-                        'status_label'    => SpectechSchedule::STATUS_LABELS[$s->status] ?? $s->status,
-                    ])
-                    ->toArray();
+                $conflicts = $availabilityService->getTruckConflictSchedules($truck->id, $start, $end);
 
                 $occupied[] = [
                     'truck_id'     => $truck->id,
@@ -230,6 +218,7 @@ class SpectechScheduleController extends Controller
         // Ищем первую свободную
         $assignedTruck = null;
         $conflictInfo  = [];
+        $availabilityService = new SpectechAvailabilityService();
 
         foreach ($allTrucks as $truck) {
             $busy = SpectechSchedule::isTruckOccupied($truck->id, $start, $end);
@@ -241,18 +230,7 @@ class SpectechScheduleController extends Controller
 
             // Собираем информацию о занятости для уведомления
             $freeAt    = SpectechSchedule::getNextFreeAt($truck->id, $start, $end);
-            $conflicts = SpectechSchedule::where('truck_id', $truck->id)
-                ->whereIn('status', SpectechSchedule::ACTIVE_STATUSES)
-                ->where('scheduled_start', '<', $end)
-                ->where('scheduled_end', '>', $start)
-                ->orderBy('scheduled_start')
-                ->get(['scheduled_start', 'scheduled_end', 'purpose'])
-                ->map(fn($s) => [
-                    'from'    => $s->scheduled_start?->format('d.m.Y H:i'),
-                    'to'      => $s->scheduled_end?->format('d.m.Y H:i'),
-                    'purpose' => $s->purpose,
-                ])
-                ->toArray();
+            $conflicts = $availabilityService->getTruckConflictSchedules($truck->id, $start, $end);
 
             $conflictInfo[] = [
                 'truck_name'   => $truck->name,

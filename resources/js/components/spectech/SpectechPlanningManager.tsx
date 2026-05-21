@@ -39,7 +39,17 @@ interface ConflictTruck {
     truck_name: string;
     plate_number: string | null;
     free_at: string;
-    conflicts: { from: string; to: string; purpose: string }[];
+    conflicts: {
+        from?: string | null;
+        to?: string | null;
+        purpose?: string | null;
+        request_id?: number | null;
+        schedule_id?: number;
+        initiator_name?: string | null;
+        initiator_phone?: string | null;
+        location?: string | null;
+        address?: string | null;
+    }[];
 }
 
 interface BookingResult {
@@ -691,9 +701,18 @@ const ConflictAlert: React.FC<{ result: BookingResult; onClose: () => void }> = 
                             {truck.plate_number ? ` (${truck.plate_number})` : ''}
                         </div>
                         {truck.conflicts.map((c, j) => (
-                            <div key={j} className="text-xs text-muted-foreground mt-0.5 flex gap-1">
+                            <div key={j} className="text-xs text-muted-foreground mt-1 flex gap-1 rounded border border-amber-100 bg-white px-2 py-1">
                                 <Clock className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                                <span>Занят: {c.from} – {c.to} | {c.purpose}</span>
+                                <div>
+                                    <div className="font-medium text-[#1A1A1A]">
+                                        {c.request_id ? `Заявка #${c.request_id}` : c.schedule_id ? `План #${c.schedule_id}` : 'Конфликтующая заявка'}
+                                    </div>
+                                    <div>Занят: {c.from || '—'} – {c.to || '—'} | {c.purpose || '—'}</div>
+                                    <div>
+                                        Инициатор: <span className="font-medium">{c.initiator_name || '—'}</span>
+                                        {c.initiator_phone ? ` · ${c.initiator_phone}` : ''}
+                                    </div>
+                                </div>
                             </div>
                         ))}
                         <div className="text-xs font-medium text-green-700 mt-1 flex items-center gap-1">
