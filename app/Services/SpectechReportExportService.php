@@ -9,6 +9,7 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class SpectechReportExportService
@@ -19,21 +20,26 @@ class SpectechReportExportService
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Отчет');
         $sheet->setShowGridLines(false);
-        $sheet->freezePane('A21');
+        $sheet->getSheetView()->setZoomScale(90);
         $sheet->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);
+        $sheet->getPageSetup()->setFitToWidth(1);
+        $sheet->getPageSetup()->setFitToHeight(0);
         $sheet->getPageMargins()->setTop(0.35);
         $sheet->getPageMargins()->setBottom(0.35);
         $sheet->getPageMargins()->setLeft(0.25);
         $sheet->getPageMargins()->setRight(0.25);
-        $sheet->getDefaultRowDimension()->setRowHeight(20);
-        $spreadsheet->getDefaultStyle()->getFont()->setName('Arial')->setSize(10);
+        $sheet->getDefaultRowDimension()->setRowHeight(22);
+        $spreadsheet->getDefaultStyle()->getFont()->setName('Arial')->setSize(9);
 
         $this->setColumnWidths($sheet);
         $this->buildHeader($sheet, $report);
-        $this->buildSummaryBlock($sheet, $report);
-        $this->buildProblemsBlock($sheet, $report);
-        $this->buildAnalyticsBlock($sheet, $report);
-        $this->buildJournalBlock($sheet, $report);
+
+        $row = 8;
+        $row = $this->buildSummaryBlock($sheet, $report, $row) + 2;
+        $row = $this->buildProblemsBlock($sheet, $report, $row) + 2;
+        $row = $this->buildAnalyticsBlock($sheet, $report, $row) + 2;
+        $journalHeaderRow = $this->buildJournalBlock($sheet, $report, $row);
+        $sheet->freezePane('A' . ($journalHeaderRow + 1));
 
         $directory = storage_path('app/reports');
         if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
@@ -55,18 +61,18 @@ class SpectechReportExportService
         return $xlsxPath;
     }
 
-    private function setColumnWidths($sheet): void
+    private function setColumnWidths(Worksheet $sheet): void
     {
         $widths = [
-            'A' => 10,
-            'B' => 22,
-            'C' => 22,
-            'D' => 24,
-            'E' => 20,
-            'F' => 34,
-            'G' => 18,
-            'H' => 18,
-            'I' => 18,
+            'A' => 11,
+            'B' => 20,
+            'C' => 16,
+            'D' => 22,
+            'E' => 15,
+            'F' => 26,
+            'G' => 28,
+            'H' => 28,
+            'I' => 30,
             'J' => 18,
         ];
 
@@ -75,74 +81,103 @@ class SpectechReportExportService
         }
     }
 
-    private function buildHeader($sheet, array $report): void
+    private function buildHeader(Worksheet $sheet, array $report): void
     {
-        $sheet->mergeCells('B1:C4');
-        $sheet->mergeCells('D1:J1');
-        $sheet->mergeCells('D2:J2');
+        $sheet->mergeCells('A1:C5');
+        $sheet->mergeCells('A6:C6');
+        $sheet->mergeCells('D1:J2');
         $sheet->mergeCells('D3:J3');
         $sheet->mergeCells('D4:J4');
+        $sheet->mergeCells('D5:J5');
+        $sheet->mergeCells('D6:J6');
 
+        $sheet->setCellValue('A6', 'SHIN LINE');
         $sheet->setCellValue('D1', 'НЕДЕЛЬНЫЙ ОТЧЕТ ПО РАБОТЕ СПЕЦТЕХНИКИ');
-        $sheet->setCellValue('D2', 'Период отчета: ' . ($report['period']['label'] ?? '—'));
-        $sheet->setCellValue('D3', 'Ответственный руководитель: Цай Игорь Робикович');
-        $sheet->setCellValue('D4', 'Формат: диспетчеризация спецтехники / аналитика / экспорт');
+        $sheet->setCellValue('D3', 'Период отчета: ' . ($report['period']['label'] ?? '—'));
+        $sheet->setCellValue('D4', 'Ответственный руководитель: Цай Игорь Робикович');
+        $sheet->setCellValue('D5', 'Диспетчеризация спецтехники: заявки, конфликты, загрузка, место согласования');
+        $sheet->setCellValue('D6', 'Дата формирования: ' . now()->format('d.m.Y H:i'));
 
-        $logoPath = resource_path('images/shin-line-logo.png');
-        if (is_file($logoPath)) {
-            $drawing = new Drawing();
-            $drawing->setName('Shin Line');
-            $drawing->setDescription('Shin Line');
-            $drawing->setPath($logoPath);
-            $drawing->setCoordinates('A1');
-            $drawing->setHeight(64);
-            $drawing->setOffsetX(8);
-            $drawing->setOffsetY(4);
-            $drawing->setWorksheet($sheet);
+        $logoPath = $this->resolveLogoPath();
+        if ($logoPath !== null && is_file($logoPath)) {
+            try {
+                $drawing = new Drawing();
+                $drawing->setName('Shin Line');
+                $drawing->setDescription('Shin Line');
+                $drawing->setPath($logoPath);
+                $drawing->setCoordinates('A1');
+                $drawing->setHeight(104);
+                $drawing->setOffsetX(74);
+                $drawing->setOffsetY(4);
+                $drawing->setWorksheet($sheet);
+            } catch (\Throwable) {
+                $sheet->setCellValue('A1', "SHIN\nLINE");
+            }
         } else {
-            $sheet->setCellValue('A1', 'SHIN LINE');
-            $sheet->getStyle('A1')->applyFromArray([
-                'font' => [
-                    'bold' => true,
-                    'size' => 14,
-                    'color' => ['rgb' => '1E4F8A'],
-                ],
-            ]);
+            $sheet->setCellValue('A1', "SHIN\nLINE");
         }
 
-        $sheet->getRowDimension(1)->setRowHeight(26);
-        $sheet->getRowDimension(2)->setRowHeight(24);
-        $sheet->getRowDimension(3)->setRowHeight(22);
-        $sheet->getRowDimension(4)->setRowHeight(22);
+        for ($row = 1; $row <= 5; $row++) {
+            $sheet->getRowDimension($row)->setRowHeight(23);
+        }
+        $sheet->getRowDimension(6)->setRowHeight(20);
 
-        $sheet->getStyle('A1:J4')->applyFromArray([
+        $sheet->getStyle('A1:C6')->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['rgb' => 'F2F4F7'],
+                'startColor' => ['rgb' => 'B91C1C'],
             ],
-            'borders' => [
-                'allBorders' => [
-                    'borderStyle' => Border::BORDER_THIN,
-                    'color' => ['rgb' => 'D7DCE3'],
-                ],
+            'font' => [
+                'bold' => true,
+                'size' => 12,
+                'color' => ['rgb' => 'FFFFFF'],
             ],
             'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
                 'vertical' => Alignment::VERTICAL_CENTER,
+                'wrapText' => true,
+            ],
+            'borders' => [
+                'outline' => [
+                    'borderStyle' => Border::BORDER_MEDIUM,
+                    'color' => ['rgb' => '7F1D1D'],
+                ],
             ],
         ]);
 
-        $sheet->getStyle('D1')->applyFromArray([
+        $sheet->getStyle('D1:J6')->applyFromArray([
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'F8FAFC'],
+            ],
+            'alignment' => [
+                'vertical' => Alignment::VERTICAL_CENTER,
+                'wrapText' => true,
+            ],
+            'borders' => [
+                'outline' => [
+                    'borderStyle' => Border::BORDER_MEDIUM,
+                    'color' => ['rgb' => 'CBD5E1'],
+                ],
+                'inside' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color' => ['rgb' => 'E2E8F0'],
+                ],
+            ],
+        ]);
+
+        $sheet->getStyle('D1:J2')->applyFromArray([
             'font' => [
                 'bold' => true,
-                'size' => 16,
-                'color' => ['rgb' => '1E4F8A'],
+                'size' => 18,
+                'color' => ['rgb' => '0F2E4D'],
             ],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_LEFT,
             ],
         ]);
 
-        $sheet->getStyle('D2:D4')->applyFromArray([
+        $sheet->getStyle('D3:D6')->applyFromArray([
             'font' => [
                 'size' => 10,
                 'color' => ['rgb' => '4B5563'],
@@ -150,16 +185,35 @@ class SpectechReportExportService
         ]);
     }
 
-    private function buildSummaryBlock($sheet, array $report): void
+    private function resolveLogoPath(): ?string
     {
-        $startRow = 6;
-        $sheet->mergeCells("A{$startRow}:C{$startRow}");
+        $candidates = [
+            resource_path('images/shin-line-logo.png'),
+            public_path('images/shin-line-logo.png'),
+            public_path('shin-line-logo.png'),
+        ];
+
+        $builtLogos = glob(public_path('build/assets/shin-line-logo-*.png')) ?: [];
+        $candidates = array_merge($candidates, $builtLogos);
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function buildSummaryBlock(Worksheet $sheet, array $report, int $startRow): int
+    {
+        $sheet->mergeCells("A{$startRow}:J{$startRow}");
         $sheet->setCellValue("A{$startRow}", 'KPI ПО НЕДЕЛЕ');
 
-        $sheet->getStyle("A{$startRow}:C{$startRow}")->applyFromArray([
+        $sheet->getStyle("A{$startRow}:J{$startRow}")->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['rgb' => '1E4F8A'],
+                'startColor' => ['rgb' => '0F2E4D'],
             ],
             'font' => [
                 'bold' => true,
@@ -171,68 +225,74 @@ class SpectechReportExportService
         ]);
 
         $metrics = [
-            ['title' => 'Заявки в периоде', 'value' => $report['summary']['total_requests'] ?? 0, 'description' => 'Работы, попавшие в выбранную неделю', 'color' => 'D9EAF7'],
-            ['title' => 'Конфликт планирования', 'value' => $report['summary']['conflict_requests'] ?? 0, 'description' => 'Заявки с пересечением техники', 'color' => 'FDE2E1'],
-            ['title' => 'Заморожено', 'value' => $report['summary']['frozen_requests'] ?? 0, 'description' => 'Заявки со статусом заморозки', 'color' => 'FFF4CC'],
-            ['title' => 'Отменено заявок', 'value' => $report['summary']['cancelled_requests'] ?? 0, 'description' => 'Заявки, снятые с исполнения', 'color' => 'FDE2E1'],
+            ['range' => ['A', 'B'], 'title' => 'Всего заявок', 'value' => $report['summary']['total_requests'] ?? 0, 'description' => 'Подано за выбранную неделю', 'color' => 'E6F0FF', 'accent' => '1E4F8A'],
+            ['range' => ['C', 'E'], 'title' => 'Конфликты', 'value' => $report['summary']['conflict_requests'] ?? 0, 'description' => 'Требуют решения диспетчера', 'color' => 'FDE2E1', 'accent' => 'B91C1C'],
+            ['range' => ['F', 'G'], 'title' => 'Заморожено', 'value' => $report['summary']['frozen_requests'] ?? 0, 'description' => 'Статус не должен зависать', 'color' => 'FFF4CC', 'accent' => '92400E'],
+            ['range' => ['H', 'J'], 'title' => 'Отменено', 'value' => $report['summary']['cancelled_requests'] ?? 0, 'description' => 'Снято с исполнения', 'color' => 'FDE2E1', 'accent' => 'B91C1C'],
         ];
 
-        $row = $startRow + 1;
+        $titleRow = $startRow + 1;
+        $valueRow = $startRow + 2;
+        $descriptionRow = $startRow + 3;
         foreach ($metrics as $metric) {
-            $sheet->setCellValue("A{$row}", $metric['title']);
-            $sheet->setCellValue("B{$row}", (int) $metric['value']);
-            $sheet->setCellValue("C{$row}", $metric['description']);
+            [$fromCol, $toCol] = $metric['range'];
+            $sheet->mergeCells("{$fromCol}{$titleRow}:{$toCol}{$titleRow}");
+            $sheet->mergeCells("{$fromCol}{$valueRow}:{$toCol}{$valueRow}");
+            $sheet->mergeCells("{$fromCol}{$descriptionRow}:{$toCol}{$descriptionRow}");
 
-            $sheet->getStyle("A{$row}:C{$row}")->applyFromArray([
-                'borders' => [
-                    'allBorders' => [
-                        'borderStyle' => Border::BORDER_THIN,
-                        'color' => ['rgb' => 'D7DCE3'],
-                    ],
-                ],
-                'alignment' => [
-                    'vertical' => Alignment::VERTICAL_CENTER,
-                    'wrapText' => true,
-                ],
-            ]);
+            $sheet->setCellValue("{$fromCol}{$titleRow}", $metric['title']);
+            $sheet->setCellValue("{$fromCol}{$valueRow}", (int) $metric['value']);
+            $sheet->setCellValue("{$fromCol}{$descriptionRow}", $metric['description']);
 
-            $sheet->getStyle("B{$row}")->applyFromArray([
+            $sheet->getStyle("{$fromCol}{$titleRow}:{$toCol}{$descriptionRow}")->applyFromArray([
                 'fill' => [
                     'fillType' => Fill::FILL_SOLID,
                     'startColor' => ['rgb' => $metric['color']],
                 ],
-                'font' => [
-                    'bold' => true,
-                    'size' => 12,
-                    'color' => ['rgb' => '1F2937'],
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                        'color' => ['rgb' => 'CBD5E1'],
+                    ],
                 ],
                 'alignment' => [
+                    'vertical' => Alignment::VERTICAL_CENTER,
                     'horizontal' => Alignment::HORIZONTAL_CENTER,
+                    'wrapText' => true,
                 ],
             ]);
 
-            $sheet->getStyle("A{$row}")->applyFromArray([
-                'font' => ['bold' => true],
-                'fill' => [
-                    'fillType' => Fill::FILL_SOLID,
-                    'startColor' => ['rgb' => 'F8FAFC'],
+            $sheet->getStyle("{$fromCol}{$titleRow}:{$toCol}{$titleRow}")->applyFromArray([
+                'font' => [
+                    'bold' => true,
+                    'size' => 10,
+                    'color' => ['rgb' => $metric['accent']],
                 ],
             ]);
 
-            $row++;
+            $sheet->getStyle("{$fromCol}{$valueRow}:{$toCol}{$valueRow}")->applyFromArray([
+                'font' => [
+                    'bold' => true,
+                    'size' => 22,
+                    'color' => ['rgb' => '111827'],
+                ],
+            ]);
         }
+
+        $sheet->getRowDimension($startRow)->setRowHeight(22);
+        $sheet->getRowDimension($titleRow)->setRowHeight(22);
+        $sheet->getRowDimension($valueRow)->setRowHeight(32);
+        $sheet->getRowDimension($descriptionRow)->setRowHeight(26);
+
+        return $descriptionRow;
     }
 
-    private function buildProblemsBlock($sheet, array $report): void
+    private function buildProblemsBlock(Worksheet $sheet, array $report, int $startRow): int
     {
-        $startRow = 6;
-        $startCol = 'E';
-        $endCol = 'J';
+        $sheet->mergeCells("A{$startRow}:J{$startRow}");
+        $sheet->setCellValue("A{$startRow}", 'ПРОБЛЕМНЫЕ ЗАЯВКИ');
 
-        $sheet->mergeCells("{$startCol}{$startRow}:{$endCol}{$startRow}");
-        $sheet->setCellValue("{$startCol}{$startRow}", 'ПРОБЛЕМНЫЕ ЗАЯВКИ');
-
-        $sheet->getStyle("{$startCol}{$startRow}:{$endCol}{$startRow}")->applyFromArray([
+        $sheet->getStyle("A{$startRow}:J{$startRow}")->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
                 'startColor' => ['rgb' => 'B91C1C'],
@@ -246,14 +306,15 @@ class SpectechReportExportService
             ],
         ]);
 
-        $headers = ['ID заявки', 'Суть', 'Рекомендуемое решение / статус'];
         $headerRow = $startRow + 1;
-        foreach ($headers as $index => $header) {
-            $cell = Coordinate::stringFromColumnIndex(5 + $index);
-            $sheet->setCellValue($cell . $headerRow, $header);
-        }
+        $sheet->mergeCells("A{$headerRow}:B{$headerRow}");
+        $sheet->mergeCells("C{$headerRow}:D{$headerRow}");
+        $sheet->mergeCells("E{$headerRow}:J{$headerRow}");
+        $sheet->setCellValue("A{$headerRow}", 'ID / инициатор');
+        $sheet->setCellValue("C{$headerRow}", 'Суть');
+        $sheet->setCellValue("E{$headerRow}", 'Рекомендуемое решение / статус');
 
-        $sheet->getStyle("E{$headerRow}:G{$headerRow}")->applyFromArray([
+        $sheet->getStyle("A{$headerRow}:J{$headerRow}")->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
                 'startColor' => ['rgb' => '7F1D1D'],
@@ -277,11 +338,20 @@ class SpectechReportExportService
 
         $row = $headerRow + 1;
         foreach (($report['problem_requests'] ?? []) as $problem) {
-            $sheet->setCellValue("E{$row}", '#' . $problem['id']);
-            $sheet->setCellValue("F{$row}", $problem['essence']);
-            $sheet->setCellValue("G{$row}", $problem['solution']);
+            $sheet->mergeCells("A{$row}:B{$row}");
+            $sheet->mergeCells("C{$row}:D{$row}");
+            $sheet->mergeCells("E{$row}:J{$row}");
 
-            $sheet->getStyle("E{$row}:G{$row}")->applyFromArray([
+            $equipment = trim(($problem['equipment_name'] ?? '—') . (!empty($problem['plate_number']) ? ' / ' . $problem['plate_number'] : ''));
+            $sheet->setCellValue("A{$row}", '#' . $problem['id'] . "\n" . ($problem['initiator_name'] ?? '—') . "\n" . $equipment);
+            $sheet->setCellValue("C{$row}", $problem['essence']);
+            $sheet->setCellValue("E{$row}", $problem['solution']);
+
+            $sheet->getStyle("A{$row}:J{$row}")->applyFromArray([
+                'fill' => [
+                    'fillType' => Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'FFF8F8'],
+                ],
                 'borders' => [
                     'allBorders' => [
                         'borderStyle' => Border::BORDER_THIN,
@@ -294,7 +364,7 @@ class SpectechReportExportService
                 ],
             ]);
 
-            $sheet->getStyle("E{$row}")->applyFromArray([
+            $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
                 'fill' => [
                     'fillType' => Fill::FILL_SOLID,
                     'startColor' => ['rgb' => 'FEF2F2'],
@@ -302,33 +372,42 @@ class SpectechReportExportService
                 'font' => ['bold' => true, 'color' => ['rgb' => '991B1B']],
             ]);
 
-            $sheet->getStyle("F{$row}")->applyFromArray([
+            $sheet->getStyle("C{$row}:D{$row}")->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['rgb' => '7F1D1D']],
             ]);
 
+            $sheet->getRowDimension($row)->setRowHeight(42);
             $row++;
         }
 
         if ($row === $headerRow + 1) {
-            $sheet->mergeCells("E{$row}:G{$row}");
-            $sheet->setCellValue("E{$row}", 'Проблемных заявок за период не найдено');
-            $sheet->getStyle("E{$row}:G{$row}")->applyFromArray([
+            $sheet->mergeCells("A{$row}:J{$row}");
+            $sheet->setCellValue("A{$row}", 'Проблемных заявок за период не найдено');
+            $sheet->getStyle("A{$row}:J{$row}")->applyFromArray([
                 'font' => ['italic' => true, 'color' => ['rgb' => '6B7280']],
                 'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+                'borders' => [
+                    'outline' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                        'color' => ['rgb' => 'E5E7EB'],
+                    ],
+                ],
             ]);
+            $row++;
         }
+
+        return $row - 1;
     }
 
-    private function buildAnalyticsBlock($sheet, array $report): void
+    private function buildAnalyticsBlock(Worksheet $sheet, array $report, int $startRow): int
     {
-        $startRow = 12;
         $sheet->mergeCells("A{$startRow}:J{$startRow}");
         $sheet->setCellValue("A{$startRow}", 'АНАЛИТИКА И РЕКОМЕНДАЦИИ');
 
         $sheet->getStyle("A{$startRow}:J{$startRow}")->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['rgb' => 'D9EAF7'],
+                'startColor' => ['rgb' => 'E6F0FF'],
             ],
             'font' => [
                 'bold' => true,
@@ -374,15 +453,16 @@ class SpectechReportExportService
             $sheet->getRowDimension($row)->setRowHeight(22);
             $row++;
         }
+
+        return $row - 1;
     }
 
-    private function buildJournalBlock($sheet, array $report): void
+    private function buildJournalBlock(Worksheet $sheet, array $report, int $startRow): int
     {
-        $startRow = 19;
-        $sheet->mergeCells("A{$startRow}:F{$startRow}");
+        $sheet->mergeCells("A{$startRow}:J{$startRow}");
         $sheet->setCellValue("A{$startRow}", 'ДЕТАЛЬНЫЙ ЖУРНАЛ ЗАЯВОК');
 
-        $sheet->getStyle("A{$startRow}:F{$startRow}")->applyFromArray([
+        $sheet->getStyle("A{$startRow}:J{$startRow}")->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
                 'startColor' => ['rgb' => '163A63'],
@@ -396,14 +476,25 @@ class SpectechReportExportService
             ],
         ]);
 
-        $headers = ['ID заявки', 'Инициатор', 'Техника', 'Период выполнения', 'Статус / Ошибки', 'Локация / Комментарий'];
+        $headers = [
+            'ID',
+            'Инициатор',
+            'Телефон',
+            'Техника',
+            'Госномер',
+            'Период выполнения',
+            'Статус / ошибки',
+            'Локация',
+            'Комментарий',
+            'Создано',
+        ];
         $headerRow = $startRow + 1;
         foreach ($headers as $index => $header) {
             $cell = Coordinate::stringFromColumnIndex($index + 1);
             $sheet->setCellValue($cell . $headerRow, $header);
         }
 
-        $sheet->getStyle("A{$headerRow}:F{$headerRow}")->applyFromArray([
+        $sheet->getStyle("A{$headerRow}:J{$headerRow}")->applyFromArray([
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
                 'startColor' => ['rgb' => '0F2E4D'],
@@ -424,6 +515,7 @@ class SpectechReportExportService
                 ],
             ],
         ]);
+        $sheet->getRowDimension($headerRow)->setRowHeight(30);
 
         $journalRows = $report['journal_rows'] ?? [];
         $row = $headerRow + 1;
@@ -442,13 +534,17 @@ class SpectechReportExportService
             }
 
             $sheet->setCellValue("A{$row}", '#' . ($item['id'] ?? ''));
-            $sheet->setCellValue("B{$row}", ($item['initiator_name'] ?? '—') . "\n" . ($item['initiator_phone'] ?? '—'));
-            $sheet->setCellValue("C{$row}", ($item['equipment_name'] ?? '—') . (!empty($item['plate_number']) ? "\n" . $item['plate_number'] : ''));
-            $sheet->setCellValue("D{$row}", $item['period'] ?? '—');
-            $sheet->setCellValue("E{$row}", $statusLabel);
-            $sheet->setCellValue("F{$row}", $item['location'] ?? '—');
+            $sheet->setCellValue("B{$row}", $item['initiator_name'] ?? '—');
+            $sheet->setCellValue("C{$row}", $item['initiator_phone'] ?? '—');
+            $sheet->setCellValue("D{$row}", $item['equipment_name'] ?? '—');
+            $sheet->setCellValue("E{$row}", $item['plate_number'] ?? '—');
+            $sheet->setCellValue("F{$row}", $item['period'] ?? '—');
+            $sheet->setCellValue("G{$row}", $statusLabel);
+            $sheet->setCellValue("H{$row}", $this->locationWithoutComment($item['location'] ?? '—'));
+            $sheet->setCellValue("I{$row}", $item['comment'] ?? '—');
+            $sheet->setCellValue("J{$row}", $item['created_at_label'] ?? '—');
 
-            $sheet->getStyle("A{$row}:F{$row}")->applyFromArray([
+            $sheet->getStyle("A{$row}:J{$row}")->applyFromArray([
                 'fill' => [
                     'fillType' => Fill::FILL_SOLID,
                     'startColor' => ['rgb' => $altFill],
@@ -465,7 +561,17 @@ class SpectechReportExportService
                 ],
             ]);
 
-            $sheet->getStyle("E{$row}")->applyFromArray([
+            $sheet->getStyle("A{$row}")->applyFromArray([
+                'font' => [
+                    'bold' => true,
+                    'color' => ['rgb' => '0F2E4D'],
+                ],
+                'alignment' => [
+                    'horizontal' => Alignment::HORIZONTAL_CENTER,
+                ],
+            ]);
+
+            $sheet->getStyle("G{$row}")->applyFromArray([
                 'fill' => [
                     'fillType' => Fill::FILL_SOLID,
                     'startColor' => ['rgb' => $statusFill],
@@ -476,11 +582,42 @@ class SpectechReportExportService
                 ],
             ]);
 
-            $sheet->getRowDimension($row)->setRowHeight(42);
+            $sheet->getRowDimension($row)->setRowHeight(54);
             $row++;
         }
 
-        $sheet->setAutoFilter("A{$headerRow}:F" . max($headerRow, $row - 1));
+        if ($row === $headerRow + 1) {
+            $sheet->mergeCells("A{$row}:J{$row}");
+            $sheet->setCellValue("A{$row}", 'За выбранный период заявок нет');
+            $sheet->getStyle("A{$row}:J{$row}")->applyFromArray([
+                'font' => ['italic' => true, 'color' => ['rgb' => '64748B']],
+                'alignment' => [
+                    'horizontal' => Alignment::HORIZONTAL_CENTER,
+                    'vertical' => Alignment::VERTICAL_CENTER,
+                ],
+                'borders' => [
+                    'outline' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                        'color' => ['rgb' => 'E5E7EB'],
+                    ],
+                ],
+            ]);
+            $row++;
+        }
+
+        $sheet->setAutoFilter("A{$headerRow}:J" . max($headerRow, $row - 1));
+
+        return $headerRow;
+    }
+
+    private function locationWithoutComment(string $location): string
+    {
+        $lines = array_filter(
+            explode("\n", $location),
+            fn (string $line) => ! str_starts_with(trim($line), 'Комментарий:')
+        );
+
+        return implode("\n", $lines) ?: '—';
     }
 
     private function statusFill(string $status): string
