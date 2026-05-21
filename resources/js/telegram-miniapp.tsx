@@ -1365,9 +1365,6 @@ function ViolationsCreateView({
                                 Отмена
                             </button>
                         </div>
-                        <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 10 }}>
-                            Камера открыта поверх формы, поэтому прокручивать страницу вниз не нужно.
-                        </div>
                     </div>
                 </div>
             )}
