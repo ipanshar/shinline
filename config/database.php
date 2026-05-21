@@ -86,6 +86,26 @@ return [
             ]) : [],
         ],
 
+        'sigur' => [
+            'driver' => env('SIGUR_DB_DRIVER', 'mysql'),
+            'url' => env('SIGUR_DB_URL'),
+            'host' => env('SIGUR_DB_HOST', '127.0.0.1'),
+            'port' => env('SIGUR_DB_PORT', '3306'),
+            'database' => env('SIGUR_DB_DATABASE', 'tc-db-main'),
+            'username' => env('SIGUR_DB_USERNAME', 'root'),
+            'password' => env('SIGUR_DB_PASSWORD', ''),
+            'unix_socket' => env('SIGUR_DB_SOCKET', ''),
+            'charset' => env('SIGUR_DB_CHARSET', 'utf8mb4'),
+            'collation' => env('SIGUR_DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => false,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                $mysqlSslCaOption => env('SIGUR_MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DB_URL'),
