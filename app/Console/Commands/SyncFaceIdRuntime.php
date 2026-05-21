@@ -9,13 +9,15 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
 
 class SyncFaceIdRuntime extends Command
 {
     protected $signature = 'violations:sync-faceid-runtime
                             {--dump= : Полный путь до SQL dump Sigur}
-                            {--force-import : Принудительно заново импортировать эталоны из dump}
+                            {--source= : Источник синхронизации Sigur: dump или database}
+                            {--force-import : Принудительно заново импортировать эталоны из источника Sigur}
                             {--restart-service : После sync перезапустить Windows service Face ID}
                             {--without-runtime-refresh : Не отправлять runtime refresh в Python Face ID}
                             {--without-storage-link : Не проверять public/storage link}
@@ -25,12 +27,17 @@ class SyncFaceIdRuntime extends Command
 
     public function handle(FaceReferenceManifestService $manifestService): int
     {
+        $source = $this->resolveImportSource();
         $summary = [
             'status' => 'ok',
-            'dumpPath' => $this->resolveDumpPath(),
+            'sigurSource' => $source,
             'referenceManifestPath' => (string) config('services.faceid.reference_manifest_path'),
             'referenceStoreDir' => (string) config('filesystems.disks.faceid_references.root'),
         ];
+
+        if ($source === 'dump') {
+            $summary['dumpPath'] = $this->resolveDumpPath();
+        }
 
         try {
             $summary['directories'] = $this->ensureRuntimeDirectories();
@@ -39,9 +46,9 @@ class SyncFaceIdRuntime extends Command
                 $summary['storageLink'] = $this->ensureStorageLink();
             }
 
-            if ((bool) $this->option('force-import') || $this->shouldImportFromDump()) {
-                $summary['syncMode'] = 'import_dump';
-                $summary['import'] = $this->runSigurImport();
+            if ((bool) $this->option('force-import') || $this->shouldImportFromSource($source)) {
+                $summary['syncMode'] = $source === 'database' ? 'import_database' : 'import_dump';
+                $summary['import'] = $this->runSigurImport($source);
             } else {
                 $summary['syncMode'] = 'export_manifest';
                 $summary['manifest'] = $manifestService->exportActiveManifest();
@@ -124,6 +131,15 @@ class SyncFaceIdRuntime extends Command
         ];
     }
 
+    private function shouldImportFromSource(string $source): bool
+    {
+        if ($source === 'database') {
+            return true;
+        }
+
+        return $this->shouldImportFromDump();
+    }
+
     private function shouldImportFromDump(): bool
     {
         $dumpPath = $this->resolveDumpPath();
@@ -150,20 +166,27 @@ class SyncFaceIdRuntime extends Command
         return $dumpMtime > $latestSyncTs;
     }
 
-    private function runSigurImport(): array
+    private function runSigurImport(string $source): array
     {
         $parameters = [
-            '--dump' => $this->resolveDumpPath(),
-            '--python' => (string) config('services.faceid.python_executable'),
             '--store-dir' => (string) config('filesystems.disks.faceid_references.root'),
             '--import-manifest' => (string) config('services.faceid.import_manifest_path'),
         ];
 
-        $exitCode = Artisan::call('violations:import-sigur-dump', $parameters);
+        if ($source === 'database') {
+            $parameters['--connection'] = (string) config('services.faceid.sigur_connection', 'sigur');
+            $command = 'violations:import-sigur-live';
+        } else {
+            $parameters['--dump'] = $this->resolveDumpPath();
+            $parameters['--python'] = (string) config('services.faceid.python_executable');
+            $command = 'violations:import-sigur-dump';
+        }
+
+        $exitCode = Artisan::call($command, $parameters);
         $output = trim(Artisan::output());
 
         if ($exitCode !== 0) {
-            throw new \RuntimeException('violations:import-sigur-dump failed: ' . $output);
+            throw new \RuntimeException($command . ' failed: ' . $output);
         }
 
         return [
@@ -270,6 +293,21 @@ class SyncFaceIdRuntime extends Command
         }
 
         return base_path('testFaceID/sigur_20260506.sql');
+    }
+
+    private function resolveImportSource(): string
+    {
+        $option = trim((string) $this->option('source'));
+        $source = $option !== ''
+            ? $option
+            : (string) config('services.faceid.sigur_sync_source', 'dump');
+
+        $normalized = Str::lower(trim($source));
+        if (! in_array($normalized, ['dump', 'database'], true)) {
+            throw new \InvalidArgumentException('Unsupported Sigur sync source: ' . $source);
+        }
+
+        return $normalized;
     }
 
     private function renderSummary(array $summary, int $exitCode): int

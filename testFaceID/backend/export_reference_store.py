@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .dump_parser import DumpReferenceImage, parse_sigur_dump
+from .dump_parser import DumpPerson, DumpReferenceImage, parse_sigur_dump
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +59,36 @@ def build_reference_payload(reference: DumpReferenceImage, relative_path: str | 
     return payload
 
 
+def build_person_payload(person: DumpPerson) -> dict[str, Any]:
+    group_key = str(person.identity_key)
+    business_key = f"faceid:{group_key}"
+
+    profile = {
+        "sourceLabel": "Sigur personal",
+        "role": person.pos,
+        "department": "",
+        "iin": person.iin,
+        "status": person.status,
+        "groupKey": group_key,
+        "employeeType": person.employee_type,
+        "personType": person.type,
+    }
+
+    return {
+        "employeeId": person.id,
+        "businessKey": business_key,
+        "externalRef": str(person.id),
+        "groupKey": group_key,
+        "name": person.name,
+        "sourceSystem": "sigur",
+        "profile": {
+            key: str(value)
+            for key, value in profile.items()
+            if value is not None
+        },
+    }
+
+
 def main() -> int:
     args = parse_args()
     dump_path = Path(args.dump).expanduser().resolve()
@@ -70,6 +100,7 @@ def main() -> int:
     if args.dry_run:
         summary = {
             "dumpPath": dump_path.as_posix(),
+            "peopleCount": len(result.people),
             "referenceCount": len(result.references),
             "stats": result.stats,
         }
@@ -93,8 +124,10 @@ def main() -> int:
     payload = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "dumpPath": dump_path.as_posix(),
+        "peopleCount": len(result.people),
         "referenceCount": len(references),
         "stats": result.stats,
+        "people": [build_person_payload(person) for person in sorted(result.people.values(), key=lambda item: item.id)],
         "references": references,
     }
 
@@ -110,6 +143,7 @@ def main() -> int:
                 "dumpPath": dump_path.as_posix(),
                 "outputDir": output_dir.as_posix(),
                 "manifestPath": manifest_path.as_posix(),
+                "peopleCount": len(result.people),
                 "referenceCount": len(references),
                 "stats": result.stats,
             },

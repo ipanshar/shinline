@@ -15,19 +15,21 @@
 - frontend: React + Vite
 - backend: FastAPI + OpenCV YuNet/SFace ONNX models
 - runtime-источник эталонных фото: локальный manifest + локальный каталог эталонов
-- источник первичного импорта: только нужные записи из sigur_20260506.sql
+- источник первичного импорта: SQL dump Sigur или прямое подключение к БД Sigur на сервере
 
-Текущее ограничение дампа:
+Текущее ограничение dump-режима:
 
 - в personalimg сейчас только 3 фотографии сотрудников;
 - руководителей в этом прототипе нет;
-- таблица photo пока не используется как эталонная база, потому что в дампе нет надёжной связи photo -> сотрудник.
+- при прямом sync из БД `photo` тоже используется, но в dump-режиме качество связи `photo -> сотрудник` зависит от конкретной выгрузки Sigur.
 
 Где хранить dump:
 
 - файл sigur_20260506.sql намеренно исключён из git и должен лежать отдельно;
 - dump нужен только для импорта в локальный reference store, а не как рабочий runtime source;
 - на сервере dump можно хранить в любом каталоге и передать путь через переменную среды FACEID_DUMP_PATH.
+
+Если сервер может подключаться к живой БД Sigur, dump больше не обязателен: синхронизация может читать personal, personalimg и photo напрямую через отдельное Laravel connection `sigur`.
 
 ## Рабочая схема
 
@@ -38,10 +40,16 @@
 - FastAPI backend читает уже локальный manifest, а не парсит dump при каждом rebuild;
 - старый прямой разбор dump остаётся только как fallback, если manifest ещё не создан.
 
-Artisan-команда импорта:
+Artisan-команда импорта из dump:
 
 ```powershell
 php artisan violations:import-sigur-dump --dump="C:\faceid-data\sigur_20260506.sql"
+```
+
+Artisan-команда прямого импорта из БД Sigur:
+
+```powershell
+php artisan violations:import-sigur-live --connection=sigur
 ```
 
 Операционная команда синхронизации runtime store:
@@ -74,11 +82,22 @@ php artisan violations:import-sigur-dump --dump="C:\faceid-data\sigur_20260506.s
 Основные переменные среды для сервера:
 
 - FACEID_DUMP_PATH: путь до dump, который используется только командой импорта;
+- FACEID_SIGUR_SYNC_SOURCE: `dump` или `database`;
+- FACEID_SIGUR_DB_CONNECTION: имя Laravel connection для Sigur, по умолчанию `sigur`;
 - FACEID_PYTHON_EXECUTABLE: путь до python.exe из testFaceID/.venv;
 - FACEID_REFERENCE_STORE_DIR: каталог локальных эталонных фото;
 - FACEID_REFERENCE_MANIFEST_PATH: JSON manifest для runtime Face ID;
 - FACEID_IMPORT_MANIFEST_PATH: временный manifest для импорта;
 - FACEID_CACHE_DIR: каталог cache/reference_vectors.json.
+
+Если используется прямой sync из БД Sigur, добавь ещё:
+
+- SIGUR_DB_HOST
+- SIGUR_DB_PORT
+- SIGUR_DB_DATABASE
+- SIGUR_DB_USERNAME
+- SIGUR_DB_PASSWORD
+- SIGUR_DB_DRIVER, если нужен не mysql
 
 ## Windows service
 
