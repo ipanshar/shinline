@@ -38,8 +38,7 @@ class SpectechReportExportService
         $row = $this->buildSummaryBlock($sheet, $report, $row) + 2;
         $row = $this->buildProblemsBlock($sheet, $report, $row) + 2;
         $row = $this->buildAnalyticsBlock($sheet, $report, $row) + 2;
-        $journalHeaderRow = $this->buildJournalBlock($sheet, $report, $row);
-        $sheet->freezePane('A' . ($journalHeaderRow + 1));
+        $this->buildJournalBlock($sheet, $report, $row);
 
         $directory = storage_path('app/reports');
         if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
