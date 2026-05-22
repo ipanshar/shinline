@@ -122,8 +122,20 @@ interface SpectechTrackingItem {
     id: number;
     name?: string | null;
     plate_number?: string | null;
-    last_seen_gate?: string | null;
-    last_seen_at?: string | null;
+    has_active_request: boolean;
+    current_request?: {
+        id: number;
+        status: string;
+        status_label: string;
+        terminal?: string | null;
+        zone?: string | null;
+        gate?: string | null;
+        address?: string | null;
+        requested_start?: string | null;
+        requested_end?: string | null;
+        initiator_name?: string | null;
+        initiator_phone?: string | null;
+    } | null;
 }
 
 interface SpectechConflictDetail {
@@ -397,32 +409,27 @@ function formatSpectechDateTime(value?: string | null): string {
         : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function formatSpectechRelativeTime(value?: string | null): string {
-    if (!value) return 'Локация не определена';
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return 'Есть отметка, но время не распознано';
+function getSpectechTrackingState(item: SpectechTrackingItem): 'active' | 'planning' | 'idle' {
+    if (!item.current_request) {
+        return 'idle';
     }
 
-    const diffMinutes = Math.round((Date.now() - date.getTime()) / 60000);
-    if (diffMinutes < 1) return 'Обновлено только что';
-    if (diffMinutes < 60) return `Обновлено ${diffMinutes} мин назад`;
-
-    const diffHours = Math.round(diffMinutes / 60);
-    if (diffHours < 24) return `Обновлено ${diffHours} ч назад`;
-
-    const diffDays = Math.round(diffHours / 24);
-    return `Обновлено ${diffDays} дн назад`;
+    return item.current_request.status === 'new' ? 'planning' : 'active';
 }
 
-function isSpectechLocationFresh(value?: string | null): boolean {
-    if (!value) return false;
+function formatSpectechTrackingPeriod(item: SpectechTrackingItem): string {
+    if (!item.current_request) {
+        return 'Нет активной заявки';
+    }
 
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return false;
+    const start = item.current_request.requested_start
+        ? formatSpectechDateTime(item.current_request.requested_start)
+        : '—';
+    const end = item.current_request.requested_end
+        ? formatSpectechDateTime(item.current_request.requested_end)
+        : '—';
 
-    return Date.now() - date.getTime() <= 24 * 60 * 60 * 1000;
+    return `${start} — ${end}`;
 }
 
 function formatSpectechPeriod(request: SpectechRequestItem): string {
@@ -2820,21 +2827,17 @@ function SpectechTrackingList({
     loading: boolean;
     error: string | null;
     query: string;
-    filter: 'all' | 'located' | 'unknown';
+    filter: 'all' | 'active' | 'planning' | 'idle';
     onQueryChange: (value: string) => void;
-    onFilterChange: (value: 'all' | 'located' | 'unknown') => void;
+    onFilterChange: (value: 'all' | 'active' | 'planning' | 'idle') => void;
     onRefresh: () => void;
     onBack: () => void;
 }) {
     const normalizedQuery = query.trim().toLowerCase();
     const filteredItems = items.filter((item) => {
-        const hasLocation = Boolean(item.last_seen_gate || item.last_seen_at);
+        const trackingState = getSpectechTrackingState(item);
 
-        if (filter === 'located' && !hasLocation) {
-            return false;
-        }
-
-        if (filter === 'unknown' && hasLocation) {
+        if (filter !== 'all' && trackingState !== filter) {
             return false;
         }
 
@@ -2845,33 +2848,36 @@ function SpectechTrackingList({
         return [
             item.name ?? '',
             item.plate_number ?? '',
-            item.last_seen_gate ?? '',
+            item.current_request?.terminal ?? '',
+            item.current_request?.zone ?? '',
+            item.current_request?.gate ?? '',
+            item.current_request?.address ?? '',
         ].some((part) => part.toLowerCase().includes(normalizedQuery));
     });
 
-    const locatedCount = items.filter((item) => item.last_seen_gate || item.last_seen_at).length;
-    const freshCount = items.filter((item) => isSpectechLocationFresh(item.last_seen_at)).length;
-    const unknownCount = items.length - locatedCount;
+    const activeCount = items.filter((item) => getSpectechTrackingState(item) === 'active').length;
+    const planningCount = items.filter((item) => getSpectechTrackingState(item) === 'planning').length;
+    const idleCount = items.filter((item) => getSpectechTrackingState(item) === 'idle').length;
 
     return (
         <>
             <h3>Где спецтехника</h3>
             <p style={{ marginTop: 0, color: '#666', fontSize: 14 }}>
-                Последняя известная локация по данным ANPR/DSS. Обычный транспорт сюда не попадает.
+                Текущая локация и статус берутся из активной заявки спецтехники. Обычный транспорт сюда не попадает.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
                 <div style={{ border: '1px solid #dbe7f3', borderRadius: 8, padding: 10, background: '#fff' }}>
-                    <div style={{ fontSize: 12, color: '#666' }}>Есть локация</div>
-                    <div style={{ fontSize: 22, fontWeight: 700 }}>{locatedCount}</div>
+                    <div style={{ fontSize: 12, color: '#666' }}>В работе</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>{activeCount}</div>
                 </div>
                 <div style={{ border: '1px solid #b7e4c7', borderRadius: 8, padding: 10, background: '#eefbf3' }}>
-                    <div style={{ fontSize: 12, color: '#2d6a4f' }}>Свежие данные</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: '#1b4332' }}>{freshCount}</div>
+                    <div style={{ fontSize: 12, color: '#2d6a4f' }}>Пока планируем</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#1b4332' }}>{planningCount}</div>
                 </div>
                 <div style={{ border: '1px solid #f5d08a', borderRadius: 8, padding: 10, background: '#fff9ed' }}>
-                    <div style={{ fontSize: 12, color: '#9a6700' }}>Нет данных</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: '#7a4a00' }}>{unknownCount}</div>
+                    <div style={{ fontSize: 12, color: '#9a6700' }}>Нет активной заявки</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#7a4a00' }}>{idleCount}</div>
                 </div>
             </div>
 
@@ -2886,8 +2892,9 @@ function SpectechTrackingList({
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 {[
                     { value: 'all' as const, label: 'Вся спецтехника' },
-                    { value: 'located' as const, label: 'Есть локация' },
-                    { value: 'unknown' as const, label: 'Нет данных' },
+                    { value: 'active' as const, label: 'В работе' },
+                    { value: 'planning' as const, label: 'Планируем' },
+                    { value: 'idle' as const, label: 'Без заявки' },
                 ].map((option) => (
                     <button
                         key={option.value}
@@ -2917,14 +2924,35 @@ function SpectechTrackingList({
             {!loading && filteredItems.length === 0 && <p>Подходящая спецтехника не найдена.</p>}
 
             {filteredItems.map((item) => {
-                const hasLocation = Boolean(item.last_seen_gate || item.last_seen_at);
-                const isFresh = isSpectechLocationFresh(item.last_seen_at);
+                const trackingState = getSpectechTrackingState(item);
+                const request = item.current_request;
+                const borderColor = trackingState === 'active'
+                    ? '#b7e4c7'
+                    : trackingState === 'planning'
+                        ? '#bfdcff'
+                        : '#ddd';
+                const badgeBackground = trackingState === 'active'
+                    ? '#eefbf3'
+                    : trackingState === 'planning'
+                        ? '#eaf4ff'
+                        : '#f5f5f5';
+                const badgeColor = trackingState === 'active'
+                    ? '#1b4332'
+                    : trackingState === 'planning'
+                        ? '#1663b7'
+                        : '#555';
+                const badgeLabel = request
+                    ? (request.status === 'new' ? 'Пока планируем' : request.status_label)
+                    : 'Нет активной заявки';
+                const locationLabel = request
+                    ? [request.terminal, request.zone, request.gate].filter(Boolean).join(' / ')
+                    : 'Сейчас техника не назначена в заявку';
 
                 return (
                     <div
                         key={item.id}
                         style={{
-                            border: `1px solid ${hasLocation ? (isFresh ? '#b7e4c7' : '#f5d08a') : '#ddd'}`,
+                            border: `1px solid ${borderColor}`,
                             borderRadius: 8,
                             padding: 10,
                             margin: '8px 0',
@@ -2935,24 +2963,30 @@ function SpectechTrackingList({
                             <strong>{item.name || 'Без названия'}</strong>
                             <span
                                 style={{
-                                    border: `1px solid ${hasLocation ? (isFresh ? '#b7e4c7' : '#f5d08a') : '#ddd'}`,
+                                    border: `1px solid ${borderColor}`,
                                     borderRadius: 999,
                                     padding: '3px 8px',
-                                    background: hasLocation ? (isFresh ? '#eefbf3' : '#fff9ed') : '#f5f5f5',
-                                    color: hasLocation ? (isFresh ? '#1b4332' : '#7a4a00') : '#555',
+                                    background: badgeBackground,
+                                    color: badgeColor,
                                     fontSize: 12,
                                     fontWeight: 700,
                                     whiteSpace: 'nowrap',
                                 }}
                             >
-                                {hasLocation ? 'Есть локация' : 'Нет сигнала'}
+                                {badgeLabel}
                             </span>
                         </div>
                         {item.plate_number && <div style={{ color: '#666', fontSize: 13, marginTop: 2 }}>Номер: {item.plate_number}</div>}
                         <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
-                            <div><strong>Последняя точка:</strong> {item.last_seen_gate || 'Локация не определена'}</div>
-                            <div><strong>Последнее обновление:</strong> {formatSpectechDateTime(item.last_seen_at)}</div>
-                            <div style={{ color: '#666' }}>{formatSpectechRelativeTime(item.last_seen_at)}</div>
+                            <div><strong>Локация:</strong> {locationLabel}</div>
+                            <div><strong>Адрес:</strong> {request?.address || '—'}</div>
+                            <div><strong>Период:</strong> {formatSpectechTrackingPeriod(item)}</div>
+                            {request?.initiator_name && (
+                                <div>
+                                    <strong>Инициатор:</strong> {request.initiator_name}
+                                    {request.initiator_phone ? ` · ${request.initiator_phone}` : ''}
+                                </div>
+                            )}
                         </div>
                     </div>
                 );
@@ -3130,7 +3164,7 @@ function TelegramMiniApp() {
     const [spectechTrackingLoading, setSpectechTrackingLoading] = useState(false);
     const [spectechTrackingError, setSpectechTrackingError] = useState<string | null>(null);
     const [spectechTrackingQuery, setSpectechTrackingQuery] = useState('');
-    const [spectechTrackingFilter, setSpectechTrackingFilter] = useState<'all' | 'located' | 'unknown'>('located');
+    const [spectechTrackingFilter, setSpectechTrackingFilter] = useState<'all' | 'active' | 'planning' | 'idle'>('active');
 
     // ── Cancel modal for spectech requests (Telegram) ──
     const [tgCancelModalOpen, setTgCancelModalOpen] = useState(false);
