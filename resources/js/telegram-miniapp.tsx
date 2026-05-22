@@ -167,6 +167,9 @@ interface SpectechRequestItem {
     source_label?: string | null;
     cancellation_reason?: string | null;
     cancelled_by?: string | null;
+    updated_by_operator?: boolean;
+    operator_updated_at?: string | null;
+    operator_updated_by_name?: string | null;
     created_at?: string | null;
 }
 
@@ -361,6 +364,31 @@ const spectechStatusStyles: Record<string, { bg: string; color: string; border: 
     returned: { bg: '#eef7f0', color: '#226b35', border: '#abdcb8' },
     cancelled: { bg: '#fff1f1', color: '#b42318', border: '#f4b8b3' },
 };
+
+function renderSpectechPlanningNotice() {
+    return (
+        <div style={{ marginTop: 8, border: '1px solid #bae6fd', borderRadius: 8, padding: 8, background: '#f0f9ff', color: '#075985', fontSize: 14 }}>
+            <strong>Пока планируем</strong>
+            <div style={{ marginTop: 4 }}>Заявка принята. Диспетчер подбирает технику и планирует выезд.</div>
+        </div>
+    );
+}
+
+function renderSpectechOperatorUpdateNotice(request: SpectechRequestItem) {
+    const details = [
+        request.operator_updated_by_name ? `Оператор: ${request.operator_updated_by_name}` : null,
+        request.operator_updated_at ? `Обновлено: ${formatSpectechDateTime(request.operator_updated_at)}` : null,
+    ].filter(Boolean);
+
+    return (
+        <div style={{ marginTop: 8, border: '1px solid #fcd34d', borderRadius: 8, padding: 8, background: '#fffbeb', color: '#92400e', fontSize: 14 }}>
+            <strong>Заявка обновлена оператором</strong>
+            <div style={{ marginTop: 4 }}>
+                {details.length > 0 ? details.join(' · ') : 'Проверьте время, технику и адрес заявки.'}
+            </div>
+        </div>
+    );
+}
 
 function formatSpectechDateTime(value?: string | null): string {
     if (!value) return '—';
@@ -2885,6 +2913,8 @@ function SpectechRequestList({
                                 <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
                             </div>
                         )}
+                        {request.status === 'new' && renderSpectechPlanningNotice()}
+                        {request.updated_by_operator === true && renderSpectechOperatorUpdateNotice(request)}
                         {(request.conflict_info ?? []).length > 0 && renderConflictDetails(request)}
                         {canModify && (
                             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

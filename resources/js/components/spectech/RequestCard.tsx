@@ -53,6 +53,9 @@ export interface SpectechRequestData {
     status_frozen_reason?: string | null;
     cancellation_reason?: string | null;
     cancelled_by?: 'customer' | 'operator' | null;
+    updated_by_operator?: boolean;
+    operator_updated_at?: string | null;
+    operator_updated_by_name?: string | null;
     created_at: string;
 }
 

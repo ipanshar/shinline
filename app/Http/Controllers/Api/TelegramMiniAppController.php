@@ -394,7 +394,7 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveApprovedUser($chat);
 
         $requests = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])
+            ->with(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])
             ->where('user_id', $user->id)
             ->orderByDesc('created_at')
             ->limit(50)
@@ -411,7 +411,7 @@ class TelegramMiniAppController extends Controller
         $this->resolveSpectechOperator($chat);
 
         $requests = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])
+            ->with(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', (string) $request->input('status')))
             ->orderByDesc('created_at')
             ->get()
@@ -505,7 +505,7 @@ class TelegramMiniAppController extends Controller
             'conflict_info'   => $conflictInfo,
         ]);
 
-        $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat']);
+        $spectechRequest->load(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name']);
 
         $this->notifySpectechOperators($spectechRequest, $chat);
 
@@ -521,7 +521,7 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveApprovedUser($chat);
 
         $spectechRequest = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name', 'schedule'])
+            ->with(['truck:id,name,plate_number', 'user:id,name', 'schedule', 'operatorUpdatedBy:id,name'])
             ->findOrFail($id);
 
         if ($spectechRequest->user_id !== $user->id && ! $user->canManageSpectech()) {
@@ -580,10 +580,13 @@ class TelegramMiniAppController extends Controller
                 'initiator_phone' => $spectechRequest->initiator_phone ?: $user->phone,
             ], $user->phone);
 
-        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths, $conflictInfo, $initiatorName, $initiatorPhone) {
+        $hasOperatorUpdateColumns = $this->hasOperatorUpdateColumns();
+        $operatorUpdatePayload = $this->buildOperatorUpdatePayload($user->canManageSpectech(), $user->id, $hasOperatorUpdateColumns);
+
+        DB::transaction(function () use ($spectechRequest, $truck, $validated, $startCarbon, $endCarbon, $photoPaths, $conflictInfo, $initiatorName, $initiatorPhone, $operatorUpdatePayload) {
             $scheduleId = $this->syncTelegramSpectechSchedule($spectechRequest, $truck, $startCarbon, $endCarbon, $validated);
 
-            $spectechRequest->forceFill([
+            $spectechRequest->forceFill(array_merge([
                 'truck_id' => $truck->id,
                 'initiator_name' => $initiatorName,
                 'initiator_phone' => $initiatorPhone,
@@ -601,11 +604,11 @@ class TelegramMiniAppController extends Controller
                 'photos' => $photoPaths,
                 'schedule_id' => $scheduleId,
                 'conflict_info' => $conflictInfo,
-            ])->save();
+            ], $operatorUpdatePayload))->save();
         });
 
         return response()->json([
-            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])),
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])),
         ]);
     }
 
@@ -626,7 +629,7 @@ class TelegramMiniAppController extends Controller
         ]);
 
         $spectechRequest = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat'])
+            ->with(['truck:id,name,plate_number', 'user:id,name', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])
             ->findOrFail($id);
 
         if ($spectechRequest->isStatusFrozen() && $validated['status'] !== SpectechRequest::STATUS_RETURNED) {
@@ -649,7 +652,7 @@ class TelegramMiniAppController extends Controller
         $spectechRequest->syncScheduleStatus();
 
         return response()->json([
-            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])),
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])),
         ]);
     }
 
@@ -660,7 +663,7 @@ class TelegramMiniAppController extends Controller
         $user = $this->resolveApprovedUser($chat);
 
         $spectechRequest = SpectechRequest::query()
-            ->with(['truck:id,name,plate_number', 'user:id,name'])
+            ->with(['truck:id,name,plate_number', 'user:id,name', 'operatorUpdatedBy:id,name'])
             ->findOrFail($id);
 
         $isOperator = $user->canManageSpectech();
@@ -702,7 +705,7 @@ class TelegramMiniAppController extends Controller
             'message' => $hasCancellationColumns
                 ? 'Заявка отменена'
                 : 'Заявка отменена. Причина отмены не сохранена: на сервере ещё не обновлена схема БД.',
-            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat'])),
+            'data' => $this->formatSpectechRequest($spectechRequest->fresh(['truck:id,name,plate_number', 'user:id,name,phone', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])),
         ]);
     }
 
@@ -959,6 +962,9 @@ class TelegramMiniAppController extends Controller
             'conflict_info' => $conflictInfo,
             'cancellation_reason' => $item->cancellation_reason,
             'cancelled_by'        => $item->cancelled_by,
+            'updated_by_operator' => $this->hasOperatorUpdateColumns() && $item->operator_updated_at !== null,
+            'operator_updated_at' => $item->operator_updated_at?->toIso8601String(),
+            'operator_updated_by_name' => $item->operatorUpdatedBy?->name,
             'created_at' => $item->created_at?->toIso8601String(),
         ];
     }
@@ -1246,6 +1252,30 @@ class TelegramMiniAppController extends Controller
         $value = trim($value);
 
         return $value !== '' ? $value : null;
+    }
+
+    private function hasOperatorUpdateColumns(): bool
+    {
+        return Schema::hasColumns('spectech_requests', ['operator_updated_at', 'operator_updated_by_user_id']);
+    }
+
+    private function buildOperatorUpdatePayload(bool $isOperatorUpdate, ?int $actorUserId, bool $hasColumns): array
+    {
+        if (! $hasColumns) {
+            return [];
+        }
+
+        if ($isOperatorUpdate) {
+            return [
+                'operator_updated_at' => now(),
+                'operator_updated_by_user_id' => $actorUserId,
+            ];
+        }
+
+        return [
+            'operator_updated_at' => null,
+            'operator_updated_by_user_id' => null,
+        ];
     }
 
     private function formatUtilizationRequest(UtilizationRequest $item): array
