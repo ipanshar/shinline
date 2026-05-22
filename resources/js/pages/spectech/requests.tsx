@@ -52,7 +52,20 @@ function formatDateTime(v?: string | null): string {
     return isNaN(d.getTime()) ? v : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function buildOperatorUpdateMessage(request: SpectechRequestData): string {
+    const parts = [
+        request.operator_updated_by_name ? `Оператор: ${request.operator_updated_by_name}` : null,
+        request.operator_updated_at ? `Обновлено: ${formatDateTime(request.operator_updated_at)}` : null,
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(' · ') : 'Проверьте время, технику и адрес заявки.';
+}
+
 function getCurrentStage(request: SpectechRequestData): string {
+    if (request.status === 'new') {
+        return 'Пока планируем';
+    }
+
     const done = (request.timeline ?? []).filter(s => s.time);
     return done.length > 0 ? done[done.length - 1].title : 'Заявка создана';
 }
@@ -119,6 +132,8 @@ const RequestItem: React.FC<{
     const doneCount = timeline.filter(s => s.time).length;
     const progressPct = timeline.length > 0 ? Math.round((doneCount / timeline.length) * 100) : 0;
     const isCancelled = req.status === 'cancelled';
+    const isPlanning = req.status === 'new';
+    const hasOperatorUpdate = req.updated_by_operator === true;
     const hasPlanningConflict = (req.conflict_info ?? []).length > 0;
 
     const period = req.requested_start && req.requested_end
@@ -190,6 +205,24 @@ const RequestItem: React.FC<{
                                 )}
                             </div>
                             <div className="mt-1 text-[12px] text-red-800">{req.cancellation_reason || 'Причина не указана'}</div>
+                        </div>
+                    )}
+                    {isPlanning && (
+                        <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-sky-700">
+                                <Clock className="h-3.5 w-3.5" />
+                                Пока планируем
+                            </div>
+                            <div className="mt-1 text-[12px] text-sky-800">Заявка принята. Диспетчер подбирает технику и планирует выезд.</div>
+                        </div>
+                    )}
+                    {hasOperatorUpdate && (
+                        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-amber-700">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                Заявка обновлена оператором
+                            </div>
+                            <div className="mt-1 text-[12px] text-amber-900">{buildOperatorUpdateMessage(req)}</div>
                         </div>
                     )}
                     {hasPlanningConflict && (
@@ -302,6 +335,24 @@ const RequestItem: React.FC<{
                                         )}
                                     </p>
                                     <p className="text-[12px] text-red-800">{req.cancellation_reason}</p>
+                                </div>
+                            )}
+                            {isPlanning && (
+                                <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+                                    <p className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-sky-700">
+                                        <Clock className="h-3 w-3" />
+                                        Пока планируем
+                                    </p>
+                                    <p className="text-[12px] text-sky-800">Заявка в работе у диспетчера. После планирования статус обновится автоматически.</p>
+                                </div>
+                            )}
+                            {hasOperatorUpdate && (
+                                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                                    <p className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        Заявка обновлена оператором
+                                    </p>
+                                    <p className="text-[12px] text-amber-900">{buildOperatorUpdateMessage(req)}</p>
                                 </div>
                             )}
                             {hasPlanningConflict && (

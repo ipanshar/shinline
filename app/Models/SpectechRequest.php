@@ -32,6 +32,8 @@ class SpectechRequest extends Model
         'conflict_info',
         'cancellation_reason',
         'cancelled_by',
+        'operator_updated_at',
+        'operator_updated_by_user_id',
     ];
 
     protected $casts = [
@@ -43,6 +45,7 @@ class SpectechRequest extends Model
         'requested_start' => 'datetime',
         'requested_end'  => 'datetime',
         'from_scheduling' => 'boolean',
+        'operator_updated_at' => 'datetime',
     ];
 
     // Статусы
@@ -80,6 +83,11 @@ class SpectechRequest extends Model
     public function schedule(): BelongsTo
     {
         return $this->belongsTo(SpectechSchedule::class);
+    }
+
+    public function operatorUpdatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'operator_updated_by_user_id');
     }
 
     public static function scheduleStatusForRequestStatus(string $status): ?string
