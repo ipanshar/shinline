@@ -396,20 +396,77 @@ class TelegramMiniAppController extends Controller
 
         $trucks = Truck::query()
             ->when($categoryId, fn ($query) => $query->where('truck_category_id', $categoryId))
-            ->when($request->filled('search'), function ($query) use ($request) {
-                $search = (string) $request->input('search');
-                $query->where(function ($nested) use ($search) {
-                    $nested->where('name', 'like', "%{$search}%")
-                        ->orWhere('plate_number', 'like', "%{$search}%")
-                        ->orWhere('last_seen_gate', 'like', "%{$search}%");
-                });
-            })
-            ->orderByRaw('CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END')
-            ->orderByDesc('last_seen_at')
             ->orderBy('name')
-            ->get(['id', 'name', 'plate_number', 'last_seen_gate', 'last_seen_at']);
+            ->get(['id', 'name', 'plate_number']);
 
-        return response()->json(['data' => $trucks]);
+        $truckIds = $trucks->pluck('id')->all();
+
+        $activeRequests = SpectechRequest::query()
+            ->with(['user:id,name,phone'])
+            ->whereIn('truck_id', $truckIds)
+            ->whereIn('status', [
+                SpectechRequest::STATUS_NEW,
+                SpectechRequest::STATUS_DEPARTURE,
+                SpectechRequest::STATUS_ON_LOCATION,
+                SpectechRequest::STATUS_WORK_STARTED,
+            ])
+            ->orderByRaw(
+                "CASE status
+                    WHEN ? THEN 4
+                    WHEN ? THEN 3
+                    WHEN ? THEN 2
+                    WHEN ? THEN 1
+                    ELSE 0
+                END DESC",
+                [
+                    SpectechRequest::STATUS_WORK_STARTED,
+                    SpectechRequest::STATUS_ON_LOCATION,
+                    SpectechRequest::STATUS_DEPARTURE,
+                    SpectechRequest::STATUS_NEW,
+                ]
+            )
+            ->orderByDesc('requested_start')
+            ->orderByDesc('created_at')
+            ->get()
+            ->unique('truck_id')
+            ->keyBy('truck_id');
+
+        $items = $trucks->map(function (Truck $truck) use ($activeRequests) {
+            /** @var SpectechRequest|null $request */
+            $request = $activeRequests->get($truck->id);
+
+            return [
+                'id' => $truck->id,
+                'name' => $truck->name,
+                'plate_number' => $truck->plate_number,
+                'has_active_request' => $request !== null,
+                'current_request' => $request ? [
+                    'id' => $request->id,
+                    'status' => $request->status,
+                    'status_label' => SpectechRequest::STATUS_LABELS[$request->status] ?? $request->status,
+                    'terminal' => $request->terminal,
+                    'zone' => $request->zone,
+                    'gate' => $request->gate,
+                    'address' => $request->address,
+                    'requested_start' => $request->requested_start?->toIso8601String(),
+                    'requested_end' => $request->requested_end?->toIso8601String(),
+                    'initiator_name' => $this->resolveInitiatorName(['initiator_name' => $request->initiator_name], $request->user?->name),
+                    'initiator_phone' => $this->resolveInitiatorPhone(['initiator_phone' => $request->initiator_phone], $request->user?->phone),
+                ] : null,
+            ];
+        })->sortBy(function (array $item) {
+            $priority = match ($item['current_request']['status'] ?? null) {
+                SpectechRequest::STATUS_WORK_STARTED => 0,
+                SpectechRequest::STATUS_ON_LOCATION => 1,
+                SpectechRequest::STATUS_DEPARTURE => 2,
+                SpectechRequest::STATUS_NEW => 3,
+                default => 4,
+            };
+
+            return sprintf('%d-%s', $priority, mb_strtolower((string) ($item['name'] ?? '')));
+        })->values();
+
+        return response()->json(['data' => $items]);
     }
 
     public function spectechRequests(Request $request): JsonResponse

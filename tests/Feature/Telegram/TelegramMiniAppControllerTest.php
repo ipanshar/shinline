@@ -423,20 +423,33 @@ class TelegramMiniAppControllerTest extends TestCase
         $spectechCategory = TruckCategory::query()->create(['name' => 'Спец техника']);
         $otherCategory = TruckCategory::query()->create(['name' => 'Грузовики']);
 
-        Truck::query()->create([
+        $truck = Truck::query()->create([
             'name' => 'Автовышка',
             'plate_number' => '777AAA01',
             'truck_category_id' => $spectechCategory->id,
-            'last_seen_gate' => 'КПП Север',
-            'last_seen_at' => now()->subMinutes(12),
+        ]);
+
+        SpectechRequest::query()->create([
+            'user_id' => $user->id,
+            'truck_id' => $truck->id,
+            'initiator_name' => 'Диспетчер участка',
+            'initiator_phone' => '+77005554433',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDay()->toDateString(),
+            'requested_start' => now()->addHour(),
+            'requested_end' => now()->addHours(4),
+            'terminal' => 'T3',
+            'zone' => 'Зона 7',
+            'gate' => 'G-4',
+            'address' => 'Терминал T3, Зона 7, Гейт G-4',
+            'status' => SpectechRequest::STATUS_DEPARTURE,
+            'timeline' => [],
         ]);
 
         Truck::query()->create([
             'name' => 'Обычный тягач',
             'plate_number' => '888BBB01',
             'truck_category_id' => $otherCategory->id,
-            'last_seen_gate' => 'КПП Юг',
-            'last_seen_at' => now()->subMinutes(5),
         ]);
 
         $this->getJson('/api/telegram/miniapp/spectech/tracking?init_data='.urlencode($initData))
@@ -444,7 +457,12 @@ class TelegramMiniAppControllerTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.name', 'Автовышка')
             ->assertJsonPath('data.0.plate_number', '777AAA01')
-            ->assertJsonPath('data.0.last_seen_gate', 'КПП Север');
+            ->assertJsonPath('data.0.has_active_request', true)
+            ->assertJsonPath('data.0.current_request.status', SpectechRequest::STATUS_DEPARTURE)
+            ->assertJsonPath('data.0.current_request.terminal', 'T3')
+            ->assertJsonPath('data.0.current_request.zone', 'Зона 7')
+            ->assertJsonPath('data.0.current_request.gate', 'G-4')
+            ->assertJsonPath('data.0.current_request.address', 'Терминал T3, Зона 7, Гейт G-4');
     }
 
     public function test_spectech_requests_endpoint_returns_only_current_user_requests(): void
