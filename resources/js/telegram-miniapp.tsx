@@ -118,6 +118,14 @@ interface SpectechTruckOption {
     plate_number?: string | null;
 }
 
+interface SpectechTrackingItem {
+    id: number;
+    name?: string | null;
+    plate_number?: string | null;
+    last_seen_gate?: string | null;
+    last_seen_at?: string | null;
+}
+
 interface SpectechConflictDetail {
     id?: number;
     schedule_id?: number;
@@ -396,6 +404,34 @@ function formatSpectechDateTime(value?: string | null): string {
     return Number.isNaN(date.getTime())
         ? value
         : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatSpectechRelativeTime(value?: string | null): string {
+    if (!value) return 'Локация не определена';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return 'Есть отметка, но время не распознано';
+    }
+
+    const diffMinutes = Math.round((Date.now() - date.getTime()) / 60000);
+    if (diffMinutes < 1) return 'Обновлено только что';
+    if (diffMinutes < 60) return `Обновлено ${diffMinutes} мин назад`;
+
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) return `Обновлено ${diffHours} ч назад`;
+
+    const diffDays = Math.round(diffHours / 24);
+    return `Обновлено ${diffDays} дн назад`;
+}
+
+function isSpectechLocationFresh(value?: string | null): boolean {
+    if (!value) return false;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return false;
+
+    return Date.now() - date.getTime() <= 24 * 60 * 60 * 1000;
 }
 
 function formatSpectechPeriod(request: SpectechRequestItem): string {
@@ -694,6 +730,7 @@ function Dashboard({
     onViolationsCreate,
     onViolationsList,
     onSpectechCreate,
+    onSpectechTracking,
     onSpectechRequests,
     onUtilizationCreate,
     onUtilizationRequests,
@@ -706,6 +743,7 @@ function Dashboard({
     onViolationsCreate: () => void;
     onViolationsList: () => void;
     onSpectechCreate: () => void;
+    onSpectechTracking: () => void;
     onSpectechRequests: () => void;
     onUtilizationCreate: () => void;
     onUtilizationRequests: () => void;
@@ -726,6 +764,7 @@ function Dashboard({
             )}
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btn} onClick={onSpectechCreate}>Заявка на спецтехнику</button>
+            <button style={btnSecondary} onClick={onSpectechTracking}>Где спецтехника</button>
             <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
             {session.can_manage_spectech && (
                 <button style={btnSecondary} onClick={onOperatorSpectech}>
@@ -2935,6 +2974,164 @@ function SpectechRequestList({
     );
 }
 
+function SpectechTrackingList({
+    items,
+    loading,
+    error,
+    query,
+    filter,
+    onQueryChange,
+    onFilterChange,
+    onRefresh,
+    onBack,
+}: {
+    items: SpectechTrackingItem[];
+    loading: boolean;
+    error: string | null;
+    query: string;
+    filter: 'all' | 'located' | 'unknown';
+    onQueryChange: (value: string) => void;
+    onFilterChange: (value: 'all' | 'located' | 'unknown') => void;
+    onRefresh: () => void;
+    onBack: () => void;
+}) {
+    const normalizedQuery = query.trim().toLowerCase();
+    const filteredItems = items.filter((item) => {
+        const hasLocation = Boolean(item.last_seen_gate || item.last_seen_at);
+
+        if (filter === 'located' && !hasLocation) {
+            return false;
+        }
+
+        if (filter === 'unknown' && hasLocation) {
+            return false;
+        }
+
+        if (!normalizedQuery) {
+            return true;
+        }
+
+        return [
+            item.name ?? '',
+            item.plate_number ?? '',
+            item.last_seen_gate ?? '',
+        ].some((part) => part.toLowerCase().includes(normalizedQuery));
+    });
+
+    const locatedCount = items.filter((item) => item.last_seen_gate || item.last_seen_at).length;
+    const freshCount = items.filter((item) => isSpectechLocationFresh(item.last_seen_at)).length;
+    const unknownCount = items.length - locatedCount;
+
+    return (
+        <>
+            <h3>Где спецтехника</h3>
+            <p style={{ marginTop: 0, color: '#666', fontSize: 14 }}>
+                Последняя известная локация по данным ANPR/DSS. Обычный транспорт сюда не попадает.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+                <div style={{ border: '1px solid #dbe7f3', borderRadius: 8, padding: 10, background: '#fff' }}>
+                    <div style={{ fontSize: 12, color: '#666' }}>Есть локация</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>{locatedCount}</div>
+                </div>
+                <div style={{ border: '1px solid #b7e4c7', borderRadius: 8, padding: 10, background: '#eefbf3' }}>
+                    <div style={{ fontSize: 12, color: '#2d6a4f' }}>Свежие данные</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#1b4332' }}>{freshCount}</div>
+                </div>
+                <div style={{ border: '1px solid #f5d08a', borderRadius: 8, padding: 10, background: '#fff9ed' }}>
+                    <div style={{ fontSize: 12, color: '#9a6700' }}>Нет данных</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#7a4a00' }}>{unknownCount}</div>
+                </div>
+            </div>
+
+            <input
+                type="text"
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="Поиск по названию, номеру или локации"
+                style={{ ...inputStyle, marginBottom: 8 }}
+            />
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {[
+                    { value: 'all' as const, label: 'Вся спецтехника' },
+                    { value: 'located' as const, label: 'Есть локация' },
+                    { value: 'unknown' as const, label: 'Нет данных' },
+                ].map((option) => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => onFilterChange(option.value)}
+                        style={{
+                            ...smallButtonStyle,
+                            background: filter === option.value ? '#2481cc' : '#e0e0e0',
+                            color: filter === option.value ? '#fff' : '#222',
+                        }}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+
+            <button type="button" style={btnSecondary} onClick={onRefresh} disabled={loading}>
+                {loading ? 'Обновление…' : 'Обновить'}
+            </button>
+
+            {error && (
+                <div style={{ margin: '8px 0', border: '1px solid #f4b8b3', borderRadius: 8, padding: 10, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
+                    {error}
+                </div>
+            )}
+
+            {!loading && filteredItems.length === 0 && <p>Подходящая спецтехника не найдена.</p>}
+
+            {filteredItems.map((item) => {
+                const hasLocation = Boolean(item.last_seen_gate || item.last_seen_at);
+                const isFresh = isSpectechLocationFresh(item.last_seen_at);
+
+                return (
+                    <div
+                        key={item.id}
+                        style={{
+                            border: `1px solid ${hasLocation ? (isFresh ? '#b7e4c7' : '#f5d08a') : '#ddd'}`,
+                            borderRadius: 8,
+                            padding: 10,
+                            margin: '8px 0',
+                            background: '#fff',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <strong>{item.name || 'Без названия'}</strong>
+                            <span
+                                style={{
+                                    border: `1px solid ${hasLocation ? (isFresh ? '#b7e4c7' : '#f5d08a') : '#ddd'}`,
+                                    borderRadius: 999,
+                                    padding: '3px 8px',
+                                    background: hasLocation ? (isFresh ? '#eefbf3' : '#fff9ed') : '#f5f5f5',
+                                    color: hasLocation ? (isFresh ? '#1b4332' : '#7a4a00') : '#555',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                {hasLocation ? 'Есть локация' : 'Нет сигнала'}
+                            </span>
+                        </div>
+                        {item.plate_number && <div style={{ color: '#666', fontSize: 13, marginTop: 2 }}>Номер: {item.plate_number}</div>}
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            <div><strong>Последняя точка:</strong> {item.last_seen_gate || 'Локация не определена'}</div>
+                            <div><strong>Последнее обновление:</strong> {formatSpectechDateTime(item.last_seen_at)}</div>
+                            <div style={{ color: '#666' }}>{formatSpectechRelativeTime(item.last_seen_at)}</div>
+                        </div>
+                    </div>
+                );
+            })}
+
+            <button style={btnSecondary} onClick={onBack}>← Назад</button>
+        </>
+    );
+}
+
 function SpectechOperatorList({
     requests,
     loading,
@@ -3082,8 +3279,9 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-tracking' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
+    const [spectechTrackingItems, setSpectechTrackingItems] = useState<SpectechTrackingItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
     const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
@@ -3098,6 +3296,10 @@ function TelegramMiniApp() {
     const [operatorSpectechLoading, setOperatorSpectechLoading] = useState(false);
     const [operatorSpectechError, setOperatorSpectechError] = useState<string | null>(null);
     const [operatorSpectechStatusFilter, setOperatorSpectechStatusFilter] = useState('');
+    const [spectechTrackingLoading, setSpectechTrackingLoading] = useState(false);
+    const [spectechTrackingError, setSpectechTrackingError] = useState<string | null>(null);
+    const [spectechTrackingQuery, setSpectechTrackingQuery] = useState('');
+    const [spectechTrackingFilter, setSpectechTrackingFilter] = useState<'all' | 'located' | 'unknown'>('located');
 
     // ── Cancel modal for spectech requests (Telegram) ──
     const [tgCancelModalOpen, setTgCancelModalOpen] = useState(false);
@@ -3255,6 +3457,31 @@ function TelegramMiniApp() {
         if (view !== 'spectech-requests') return;
         void loadSpectechRequests();
     }, [view, loadSpectechRequests]);
+
+    const loadSpectechTracking = useCallback(async () => {
+        if (!initData) return;
+
+        setSpectechTrackingLoading(true);
+        setSpectechTrackingError(null);
+
+        try {
+            const response = await axios.get<{ data: SpectechTrackingItem[] }>('/api/telegram/miniapp/spectech/tracking', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setSpectechTrackingItems(response.data.data ?? []);
+        } catch {
+            setSpectechTrackingItems([]);
+            setSpectechTrackingError('Не удалось загрузить текущую локацию спецтехники.');
+        } finally {
+            setSpectechTrackingLoading(false);
+        }
+    }, [initData]);
+
+    useEffect(() => {
+        if (view !== 'spectech-tracking') return;
+        void loadSpectechTracking();
+    }, [view, loadSpectechTracking]);
 
     const loadOperatorSpectechRequests = useCallback(async () => {
         if (!initData || !session?.can_manage_spectech) return;
@@ -3439,6 +3666,7 @@ function TelegramMiniApp() {
                     onViolationsCreate={() => setView('violations-create')}
                     onViolationsList={() => setView('violations-list')}
                     onSpectechCreate={() => setView('spectech-create')}
+                    onSpectechTracking={() => setView('spectech-tracking')}
                     onSpectechRequests={() => setView('spectech-requests')}
                     onUtilizationCreate={() => setView('utilization-create')}
                     onUtilizationRequests={() => setView('utilization-requests')}
@@ -3494,6 +3722,19 @@ function TelegramMiniApp() {
                         setView('spectech-edit');
                     }}
                     onCancel={(request) => openTgCancel(request)}
+                    onBack={() => setView('home')}
+                />
+            )}
+            {status === 'approved' && view === 'spectech-tracking' && (
+                <SpectechTrackingList
+                    items={spectechTrackingItems}
+                    loading={spectechTrackingLoading}
+                    error={spectechTrackingError}
+                    query={spectechTrackingQuery}
+                    filter={spectechTrackingFilter}
+                    onQueryChange={setSpectechTrackingQuery}
+                    onFilterChange={setSpectechTrackingFilter}
+                    onRefresh={() => void loadSpectechTracking()}
                     onBack={() => setView('home')}
                 />
             )}

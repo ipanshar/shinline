@@ -242,6 +242,7 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
 
     // Legacy endpoints (оставлены для обратной совместимости)
     Route::get('/telegram/miniapp/spectech/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTrucks']);
+    Route::get('/telegram/miniapp/spectech/tracking', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTracking']);
     Route::get('/telegram/miniapp/spectech/check-availability', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'checkSpectechAvailability']);
     Route::get('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechRequests']);
     Route::post('/telegram/miniapp/spectech/requests', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'createSpectechRequest']);

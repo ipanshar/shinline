@@ -400,6 +400,53 @@ class TelegramMiniAppControllerTest extends TestCase
         ]);
     }
 
+    public function test_approved_user_can_get_spectech_tracking_in_miniapp(): void
+    {
+        $initData = $this->makeInitData(['id' => 70071, 'first_name' => 'Tracking']);
+
+        $user = User::create([
+            'name' => 'TG Tracking User',
+            'login' => 'tg_70071',
+            'email' => 'tg70071@example.com',
+            'password' => 'x',
+            'phone' => '+77000070071',
+        ]);
+
+        TelegramBotChat::create([
+            'chat_id' => '70071',
+            'approval_status' => TelegramBotChat::APPROVAL_APPROVED,
+            'approved_user_id' => $user->id,
+            'display_full_name' => 'TG Tracking User',
+            'display_phone' => '+77000070071',
+        ]);
+
+        $spectechCategory = TruckCategory::query()->create(['name' => 'Спец техника']);
+        $otherCategory = TruckCategory::query()->create(['name' => 'Грузовики']);
+
+        Truck::query()->create([
+            'name' => 'Автовышка',
+            'plate_number' => '777AAA01',
+            'truck_category_id' => $spectechCategory->id,
+            'last_seen_gate' => 'КПП Север',
+            'last_seen_at' => now()->subMinutes(12),
+        ]);
+
+        Truck::query()->create([
+            'name' => 'Обычный тягач',
+            'plate_number' => '888BBB01',
+            'truck_category_id' => $otherCategory->id,
+            'last_seen_gate' => 'КПП Юг',
+            'last_seen_at' => now()->subMinutes(5),
+        ]);
+
+        $this->getJson('/api/telegram/miniapp/spectech/tracking?init_data='.urlencode($initData))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Автовышка')
+            ->assertJsonPath('data.0.plate_number', '777AAA01')
+            ->assertJsonPath('data.0.last_seen_gate', 'КПП Север');
+    }
+
     public function test_spectech_requests_endpoint_returns_only_current_user_requests(): void
     {
         $category = TruckCategory::query()->create(['name' => 'Спец техника']);
