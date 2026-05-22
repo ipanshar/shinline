@@ -387,6 +387,31 @@ class TelegramMiniAppController extends Controller
         return response()->json(['data' => $trucks]);
     }
 
+    public function spectechTracking(Request $request): JsonResponse
+    {
+        $chat = $this->authChat($request);
+        $this->ensureApproved($chat);
+
+        $categoryId = TruckCategory::query()->where('name', 'Спец техника')->value('id');
+
+        $trucks = Truck::query()
+            ->when($categoryId, fn ($query) => $query->where('truck_category_id', $categoryId))
+            ->when($request->filled('search'), function ($query) use ($request) {
+                $search = (string) $request->input('search');
+                $query->where(function ($nested) use ($search) {
+                    $nested->where('name', 'like', "%{$search}%")
+                        ->orWhere('plate_number', 'like', "%{$search}%")
+                        ->orWhere('last_seen_gate', 'like', "%{$search}%");
+                });
+            })
+            ->orderByRaw('CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END')
+            ->orderByDesc('last_seen_at')
+            ->orderBy('name')
+            ->get(['id', 'name', 'plate_number', 'last_seen_gate', 'last_seen_at']);
+
+        return response()->json(['data' => $trucks]);
+    }
+
     public function spectechRequests(Request $request): JsonResponse
     {
         $chat = $this->authChat($request);

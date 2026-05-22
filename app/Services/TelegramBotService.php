@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\GuestVisit;
 use App\Models\TelegramBotChat;
+use App\Models\Truck;
 use App\Models\User;
 use App\Models\Yard;
 use Carbon\Carbon;
@@ -24,6 +25,9 @@ class TelegramBotService
     private const STATE_GUEST_PERMIT_KIND = 'guest_permit_kind';
     private const STATE_GUEST_END_AT = 'guest_end_at';
     private const STATE_GUEST_COMMENT = 'guest_comment';
+    private const BUTTON_GUEST = 'Создать гостевой визит';
+    private const BUTTON_SPECTECH = 'Где спецтехника';
+    private const BUTTON_HELP = 'Помощь';
 
     public function __construct(
         private GuestVisitService $guestVisitService,
@@ -71,6 +75,20 @@ class TelegramBotService
 
     private function handleCommand(TelegramBotChat $chat, string $text): bool
     {
+        $normalizedText = Str::lower(trim($text));
+
+        if ($normalizedText === Str::lower(self::BUTTON_GUEST)) {
+            return $this->startGuestFlow($chat);
+        }
+
+        if ($normalizedText === Str::lower(self::BUTTON_SPECTECH)) {
+            return $this->showSpectechLocations($chat);
+        }
+
+        if ($normalizedText === Str::lower(self::BUTTON_HELP)) {
+            return $this->showHelp($chat);
+        }
+
         $command = Str::lower(Str::before($text, ' '));
 
         return match ($command) {
@@ -78,6 +96,7 @@ class TelegramBotService
             '/help' => $this->showHelp($chat),
             '/cancel' => $this->cancelFlow($chat),
             '/guest' => $this->startGuestFlow($chat),
+            '/spectech' => $this->showSpectechLocations($chat),
             '/login' => $this->beginLegacyLogin($chat),
             '/unlink' => $this->unlink($chat),
             default => false,
@@ -90,7 +109,7 @@ class TelegramBotService
 
         if ($chat->user_id || $chat->isApproved()) {
             $this->clearState($chat);
-            $this->sendMessage($chat->chat_id, $this->buildLinkedGreeting($chat));
+            $this->sendLinkedGreeting($chat);
 
             return true;
         }
@@ -139,11 +158,11 @@ class TelegramBotService
 
     private function showHelp(TelegramBotChat $chat): bool
     {
-        $message = $chat->user_id
-            ? $this->buildLinkedGreeting($chat)
-            : "Доступные команды:\n/start - привязать Telegram к учётной записи\n/help - показать подсказку\n/cancel - отменить текущий диалог";
-
-        $this->sendMessage($chat->chat_id, $message);
+        if ($chat->user_id || $chat->isApproved()) {
+            $this->sendLinkedGreeting($chat);
+        } else {
+            $this->sendMessage($chat->chat_id, "Доступные команды:\n/start - привязать Telegram к учётной записи\n/help - показать подсказку\n/cancel - отменить текущий диалог");
+        }
 
         return true;
     }
@@ -164,7 +183,11 @@ class TelegramBotService
             'state_payload' => null,
         ])->save();
 
-        $this->sendMessage($chat->chat_id, 'Привязка Telegram к пользователю удалена. Для повторной привязки используйте /start.');
+        $this->sendMessage($chat->chat_id, 'Привязка Telegram к пользователю удалена. Для повторной привязки используйте /start.', [
+            'reply_markup' => json_encode([
+                'remove_keyboard' => true,
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
 
         return true;
     }
@@ -300,7 +323,7 @@ class TelegramBotService
                 'state_payload' => null,
             ])->save();
 
-            $this->sendMessage($chat->chat_id, $this->buildLinkedGreeting($chat->fresh()));
+            $this->sendLinkedGreeting($chat->fresh());
 
             return;
         }
@@ -343,7 +366,7 @@ class TelegramBotService
             'state_payload' => null,
         ])->save();
 
-        $this->sendMessage($chat->chat_id, $this->buildLinkedGreeting($chat->fresh()));
+        $this->sendLinkedGreeting($chat->fresh());
     }
 
     private function handleGuestYard(TelegramBotChat $chat, string $text): void
@@ -556,16 +579,80 @@ class TelegramBotService
         ])->save();
     }
 
-    private function sendMessage(string $chatId, string $text): void
+    private function sendMessage(string $chatId, string $text, array $options = []): void
     {
-        $this->telegramMessaging->sendText($chatId, $text);
+        $this->telegramMessaging->sendText($chatId, $text, $options);
+    }
+
+    private function sendLinkedGreeting(TelegramBotChat $chat): void
+    {
+        $this->sendMessage($chat->chat_id, $this->buildLinkedGreeting($chat), [
+            'reply_markup' => json_encode([
+                'keyboard' => [
+                    [
+                        ['text' => self::BUTTON_GUEST],
+                    ],
+                    [
+                        ['text' => self::BUTTON_SPECTECH],
+                        ['text' => self::BUTTON_HELP],
+                    ],
+                ],
+                'resize_keyboard' => true,
+                'is_persistent' => true,
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
     }
 
     private function buildLinkedGreeting(TelegramBotChat $chat): string
     {
-        $name = $chat->user?->name ?? $chat->first_name ?? 'пользователь';
+        $name = $chat->user?->name ?? $chat->approvedUser?->name ?? $chat->first_name ?? 'пользователь';
 
-        return "Привязка активна для {$name}.\n\nДоступные команды:\n/guest - создать гостевой визит\n/cancel - отменить текущий диалог\n/unlink - отвязать Telegram от учётной записи\n/help - показать подсказку";
+        return "Привязка активна для {$name}.\n\nДоступные команды:\n/guest - создать гостевой визит\n/spectech - показать последнюю локацию спецтехники\n/cancel - отменить текущий диалог\n/unlink - отвязать Telegram от учётной записи\n/help - показать подсказку";
+    }
+
+    private function showSpectechLocations(TelegramBotChat $chat): bool
+    {
+        if (! $chat->isApproved() && ! $chat->user_id) {
+            $this->sendMessage($chat->chat_id, 'Сначала привяжите Telegram через /start.');
+
+            return true;
+        }
+
+        $trucks = Truck::query()
+            ->whereHas('truckCategory', fn ($query) => $query->where('name', 'Спец техника'))
+            ->orderByRaw('CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END')
+            ->orderByDesc('last_seen_at')
+            ->orderBy('name')
+            ->get(['id', 'name', 'plate_number', 'last_seen_gate', 'last_seen_at'])
+            ->take(15);
+
+        if ($trucks->isEmpty()) {
+            $this->sendMessage($chat->chat_id, 'Справочник спецтехники пуст. Пока нечего показать.');
+
+            return true;
+        }
+
+        $lines = ['<b>Где находится спецтехника</b>', ''];
+
+        foreach ($trucks as $truck) {
+            $title = trim(($truck->name ?: 'Без названия') . ($truck->plate_number ? " ({$truck->plate_number})" : ''));
+            $lines[] = '<b>' . e($title) . '</b>';
+
+            if ($truck->last_seen_gate || $truck->last_seen_at) {
+                $lines[] = 'Локация: ' . e((string) ($truck->last_seen_gate ?: 'не указана'));
+                $lines[] = 'Обновлено: ' . e($this->formatTruckLastSeen($truck->last_seen_at));
+            } else {
+                $lines[] = 'Локация: не определена';
+            }
+
+            $lines[] = '';
+        }
+
+        $lines[] = 'Источник: последнее наблюдение по ANPR/DSS.';
+
+        $this->sendMessage($chat->chat_id, implode("\n", $lines));
+
+        return true;
     }
 
     private function buildGuestCreatedMessage(GuestVisit $guestVisit): string
@@ -603,5 +690,18 @@ class TelegramBotService
     private function digitsOnly(?string $value): string
     {
         return preg_replace('/\D+/', '', (string) $value) ?? '';
+    }
+
+    private function formatTruckLastSeen(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '—';
+        }
+
+        try {
+            return Carbon::parse($value)->timezone(config('app.timezone'))->format('d.m.Y H:i');
+        } catch (\Throwable) {
+            return (string) $value;
+        }
     }
 }

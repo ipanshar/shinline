@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\GuestVisit;
+use App\Models\Truck;
+use App\Models\TruckCategory;
 use App\Models\User;
 use App\Models\Yard;
 use App\Services\TelegramMessagingService;
@@ -14,10 +16,20 @@ class TelegramBotWebhookTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config()->set('telegram.mini_app.url', null);
+    }
+
     public function test_linked_user_can_create_guest_visit_via_telegram_webhook(): void
     {
+        $messages = [];
         $messaging = Mockery::mock(TelegramMessagingService::class);
-        $messaging->shouldReceive('sendText')->zeroOrMoreTimes();
+        $messaging->shouldReceive('sendText')->andReturnUsing(function (string $chatId, string $text, array $options = []) use (&$messages): void {
+            $messages[] = compact('chatId', 'text', 'options');
+        });
         $this->app->instance(TelegramMessagingService::class, $messaging);
 
         $user = User::create([
@@ -47,7 +59,10 @@ class TelegramBotWebhookTest extends TestCase
         $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, 'Тестовая компания'))->assertOk();
         $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, 'сейчас'))->assertOk();
         $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, '1'))->assertOk();
-        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, '-'))->assertOk();
+        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, 'Встреча с подрядчиком'))->assertOk();
+
+        $errorMessage = collect($messages)->first(fn (array $message) => str_contains($message['text'], 'Не удалось создать гостевой визит'));
+        $this->assertNull($errorMessage, $errorMessage['text'] ?? '');
 
         $this->assertDatabaseHas('telegram_bot_chats', [
             'chat_id' => $chatId,
@@ -65,6 +80,57 @@ class TelegramBotWebhookTest extends TestCase
             'created_by_user_id' => $user->id,
             'permit_kind' => GuestVisit::PERMIT_KIND_ONE_TIME,
         ]);
+    }
+
+    public function test_linked_user_can_request_spectech_locations_via_telegram_button(): void
+    {
+        $messages = [];
+        $messaging = Mockery::mock(TelegramMessagingService::class);
+        $messaging->shouldReceive('sendText')->andReturnUsing(function (string $chatId, string $text, array $options = []) use (&$messages): void {
+            $messages[] = compact('chatId', 'text', 'options');
+        });
+        $this->app->instance(TelegramMessagingService::class, $messaging);
+
+        $user = User::create([
+            'name' => 'Telegram Spectech User',
+            'login' => 'telegram.spectech',
+            'email' => 'telegram.spectech@example.com',
+            'password' => 'password',
+            'phone' => '+77005554433',
+        ]);
+
+        $category = TruckCategory::create([
+            'name' => 'Спец техника',
+        ]);
+
+        Truck::create([
+            'name' => 'Автокран 25т',
+            'plate_number' => 'KZ123AAA',
+            'truck_category_id' => $category->id,
+            'last_seen_gate' => 'КПП Север',
+            'last_seen_at' => now()->subMinutes(15),
+        ]);
+
+        Truck::create([
+            'name' => 'Манипулятор',
+            'plate_number' => 'KZ456BBB',
+            'truck_category_id' => $category->id,
+        ]);
+
+        $chatId = '100501';
+
+        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, '/start'))->assertOk();
+        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, $user->login))->assertOk();
+        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, '4433'))->assertOk();
+        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, 'Где спецтехника'))->assertOk();
+
+        $spectechReply = collect($messages)->first(fn (array $message) => str_contains($message['text'], 'Где находится спецтехника'));
+
+        $this->assertNotNull($spectechReply);
+        $this->assertStringContainsString('Автокран 25т (KZ123AAA)', $spectechReply['text']);
+        $this->assertStringContainsString('Локация: КПП Север', $spectechReply['text']);
+        $this->assertStringContainsString('Манипулятор (KZ456BBB)', $spectechReply['text']);
+        $this->assertStringContainsString('Локация: не определена', $spectechReply['text']);
     }
 
     protected function tearDown(): void
