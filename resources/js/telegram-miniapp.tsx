@@ -771,7 +771,7 @@ function Dashboard({
             )}
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btn} onClick={onSpectechCreate}>Заявка на спецтехнику</button>
-            <button style={btnSecondary} onClick={onSpectechTracking}>Где спецтехника</button>
+            <button style={btnSecondary} onClick={onSpectechTracking}>Статус спецтехники</button>
             <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
             {session.can_manage_spectech && (
                 <button style={btnSecondary} onClick={onOperatorSpectech}>
@@ -3030,7 +3030,7 @@ function SpectechTrackingList({
 
     return (
         <>
-            <h3>Где спецтехника</h3>
+            <h3>Статус спецтехники</h3>
             <p style={{ marginTop: 0, color: '#666', fontSize: 14 }}>
                 Текущая локация и статус берутся из активной заявки спецтехники. Обычный транспорт сюда не попадает.
             </p>
