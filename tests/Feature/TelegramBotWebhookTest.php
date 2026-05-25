@@ -122,9 +122,9 @@ class TelegramBotWebhookTest extends TestCase
         $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, '/start'))->assertOk();
         $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, $user->login))->assertOk();
         $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, '4433'))->assertOk();
-        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, 'Где спецтехника'))->assertOk();
+        $this->postJson('/api/telegram/webhook', $this->telegramMessage($chatId, 'Статус спецтехники'))->assertOk();
 
-        $spectechReply = collect($messages)->first(fn (array $message) => str_contains($message['text'], 'Где находится спецтехника'));
+        $spectechReply = collect($messages)->first(fn (array $message) => str_contains($message['text'], 'Статус спецтехники'));
 
         $this->assertNotNull($spectechReply);
         $this->assertStringContainsString('Автокран 25т (KZ123AAA)', $spectechReply['text']);

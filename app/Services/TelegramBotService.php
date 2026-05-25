@@ -27,6 +27,7 @@ class TelegramBotService
     private const STATE_GUEST_COMMENT = 'guest_comment';
     private const BUTTON_GUEST = 'Создать гостевой визит';
     private const BUTTON_SPECTECH = 'Статус спецтехники';
+    private const BUTTON_SPECTECH_LEGACY = 'Где спецтехника';
     private const BUTTON_HELP = 'Помощь';
 
     public function __construct(
@@ -81,7 +82,10 @@ class TelegramBotService
             return $this->startGuestFlow($chat);
         }
 
-        if ($normalizedText === Str::lower(self::BUTTON_SPECTECH)) {
+        if (in_array($normalizedText, [
+            Str::lower(self::BUTTON_SPECTECH),
+            Str::lower(self::BUTTON_SPECTECH_LEGACY),
+        ], true)) {
             return $this->showSpectechLocations($chat);
         }
 
@@ -632,7 +636,7 @@ class TelegramBotService
             return true;
         }
 
-        $lines = ['<b>Где находится спецтехника</b>', ''];
+        $lines = ['<b>Статус спецтехники</b>', ''];
 
         foreach ($trucks as $truck) {
             $title = trim(($truck->name ?: 'Без названия') . ($truck->plate_number ? " ({$truck->plate_number})" : ''));
