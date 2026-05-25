@@ -26,7 +26,7 @@ class TelegramBotService
     private const STATE_GUEST_END_AT = 'guest_end_at';
     private const STATE_GUEST_COMMENT = 'guest_comment';
     private const BUTTON_GUEST = 'Создать гостевой визит';
-    private const BUTTON_SPECTECH = 'Где спецтехника';
+    private const BUTTON_SPECTECH = 'Статус спецтехники';
     private const BUTTON_HELP = 'Помощь';
 
     public function __construct(
