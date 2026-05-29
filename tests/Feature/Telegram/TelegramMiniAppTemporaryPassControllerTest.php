@@ -620,6 +620,108 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
         ]);
     }
 
+    public function test_extend_keeps_success_when_runtime_rebuild_times_out_for_existing_person(): void
+    {
+        $now = Carbon::create(2026, 5, 29, 10, 30, 0);
+        $this->travelTo($now);
+
+        $initData = $this->makeInitData(['id' => 7208, 'first_name' => 'Guard']);
+        $user = $this->approveSecurityUser('7208', 'Guard Eight', 'tg7208@example.com', '+77000007208');
+
+        $employee = ViolationEmployee::query()->create([
+            'business_key' => 'temporary_contractor:test-rebuild-timeout',
+            'source_system' => 'manual_security',
+            'person_kind' => TemporaryPassService::PERSON_KIND_TEMPORARY_CONTRACTOR,
+            'full_name' => 'Абдыгали Дастан Нурбахытулы',
+            'normalized_full_name' => 'абдыгали дастан нурбахытулы',
+            'department' => 'Логистика',
+            'position' => 'Проектный менеджер',
+            'employment_status' => 'TEMPORARY_CONTRACTOR',
+            'temporary_pass_status' => TemporaryPassService::PASS_STATUS_ACTIVE,
+            'temporary_pass_issued_at' => $now->copy()->subMonth(),
+            'temporary_pass_expires_at' => $now->copy()->addMonthsNoOverflow(3),
+            'temporary_pass_duration_months' => 3,
+            'temporary_pass_created_by_user_id' => $user->id,
+            'temporary_pass_created_by_name' => $user->name,
+            'is_active' => true,
+            'face_reference_state' => 'ready',
+            'face_reference_count' => 1,
+            'imported_at' => $now,
+        ]);
+
+        $employee->faceReferences()->create([
+            'source_system' => 'manual_security',
+            'source' => 'temporary_pass',
+            'group_key' => $employee->business_key,
+            'disk' => 'faceid_references',
+            'path' => 'temporary/' . $employee->id . '/existing.jpg',
+            'file_name' => 'existing.jpg',
+            'mime_type' => 'image/jpeg',
+            'file_size' => 128,
+            'sha1' => str_repeat('8', 40),
+            'is_primary' => true,
+            'is_active' => true,
+            'imported_at' => $now,
+            'last_synced_at' => $now,
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => true,
+                'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                'bestMatch' => [
+                    'referenceKey' => 'temporary-pass:' . $employee->id . ':1',
+                    'employeeId' => $employee->id,
+                    'groupKey' => $employee->business_key,
+                    'name' => $employee->full_name,
+                    'source' => 'temporary_pass',
+                    'similarity' => 0.94,
+                    'profile' => [
+                        'department' => $employee->department,
+                        'role' => $employee->position,
+                        'sourceLabel' => 'Temporary pass',
+                    ],
+                ],
+                'candidates' => [],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8008/api/status' => Http::response([
+                'loading' => true,
+                'ready' => true,
+                'people' => [[
+                    'employeeId' => $employee->id,
+                    'profile' => [
+                        'businessKey' => $employee->business_key,
+                    ],
+                ]],
+            ], 200),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/temporary-passes/extend', [
+            'init_data' => $initData,
+            'duration_months' => 2,
+            'confirmed_reference_key' => 'temporary-pass:' . $employee->id . ':1',
+            'photo' => UploadedFile::fake()->create('existing-person.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.employee.id', $employee->id)
+            ->assertJsonPath('data.employee.temporary_pass_status', TemporaryPassService::PASS_STATUS_ACTIVE);
+
+        $employee->refresh();
+
+        $this->assertTrue($employee->temporary_pass_expires_at?->equalTo($now->copy()->addMonthsNoOverflow(5)));
+        $this->assertTrue($employee->temporary_pass_last_extended_at?->equalTo($now));
+        $this->assertDatabaseHas('violation_temporary_pass_events', [
+            'employee_id' => $employee->id,
+            'event_type' => TemporaryPassService::EVENT_EXTENDED,
+            'duration_months' => 2,
+        ]);
+    }
+
     private function approveSecurityUser(string $chatId, string $name, string $email, string $phone): User
     {
         $user = User::create([
