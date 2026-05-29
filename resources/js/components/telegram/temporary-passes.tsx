@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 
 interface TemporaryPassCandidate {
@@ -82,6 +82,15 @@ const smallButtonStyle: React.CSSProperties = {
 const TEMP_CREATE_THRESHOLD = 0.7;
 const TEMP_CHECK_THRESHOLD = 0.55;
 const TEMP_CONFIRMATION_LIMIT = 3;
+const DEFAULT_RECOGNITION_ZOOM_RANGE = { min: 1, max: 3, step: 0.1 } as const;
+
+type RecognitionCameraZoomMode = 'none' | 'hardware' | 'digital';
+
+interface RecognitionCameraZoomRange {
+    min: number;
+    max: number;
+    step: number;
+}
 
 const getErrorMessage = (error: unknown, fallback: string) => {
     const responseData = (error as any)?.response?.data;
@@ -120,6 +129,86 @@ const formatSimilarityPercent = (value?: number | null) => {
     }
 
     return `${(value * 100).toFixed(1)}%`;
+};
+
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+    reader.readAsDataURL(file);
+});
+
+const compressImageDataUrl = async (dataUrl: string): Promise<string> => {
+    if (!dataUrl.startsWith('data:image/')) {
+        return dataUrl;
+    }
+
+    if (typeof Image === 'undefined') {
+        return dataUrl;
+    }
+
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Не удалось загрузить изображение'));
+        img.src = dataUrl;
+    });
+
+    const maxWidth = 1600;
+    const maxHeight = 1600;
+    const quality = 0.78;
+    const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+        return dataUrl;
+    }
+
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    try {
+        return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+        return dataUrl;
+    }
+};
+
+const dataUrlToFile = async (dataUrl: string, originalName: string, lastModified?: number) => {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const baseName = originalName.replace(/\.[^.]+$/, '') || 'upload';
+
+    return new File([blob], `${baseName}.jpg`, {
+        type: blob.type || 'image/jpeg',
+        lastModified: lastModified ?? Date.now(),
+    });
+};
+
+const prepareTemporaryPassUploadFile = async (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/')) {
+        return file;
+    }
+
+    try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const compressedDataUrl = await compressImageDataUrl(dataUrl);
+
+        if (compressedDataUrl === dataUrl && file.size <= 2 * 1024 * 1024) {
+            return file;
+        }
+
+        return await dataUrlToFile(compressedDataUrl, file.name, file.lastModified);
+    } catch {
+        return file;
+    }
 };
 
 const candidateIdentity = (candidate: TemporaryPassCandidate) => (
@@ -197,6 +286,389 @@ async function postRecognition(initData: string, photo: File): Promise<Temporary
     );
 
     return response.data.data;
+}
+
+function TemporaryPassPhotoField({
+    label,
+    hint,
+    file,
+    disabled,
+    onSelect,
+    onClear,
+    onError,
+}: {
+    label: string;
+    hint?: string;
+    file: File | null;
+    disabled: boolean;
+    onSelect: (file: File | null) => Promise<void> | void;
+    onClear: () => void;
+    onError: (message: string | null) => void;
+}) {
+    const [cameraOpen, setCameraOpen] = useState(false);
+    const [zoomMode, setZoomMode] = useState<RecognitionCameraZoomMode>('none');
+    const [zoomRange, setZoomRange] = useState<RecognitionCameraZoomRange>(DEFAULT_RECOGNITION_ZOOM_RANGE);
+    const [zoomValue, setZoomValue] = useState(1);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const galleryInputRef = useRef<HTMLInputElement | null>(null);
+
+    const resetZoom = useCallback(() => {
+        setZoomMode('none');
+        setZoomRange(DEFAULT_RECOGNITION_ZOOM_RANGE);
+        setZoomValue(1);
+    }, []);
+
+    const stopCamera = useCallback(() => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+        }
+
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+
+        setCameraOpen(false);
+        resetZoom();
+    }, [resetZoom]);
+
+    useEffect(() => {
+        return () => {
+            stopCamera();
+        };
+    }, [stopCamera]);
+
+    useEffect(() => {
+        if (!cameraOpen || !videoRef.current || !streamRef.current) {
+            return;
+        }
+
+        videoRef.current.srcObject = streamRef.current;
+        void videoRef.current.play().catch(() => undefined);
+    }, [cameraOpen]);
+
+    const initializeZoom = async (stream: MediaStream) => {
+        const track = stream.getVideoTracks()[0] as (MediaStreamTrack & {
+            getCapabilities?: () => MediaTrackCapabilities & { zoom?: { min?: number; max?: number; step?: number } };
+            getSettings?: () => MediaTrackSettings & { zoom?: number };
+        }) | undefined;
+
+        if (!track) {
+            resetZoom();
+            return;
+        }
+
+        const capabilities = typeof track.getCapabilities === 'function' ? track.getCapabilities() : null;
+        const settings = typeof track.getSettings === 'function' ? track.getSettings() : null;
+        const zoomCapabilities = capabilities?.zoom;
+
+        if (
+            zoomCapabilities
+            && typeof zoomCapabilities.min === 'number'
+            && typeof zoomCapabilities.max === 'number'
+            && zoomCapabilities.max > zoomCapabilities.min
+        ) {
+            const nextRange = {
+                min: Math.max(1, zoomCapabilities.min),
+                max: Math.max(1, zoomCapabilities.max),
+                step: typeof zoomCapabilities.step === 'number' && zoomCapabilities.step > 0
+                    ? zoomCapabilities.step
+                    : 0.1,
+            } satisfies RecognitionCameraZoomRange;
+            const nextValue = typeof settings?.zoom === 'number'
+                ? Math.min(nextRange.max, Math.max(nextRange.min, settings.zoom))
+                : nextRange.min;
+
+            setZoomMode('hardware');
+            setZoomRange(nextRange);
+            setZoomValue(nextValue);
+            return;
+        }
+
+        setZoomMode('digital');
+        setZoomRange(DEFAULT_RECOGNITION_ZOOM_RANGE);
+        setZoomValue(1);
+    };
+
+    const updateZoom = async (rawValue: number) => {
+        const nextValue = Math.min(
+            zoomRange.max,
+            Math.max(zoomRange.min, rawValue),
+        );
+
+        setZoomValue(nextValue);
+
+        if (zoomMode !== 'hardware') {
+            return;
+        }
+
+        const track = streamRef.current?.getVideoTracks()[0];
+        if (!track || typeof track.applyConstraints !== 'function') {
+            return;
+        }
+
+        try {
+            await track.applyConstraints({
+                advanced: [{ zoom: nextValue } as MediaTrackConstraintSet],
+            });
+        } catch {
+            setZoomMode('digital');
+            setZoomRange((current) => ({
+                min: 1,
+                max: Math.max(current.max, DEFAULT_RECOGNITION_ZOOM_RANGE.max),
+                step: DEFAULT_RECOGNITION_ZOOM_RANGE.step,
+            }));
+        }
+    };
+
+    const runSelection = async (rawFile: File | null) => {
+        onError(null);
+
+        if (!rawFile) {
+            await onSelect(null);
+            return;
+        }
+
+        const preparedFile = await prepareTemporaryPassUploadFile(rawFile);
+        await onSelect(preparedFile);
+    };
+
+    const handleGallerySelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = event.target.files?.[0] ?? null;
+        event.target.value = '';
+
+        await runSelection(selectedFile);
+    };
+
+    const startCamera = async () => {
+        if (disabled) {
+            return;
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            onError('Не удалось открыть камеру на этом устройстве. Можно выбрать фото из галереи.');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
+                audio: false,
+            });
+
+            await initializeZoom(stream);
+            streamRef.current = stream;
+            setCameraOpen(true);
+            onError(null);
+        } catch {
+            onError('Не удалось получить доступ к камере. Можно выбрать фото из галереи.');
+        }
+    };
+
+    const openGallery = () => {
+        if (disabled) {
+            return;
+        }
+
+        galleryInputRef.current?.click();
+    };
+
+    const clearFile = () => {
+        stopCamera();
+        onError(null);
+        onClear();
+    };
+
+    const capturePhoto = async () => {
+        if (!videoRef.current || !canvasRef.current) {
+            return;
+        }
+
+        if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+            onError('Камера ещё не готова. Попробуйте ещё раз.');
+            return;
+        }
+
+        try {
+            const canvas = canvasRef.current;
+            canvas.width = videoRef.current.videoWidth;
+            canvas.height = videoRef.current.videoHeight;
+
+            const context = canvas.getContext('2d');
+            if (!context) {
+                onError('Не удалось обработать снимок.');
+                return;
+            }
+
+            if (zoomMode === 'digital' && zoomValue > 1) {
+                const sourceWidth = videoRef.current.videoWidth / zoomValue;
+                const sourceHeight = videoRef.current.videoHeight / zoomValue;
+                const sourceX = (videoRef.current.videoWidth - sourceWidth) / 2;
+                const sourceY = (videoRef.current.videoHeight - sourceHeight) / 2;
+
+                context.drawImage(
+                    videoRef.current,
+                    sourceX,
+                    sourceY,
+                    sourceWidth,
+                    sourceHeight,
+                    0,
+                    0,
+                    canvas.width,
+                    canvas.height,
+                );
+            } else {
+                context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            }
+
+            const compressedDataUrl = await compressImageDataUrl(canvas.toDataURL('image/jpeg', 0.92));
+            const capturedFile = await dataUrlToFile(compressedDataUrl, 'temporary-pass-camera.jpg');
+
+            stopCamera();
+            await runSelection(capturedFile);
+        } catch {
+            onError('Не удалось сделать фото сотрудника.');
+        }
+    };
+
+    return (
+        <>
+            <label>{label}</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '4px 0 12px' }}>
+                <button
+                    type="button"
+                    style={{
+                        ...smallButtonStyle,
+                        padding: '12px 14px',
+                        background: cameraOpen ? '#dbeafe' : '#2481cc',
+                        color: cameraOpen ? '#1d4ed8' : '#fff',
+                    }}
+                    onClick={() => void startCamera()}
+                    disabled={disabled || cameraOpen}
+                >
+                    {cameraOpen
+                        ? 'Камера открыта'
+                        : (file ? 'Переснять камерой' : 'Сделать фото камерой')}
+                </button>
+                <button
+                    type="button"
+                    style={{ ...smallButtonStyle, padding: '12px 14px', background: '#f3f4f6', color: '#111827' }}
+                    onClick={openGallery}
+                    disabled={disabled}
+                >
+                    Выбрать из галереи
+                </button>
+            </div>
+            <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleGallerySelection}
+                style={{ display: 'none' }}
+            />
+            {hint && (
+                <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>
+                    {hint}
+                </div>
+            )}
+
+            {cameraOpen && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15, 23, 42, 0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ width: '100%', maxWidth: 560, borderRadius: 18, padding: 14, background: '#111827', boxShadow: '0 24px 80px rgba(0,0,0,0.45)' }}>
+                        <div style={{ color: '#fff', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Сделайте фото сотрудника</div>
+                        <div style={{ overflow: 'hidden', borderRadius: 12, background: '#000' }}>
+                            <video
+                                ref={videoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                style={{
+                                    width: '100%',
+                                    maxHeight: '70vh',
+                                    borderRadius: 12,
+                                    display: 'block',
+                                    background: '#000',
+                                    objectFit: 'cover',
+                                    transform: zoomMode === 'digital' ? `scale(${zoomValue})` : undefined,
+                                    transformOrigin: 'center center',
+                                    transition: 'transform 120ms ease-out',
+                                }}
+                            />
+                        </div>
+                        <canvas ref={canvasRef} style={{ display: 'none' }} />
+                        {zoomMode !== 'none' && (
+                            <div style={{ marginTop: 12, borderRadius: 12, background: '#0f172a', padding: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, color: '#fff', fontSize: 13, marginBottom: 8 }}>
+                                    <span>Приближение камеры</span>
+                                    <span>x{zoomValue.toFixed(1)}</span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 48px', gap: 10, alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        style={{ ...smallButtonStyle, padding: '10px 0', background: '#1e293b', color: '#fff' }}
+                                        onClick={() => void updateZoom(zoomValue - zoomRange.step)}
+                                        disabled={zoomValue <= zoomRange.min}
+                                    >
+                                        -
+                                    </button>
+                                    <input
+                                        type="range"
+                                        min={zoomRange.min}
+                                        max={zoomRange.max}
+                                        step={zoomRange.step}
+                                        value={zoomValue}
+                                        onChange={(event) => void updateZoom(Number(event.target.value))}
+                                        style={{ width: '100%' }}
+                                    />
+                                    <button
+                                        type="button"
+                                        style={{ ...smallButtonStyle, padding: '10px 0', background: '#1e293b', color: '#fff' }}
+                                        onClick={() => void updateZoom(zoomValue + zoomRange.step)}
+                                        disabled={zoomValue >= zoomRange.max}
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                                <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 8 }}>
+                                    {zoomMode === 'hardware'
+                                        ? 'Используется приближение самой камеры устройства.'
+                                        : 'Если камера не поддерживает аппаратный zoom, используется программное приближение кадра.'}
+                                </div>
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#2481cc', color: '#fff', padding: '12px 14px' }} onClick={() => void capturePhoto()}>
+                                Сделать фото
+                            </button>
+                            <button type="button" style={{ ...smallButtonStyle, flex: 1, background: '#e5e7eb', color: '#111827', padding: '12px 14px' }} onClick={stopCamera}>
+                                Отмена
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {file && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #ddd', borderRadius: 10, padding: '10px 12px', marginBottom: 12, background: '#fafafa' }}>
+                    <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                        <div style={{ fontSize: 12, color: '#666' }}>
+                            Фото сотрудника · {(file.size / 1024 / 1024).toFixed(2)} MB
+                        </div>
+                    </div>
+                    <button type="button" style={{ ...smallButtonStyle, background: '#f3f4f6', color: '#111827' }} onClick={clearFile}>
+                        Убрать
+                    </button>
+                </div>
+            )}
+        </>
+    );
 }
 
 function CandidateReview({
@@ -354,9 +826,7 @@ export function TemporaryPassCheckView({
     const candidates = useMemo(() => collectCandidates(result, TEMP_CHECK_THRESHOLD), [result]);
     const currentCandidate = candidates[currentIndex] ?? null;
 
-    const selectPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-        const nextPhoto = event.target.files?.[0] ?? null;
-        event.target.value = '';
+    const selectPhoto = async (nextPhoto: File | null) => {
         setPhoto(nextPhoto);
         setError(null);
         setResult(null);
@@ -392,8 +862,15 @@ export function TemporaryPassCheckView({
         <>
             <h3 style={{ marginBottom: 8 }}>Проверка пропуска</h3>
             <p style={{ color: '#666', fontSize: 13 }}>Сделайте или выберите фото подрядчика, чтобы проверить срок его временного пропуска.</p>
-            <input type="file" accept="image/*" capture="environment" onChange={selectPhoto} style={{ ...inputStyle, padding: 8 }} />
-            {photo && <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>{photo.name}</div>}
+            <TemporaryPassPhotoField
+                label="Фото сотрудника"
+                hint="Сделайте фото камерой или выберите снимок из галереи."
+                file={photo}
+                disabled={busy}
+                onSelect={selectPhoto}
+                onClear={() => void selectPhoto(null)}
+                onError={setError}
+            />
             {busy && <div style={{ marginBottom: 12, color: '#0f4c81' }}>Проверяем фото...</div>}
             {error && <div style={{ marginBottom: 12, color: 'crimson' }}>{error}</div>}
 
@@ -448,9 +925,7 @@ export function TemporaryPassCreateView({
 
     const candidates = useMemo(() => collectCandidates(result, TEMP_CREATE_THRESHOLD), [result]);
 
-    const selectPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-        const nextPhoto = event.target.files?.[0] ?? null;
-        event.target.value = '';
+    const selectPhoto = async (nextPhoto: File | null) => {
         setPhoto(nextPhoto);
         setError(null);
         setResult(null);
@@ -544,9 +1019,15 @@ export function TemporaryPassCreateView({
                     <option key={month} value={month}>{month} мес.</option>
                 ))}
             </select>
-            <label>Фото сотрудника</label>
-            <input type="file" accept="image/*" capture="environment" onChange={selectPhoto} style={{ ...inputStyle, padding: 8 }} required />
-            {photo && <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>{photo.name}</div>}
+            <TemporaryPassPhotoField
+                label="Фото сотрудника"
+                hint="Используйте камеру с зумом как в фиксации нарушений или выберите готовое фото из галереи."
+                file={photo}
+                disabled={busy || recognitionBusy}
+                onSelect={selectPhoto}
+                onClear={() => void selectPhoto(null)}
+                onError={setError}
+            />
             {recognitionBusy && <div style={{ marginBottom: 12, color: '#0f4c81' }}>Проверяем фото на дубликаты...</div>}
             {error && <div style={{ marginBottom: 12, color: 'crimson' }}>{error}</div>}
 
@@ -598,9 +1079,7 @@ export function TemporaryPassExtendView({
 
     const candidates = useMemo(() => collectCandidates(result, TEMP_CHECK_THRESHOLD), [result]);
 
-    const selectPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-        const nextPhoto = event.target.files?.[0] ?? null;
-        event.target.value = '';
+    const selectPhoto = async (nextPhoto: File | null) => {
         setPhoto(nextPhoto);
         setError(null);
         setResult(null);
@@ -667,9 +1146,15 @@ export function TemporaryPassExtendView({
     return (
         <form onSubmit={submit}>
             <h3 style={{ marginBottom: 8 }}>Продление пропуска</h3>
-            <label>Фото сотрудника</label>
-            <input type="file" accept="image/*" capture="environment" onChange={selectPhoto} style={{ ...inputStyle, padding: 8 }} required />
-            {photo && <div style={{ fontSize: 12, color: '#666', marginTop: -8, marginBottom: 12 }}>{photo.name}</div>}
+            <TemporaryPassPhotoField
+                label="Фото сотрудника"
+                hint="Сделайте новое фото камерой или выберите снимок из галереи для продления пропуска."
+                file={photo}
+                disabled={busy || recognitionBusy}
+                onSelect={selectPhoto}
+                onClear={() => void selectPhoto(null)}
+                onError={setError}
+            />
             <label>Продлить на</label>
             <select style={inputStyle} value={durationMonths} onChange={(event) => setDurationMonths(event.target.value)}>
                 {[1, 2, 3, 4, 5, 6].map((month) => (
