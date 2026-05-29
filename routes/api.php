@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DahuaTerminalAccessController;
 use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\Api\GuestVisitController;
 use App\Http\Controllers\Api\PermitImportController;
@@ -178,6 +179,7 @@ Route::get('/admin/traffic-stats', [TrafficStatsController::class, 'index']);
 
 // Dss routes
 Route::post('/dss/dssalarmadd', [DssController::class, 'dssAlarmAdd']); // Добавление тревоги в DSS
+Route::post('/dahua/terminal/recognize', [DahuaTerminalAccessController::class, 'recognize']); // Входящий снимок/событие от Dahua терминала
 Route::middleware(['auth:sanctum', 'permission:integrations.dss'])->group(function () {
     Route::post('/dss/autorization', [DssController::class, 'dssAutorization']); // Авторизация в DSS
     Route::post('/dss/settings', [DssController::class, 'dssSettings']); // Получить настройки DSS

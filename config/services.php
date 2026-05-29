@@ -54,4 +54,10 @@ return [
         'nssm_path' => env('FACEID_NSSM_PATH', 'nssm'),
     ],
 
+    'dahua_terminal' => [
+        'secret' => env('DAHUA_TERMINAL_SECRET'),
+        'default_greeting' => env('DAHUA_TERMINAL_DEFAULT_GREETING', 'Спасибо'),
+        'deny_greeting' => env('DAHUA_TERMINAL_DENY_GREETING', 'Доступ запрещен'),
+    ],
+
 ];
