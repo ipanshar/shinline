@@ -79,8 +79,7 @@ const smallButtonStyle: React.CSSProperties = {
     fontSize: 14,
 };
 
-const TEMP_CREATE_THRESHOLD = 0.7;
-const TEMP_CHECK_THRESHOLD = 0.55;
+const TEMP_FALLBACK_THRESHOLD = 0.45;
 const TEMP_CONFIRMATION_LIMIT = 3;
 const DEFAULT_RECOGNITION_ZOOM_RANGE = { min: 1, max: 3, step: 0.1 } as const;
 
@@ -217,11 +216,12 @@ const candidateIdentity = (candidate: TemporaryPassCandidate) => (
     || `${candidate.employee_id ?? 'candidate'}:${candidate.full_name ?? ''}:${candidate.source ?? ''}`
 );
 
-const collectCandidates = (result: TemporaryPassRecognitionResult | null, threshold: number) => {
+const collectCandidates = (result: TemporaryPassRecognitionResult | null) => {
     if (!result) {
         return [];
     }
 
+    const threshold = typeof result.threshold === 'number' ? result.threshold : TEMP_FALLBACK_THRESHOLD;
     const unique: TemporaryPassCandidate[] = [];
     const seen = new Set<string>();
 
@@ -823,7 +823,7 @@ export function TemporaryPassCheckView({
     const [rejectedAll, setRejectedAll] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
 
-    const candidates = useMemo(() => collectCandidates(result, TEMP_CHECK_THRESHOLD), [result]);
+    const candidates = useMemo(() => collectCandidates(result), [result]);
     const currentCandidate = candidates[currentIndex] ?? null;
 
     const selectPhoto = async (nextPhoto: File | null) => {
@@ -923,7 +923,7 @@ export function TemporaryPassCreateView({
     const [rejectedAll, setRejectedAll] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
 
-    const candidates = useMemo(() => collectCandidates(result, TEMP_CREATE_THRESHOLD), [result]);
+    const candidates = useMemo(() => collectCandidates(result), [result]);
 
     const selectPhoto = async (nextPhoto: File | null) => {
         setPhoto(nextPhoto);
@@ -1077,7 +1077,7 @@ export function TemporaryPassExtendView({
     const [rejectedAll, setRejectedAll] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
 
-    const candidates = useMemo(() => collectCandidates(result, TEMP_CHECK_THRESHOLD), [result]);
+    const candidates = useMemo(() => collectCandidates(result), [result]);
 
     const selectPhoto = async (nextPhoto: File | null) => {
         setPhoto(nextPhoto);
