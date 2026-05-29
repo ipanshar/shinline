@@ -224,6 +224,101 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
         );
     }
 
+    public function test_recognize_falls_back_to_unfiltered_search_when_runtime_person_kind_is_stale(): void
+    {
+        $now = Carbon::create(2026, 5, 22, 13, 30, 0);
+        $this->travelTo($now);
+
+        $initData = $this->makeInitData(['id' => 7204, 'first_name' => 'Guard']);
+        $this->approveSecurityUser('7204', 'Guard Four', 'tg7204@example.com', '+77000007204');
+
+        $employee = ViolationEmployee::query()->create([
+            'business_key' => 'temporary_contractor:test-fallback',
+            'source_system' => 'manual_security',
+            'person_kind' => TemporaryPassService::PERSON_KIND_TEMPORARY_CONTRACTOR,
+            'full_name' => 'Найденный Подрядчик',
+            'normalized_full_name' => 'найденный подрядчик',
+            'department' => 'Подрядчики',
+            'position' => 'Сварщик',
+            'employment_status' => 'TEMPORARY_CONTRACTOR',
+            'temporary_pass_status' => TemporaryPassService::PASS_STATUS_ACTIVE,
+            'temporary_pass_issued_at' => $now->copy()->subWeek(),
+            'temporary_pass_expires_at' => $now->copy()->addMonth(),
+            'temporary_pass_duration_months' => 1,
+            'temporary_pass_created_by_name' => 'Guard Four',
+            'is_active' => true,
+            'face_reference_state' => 'ready',
+            'face_reference_count' => 1,
+            'imported_at' => $now,
+        ]);
+
+        $employee->faceReferences()->create([
+            'source_system' => 'manual_security',
+            'source' => 'temporary_pass',
+            'group_key' => $employee->business_key,
+            'disk' => 'faceid_references',
+            'path' => 'temporary/' . $employee->id . '/existing.jpg',
+            'file_name' => 'existing.jpg',
+            'mime_type' => 'image/jpeg',
+            'file_size' => 128,
+            'sha1' => str_repeat('2', 40),
+            'is_primary' => true,
+            'is_active' => true,
+            'imported_at' => $now,
+            'last_synced_at' => $now,
+        ]);
+
+        $searchCalls = 0;
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => function () use (&$searchCalls, $employee) {
+                $searchCalls++;
+
+                if ($searchCalls === 1) {
+                    return Http::response([
+                        'matched' => false,
+                        'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                        'bestMatch' => null,
+                        'candidates' => [],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'matched' => true,
+                    'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                    'bestMatch' => [
+                        'referenceKey' => 'temporary-pass:' . $employee->id . ':1',
+                        'employeeId' => $employee->id,
+                        'groupKey' => $employee->business_key,
+                        'name' => $employee->full_name,
+                        'source' => 'temporary_pass',
+                        'similarity' => 0.93,
+                        'profile' => [
+                            'department' => $employee->department,
+                            'role' => $employee->position,
+                            'sourceLabel' => 'Temporary pass',
+                        ],
+                    ],
+                    'candidates' => [],
+                ], 200);
+            },
+        ]);
+
+        $this->post('/api/telegram/miniapp/temporary-passes/recognize', [
+            'init_data' => $initData,
+            'photo' => UploadedFile::fake()->create('fallback.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.matched', true)
+            ->assertJsonPath('data.best_match.employee_id', $employee->id)
+            ->assertJsonPath('data.best_match.person_kind', TemporaryPassService::PERSON_KIND_TEMPORARY_CONTRACTOR)
+            ->assertJsonPath('data.best_match.temporary_pass_status', TemporaryPassService::PASS_STATUS_ACTIVE);
+
+        $this->assertSame(2, $searchCalls);
+    }
+
     public function test_extend_expired_temporary_pass_restarts_from_now_without_duplicate_face_reference(): void
     {
         $now = Carbon::create(2026, 5, 22, 14, 0, 0);
