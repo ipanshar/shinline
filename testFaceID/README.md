@@ -89,6 +89,7 @@ php artisan violations:import-sigur-dump --dump="C:\faceid-data\sigur_20260506.s
 - FACEID_REFERENCE_MANIFEST_PATH: JSON manifest для runtime Face ID;
 - FACEID_IMPORT_MANIFEST_PATH: временный manifest для импорта;
 - FACEID_CACHE_DIR: каталог cache/reference_vectors.json.
+- FACEID_REBUILD_WAIT_TIMEOUT_MS: сколько Laravel ждёт завершения rebuild после create/extend временного пропуска, по умолчанию 60000 мс.
 
 Если используется прямой sync из БД Sigur, добавь ещё:
 
