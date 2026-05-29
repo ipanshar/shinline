@@ -413,17 +413,25 @@ class FaceSearchService:
         return image
 
     def extract_embedding(self, image: np.ndarray) -> np.ndarray | None:
+        last_opencv_error: cv2.error | None = None
         for candidate_image in self.iter_detection_candidates(image):
-            face = self.detect_largest_face(candidate_image)
-            if face is None:
+            try:
+                face = self.detect_largest_face(candidate_image)
+                if face is None:
+                    continue
+
+                aligned = self.recognizer.alignCrop(candidate_image, face)
+                embedding = self.recognizer.feature(aligned).flatten().astype(np.float32)
+                norm = np.linalg.norm(embedding)
+                if norm == 0:
+                    continue
+                return embedding / norm
+            except cv2.error as error:
+                last_opencv_error = error
                 continue
 
-            aligned = self.recognizer.alignCrop(candidate_image, face)
-            embedding = self.recognizer.feature(aligned).flatten().astype(np.float32)
-            norm = np.linalg.norm(embedding)
-            if norm == 0:
-                continue
-            return embedding / norm
+        if last_opencv_error is not None:
+            raise ValueError("Face detection failed while processing the image.") from last_opencv_error
 
         return None
 
