@@ -130,6 +130,96 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
         $this->assertGreaterThanOrEqual(2, $statusCalls);
     }
 
+    public function test_create_rolls_back_when_face_reference_storage_fails(): void
+    {
+        $initData = $this->makeInitData(['id' => 7206, 'first_name' => 'Guard']);
+        $this->approveSecurityUser('7206', 'Guard Six', 'tg7206@example.com', '+77000007206');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                'bestMatch' => null,
+                'candidates' => [],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+        ]);
+
+        $brokenDisk = new class
+        {
+            public function put(string $path, mixed $contents): bool
+            {
+                return false;
+            }
+
+            public function exists(string $path): bool
+            {
+                return false;
+            }
+        };
+
+        Storage::shouldReceive('disk')
+            ->once()
+            ->with('faceid_references')
+            ->andReturn($brokenDisk);
+
+        $response = $this->post('/api/telegram/miniapp/temporary-passes/create', [
+            'init_data' => $initData,
+            'full_name' => 'Сломанное Хранилище',
+            'department' => 'Подрядчики',
+            'position' => 'Монтажник',
+            'duration_months' => 2,
+            'rejected_all' => 1,
+            'photo' => UploadedFile::fake()->create('broken-store.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('photo');
+
+        $this->assertDatabaseCount('violation_employees', 0);
+        $this->assertDatabaseCount('violation_employee_face_references', 0);
+        $this->assertDatabaseCount('violation_temporary_pass_events', 0);
+    }
+
+    public function test_create_rolls_back_when_runtime_rebuild_fails(): void
+    {
+        $initData = $this->makeInitData(['id' => 7207, 'first_name' => 'Guard']);
+        $this->approveSecurityUser('7207', 'Guard Seven', 'tg7207@example.com', '+77000007207');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                'bestMatch' => null,
+                'candidates' => [],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::sequence()
+                ->push(['error' => 'rebuild failed'], 500)
+                ->push(['error' => 'rebuild failed'], 500),
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/temporary-passes/create', [
+            'init_data' => $initData,
+            'full_name' => 'Сбой Перестроения',
+            'department' => 'Подрядчики',
+            'position' => 'Электрик',
+            'duration_months' => 1,
+            'rejected_all' => 1,
+            'photo' => UploadedFile::fake()->create('rebuild-fail.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('photo');
+
+        $this->assertDatabaseCount('violation_employees', 0);
+        $this->assertDatabaseCount('violation_employee_face_references', 0);
+        $this->assertDatabaseCount('violation_temporary_pass_events', 0);
+    }
+
     public function test_recognize_returns_expired_temporary_pass_status(): void
     {
         $now = Carbon::create(2026, 5, 22, 13, 0, 0);
