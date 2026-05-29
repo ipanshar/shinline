@@ -406,7 +406,11 @@ class FaceSearchService:
         image_path.write_bytes(image_bytes)
 
     def load_image(self, image_path: Path) -> np.ndarray:
-        image_data = np.frombuffer(image_path.read_bytes(), dtype=np.uint8)
+        try:
+            image_data = np.frombuffer(image_path.read_bytes(), dtype=np.uint8)
+        except OSError as error:
+            raise ValueError(f"Cannot read image: {image_path}") from error
+
         image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError(f"Cannot decode image: {image_path}")
