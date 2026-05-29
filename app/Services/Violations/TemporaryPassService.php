@@ -502,63 +502,66 @@ class TemporaryPassService
         UploadedFile $photo,
         ?array $candidate = null,
     ): ViolationEmployee {
-        try {
-            return DB::transaction(function () use ($employee, $user, $chat, $durationMonths, $photo, $candidate) {
-                $now = now();
-                $previousExpiry = $employee->temporary_pass_expires_at?->copy();
-                $baseDate = $previousExpiry && $previousExpiry->isFuture()
-                    ? $previousExpiry->copy()
-                    : $now->copy();
-                $issuedAt = $previousExpiry && $previousExpiry->isFuture()
-                    ? ($employee->temporary_pass_issued_at ?: $now)
-                    : $now;
-                $expiresAt = $baseDate->addMonthsNoOverflow($durationMonths);
+        [$employee, $reference, $hadIndexedReferenceBefore] = DB::transaction(function () use ($employee, $user, $chat, $durationMonths, $photo, $candidate) {
+            $now = now();
+            $previousExpiry = $employee->temporary_pass_expires_at?->copy();
+            $baseDate = $previousExpiry && $previousExpiry->isFuture()
+                ? $previousExpiry->copy()
+                : $now->copy();
+            $issuedAt = $previousExpiry && $previousExpiry->isFuture()
+                ? ($employee->temporary_pass_issued_at ?: $now)
+                : $now;
+            $expiresAt = $baseDate->addMonthsNoOverflow($durationMonths);
+            $hadIndexedReferenceBefore = $employee->faceReferences()->where('is_active', true)->exists();
 
-                $employee->forceFill([
-                    'temporary_pass_status' => self::PASS_STATUS_ACTIVE,
-                    'temporary_pass_issued_at' => $issuedAt,
-                    'temporary_pass_expires_at' => $expiresAt,
-                    'temporary_pass_duration_months' => $durationMonths,
-                    'temporary_pass_last_extended_at' => $now,
-                    'employment_status' => 'TEMPORARY_CONTRACTOR',
-                    'is_active' => true,
-                ])->save();
+            $employee->forceFill([
+                'temporary_pass_status' => self::PASS_STATUS_ACTIVE,
+                'temporary_pass_issued_at' => $issuedAt,
+                'temporary_pass_expires_at' => $expiresAt,
+                'temporary_pass_duration_months' => $durationMonths,
+                'temporary_pass_last_extended_at' => $now,
+                'employment_status' => 'TEMPORARY_CONTRACTOR',
+                'is_active' => true,
+            ])->save();
 
-                $reference = $this->requireStoredFaceReference(
-                    $employee,
-                    $this->storeFaceReferenceFromUpload($employee, $photo, 'Temporary pass extension')
-                );
-                $this->refreshEmployeeFaceReferenceSummary($employee);
-                $employee->refresh();
+            $reference = $this->storeFaceReferenceFromUpload($employee, $photo, 'Temporary pass extension');
 
-                $employee->temporaryPassEvents()->create([
-                    'event_type' => self::EVENT_EXTENDED,
-                    'duration_months' => $durationMonths,
-                    'matched_reference_key' => is_array($candidate) ? $this->nullableTrim($candidate['referenceKey'] ?? null) : null,
-                    'matched_similarity' => is_array($candidate) && is_numeric($candidate['similarity'] ?? null)
-                        ? (float) $candidate['similarity']
-                        : null,
-                    'performed_by_user_id' => $user->id,
-                    'performed_by_name' => $user->name,
-                    'performed_by_chat_id' => $chat->chat_id,
-                    'performed_at' => $now,
-                    'previous_expires_at' => $previousExpiry,
-                    'pass_issued_at' => $employee->temporary_pass_issued_at,
-                    'pass_expires_at' => $employee->temporary_pass_expires_at,
-                    'meta' => [
-                        'reference_id' => $reference->id,
-                    ],
+            if ($reference === null && ! $hadIndexedReferenceBefore) {
+                throw ValidationException::withMessages([
+                    'photo' => 'Не удалось сохранить эталонное фото для продления пропуска.',
                 ]);
+            }
 
-                $this->refreshManifestOrThrow($employee->business_key);
+            $this->refreshEmployeeFaceReferenceSummary($employee);
+            $employee->refresh();
 
-                return $employee->fresh();
-            });
-        } catch (\Throwable $exception) {
-            $this->restoreManifestAfterFailedMutation();
+            $employee->temporaryPassEvents()->create([
+                'event_type' => self::EVENT_EXTENDED,
+                'duration_months' => $durationMonths,
+                'matched_reference_key' => is_array($candidate) ? $this->nullableTrim($candidate['referenceKey'] ?? null) : null,
+                'matched_similarity' => is_array($candidate) && is_numeric($candidate['similarity'] ?? null)
+                    ? (float) $candidate['similarity']
+                    : null,
+                'performed_by_user_id' => $user->id,
+                'performed_by_name' => $user->name,
+                'performed_by_chat_id' => $chat->chat_id,
+                'performed_at' => $now,
+                'previous_expires_at' => $previousExpiry,
+                'pass_issued_at' => $employee->temporary_pass_issued_at,
+                'pass_expires_at' => $employee->temporary_pass_expires_at,
+                'meta' => [
+                    'reference_id' => $reference?->id,
+                ],
+            ]);
 
-            throw $exception;
+            return [$employee->fresh(), $reference, $hadIndexedReferenceBefore];
+        });
+
+        if ($reference !== null || ! $hadIndexedReferenceBefore) {
+            $this->refreshManifestBestEffort($employee->business_key);
         }
+
+        return $employee;
     }
 
     private function refreshManifestOrThrow(?string $businessKey = null): void
@@ -613,6 +616,18 @@ class TemporaryPassService
         } catch (\Throwable $exception) {
             Log::warning('Failed to restore faceid manifest after temporary pass failure', [
                 'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function refreshManifestBestEffort(?string $businessKey = null): void
+    {
+        try {
+            $this->refreshManifestOrThrow($businessKey);
+        } catch (ValidationException $exception) {
+            Log::warning('Temporary pass extension manifest refresh failed after successful DB update', [
+                'business_key' => $businessKey,
+                'errors' => $exception->errors(),
             ]);
         }
     }
