@@ -24,8 +24,8 @@ class TemporaryPassService
     public const EVENT_CREATED = 'created';
     public const EVENT_EXTENDED = 'extended';
 
-    public const CREATE_MATCH_THRESHOLD = 0.70;
-    public const CHECK_MATCH_THRESHOLD = 0.55;
+    public const CREATE_MATCH_THRESHOLD = 0.45;
+    public const CHECK_MATCH_THRESHOLD = 0.45;
     public const EXPIRES_SOON_DAYS = 14;
 
     public function __construct(
@@ -84,7 +84,10 @@ class TemporaryPassService
         $rejectedAll = filter_var($payload['rejected_all'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $durationMonths = (int) $payload['duration_months'];
 
-        $strictCandidates = $this->aboveThresholdCandidates($recognition, self::CREATE_MATCH_THRESHOLD);
+        $strictCandidates = $this->aboveThresholdCandidates(
+            $recognition,
+            $this->recognitionThreshold($recognition, self::CREATE_MATCH_THRESHOLD)
+        );
 
         if ($confirmedReferenceKey !== null) {
             $candidate = $this->findCandidateByReferenceKey($strictCandidates, $confirmedReferenceKey);
@@ -138,7 +141,10 @@ class TemporaryPassService
         }
 
         $candidate = $this->findCandidateByReferenceKey(
-            $this->aboveThresholdCandidates($recognition, self::CHECK_MATCH_THRESHOLD),
+            $this->aboveThresholdCandidates(
+                $recognition,
+                $this->recognitionThreshold($recognition, self::CHECK_MATCH_THRESHOLD)
+            ),
             $confirmedReferenceKey
         );
 
@@ -325,6 +331,17 @@ class TemporaryPassService
         }
 
         return array_values($candidates);
+    }
+
+    /**
+     * @param array<string, mixed> $recognition
+     */
+    private function recognitionThreshold(array $recognition, float $fallback): float
+    {
+        $payload = is_array($recognition['payload'] ?? null) ? $recognition['payload'] : [];
+        $threshold = $payload['threshold'] ?? null;
+
+        return is_numeric($threshold) ? (float) $threshold : $fallback;
     }
 
     /**
