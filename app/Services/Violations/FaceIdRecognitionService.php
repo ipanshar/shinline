@@ -128,6 +128,72 @@ class FaceIdRecognitionService
         ];
     }
 
+    /**
+     * @return array{ok: bool, error: ?string, http_status: ?int, payload: ?array<string, mixed>}
+     */
+    public function getRuntimeStatus(): array
+    {
+        try {
+            $response = Http::timeout(3)
+                ->connectTimeout(1)
+                ->acceptJson()
+                ->get($this->statusUrl());
+        } catch (\Throwable $exception) {
+            return [
+                'ok' => false,
+                'error' => $exception->getMessage(),
+                'http_status' => null,
+                'payload' => null,
+            ];
+        }
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            return [
+                'ok' => false,
+                'error' => 'Face ID runtime status returned an empty or invalid payload.',
+                'http_status' => $response->status(),
+                'payload' => null,
+            ];
+        }
+
+        if (! $response->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'Face ID runtime status failed with HTTP ' . $response->status() . '.',
+                'http_status' => $response->status(),
+                'payload' => $payload,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'http_status' => $response->status(),
+            'payload' => $payload,
+        ];
+    }
+
+    /**
+     * @return array{ok: bool, error: ?string, http_status: ?int, timed_out: bool, business_key_found: bool, payload: ?array<string, mixed>}
+     */
+    public function requestRuntimeRebuildAndWait(?string $businessKey = null): array
+    {
+        $rebuild = $this->requestRuntimeRebuild();
+        if (! ($rebuild['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => $rebuild['error'] ?? 'Face ID runtime rebuild request failed.',
+                'http_status' => $rebuild['http_status'] ?? null,
+                'timed_out' => false,
+                'business_key_found' => false,
+                'payload' => null,
+            ];
+        }
+
+        return $this->waitForRuntimeReady($businessKey, $rebuild['http_status'] ?? null);
+    }
+
     private function searchUrl(): string
     {
         return rtrim((string) config('services.faceid.base_url', 'http://127.0.0.1:8008'), '/') . '/api/search';
@@ -136,6 +202,11 @@ class FaceIdRecognitionService
     private function rebuildUrl(): string
     {
         return rtrim((string) config('services.faceid.base_url', 'http://127.0.0.1:8008'), '/') . '/api/rebuild';
+    }
+
+    private function statusUrl(): string
+    {
+        return rtrim((string) config('services.faceid.base_url', 'http://127.0.0.1:8008'), '/') . '/api/status';
     }
 
     /**
@@ -175,5 +246,81 @@ class FaceIdRecognitionService
         }
 
         return null;
+    }
+
+    /**
+     * @return array{ok: bool, error: ?string, http_status: ?int, timed_out: bool, business_key_found: bool, payload: ?array<string, mixed>}
+     */
+    private function waitForRuntimeReady(?string $businessKey, ?int $httpStatus): array
+    {
+        $timeoutMs = max(1000, (int) config('services.faceid.rebuild_wait_timeout_ms', 15000));
+        $pollMs = max(100, (int) config('services.faceid.rebuild_wait_poll_interval_ms', 250));
+        $deadline = microtime(true) + ($timeoutMs / 1000);
+        $lastPayload = null;
+        $lastError = null;
+        $businessKeyFound = false;
+
+        do {
+            $status = $this->getRuntimeStatus();
+            if ($status['ok'] ?? false) {
+                $payload = is_array($status['payload'] ?? null) ? $status['payload'] : null;
+                if ($payload !== null) {
+                    $lastPayload = $payload;
+                    $lastError = null;
+                    $loading = (bool) ($payload['loading'] ?? false);
+                    $ready = (bool) ($payload['ready'] ?? true);
+                    $businessKeyFound = $businessKey === null || $this->statusContainsBusinessKey($payload, $businessKey);
+
+                    if (! $loading && $ready && $businessKeyFound) {
+                        return [
+                            'ok' => true,
+                            'error' => null,
+                            'http_status' => $status['http_status'] ?? $httpStatus,
+                            'timed_out' => false,
+                            'business_key_found' => true,
+                            'payload' => $payload,
+                        ];
+                    }
+                }
+            } else {
+                $lastError = $status['error'] ?? null;
+            }
+
+            usleep($pollMs * 1000);
+        } while (microtime(true) < $deadline);
+
+        return [
+            'ok' => false,
+            'error' => $lastError ?: 'Timed out while waiting for Face ID runtime rebuild to finish.',
+            'http_status' => $httpStatus,
+            'timed_out' => true,
+            'business_key_found' => $businessKeyFound,
+            'payload' => $lastPayload,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function statusContainsBusinessKey(array $payload, string $businessKey): bool
+    {
+        $people = $payload['people'] ?? null;
+        if (! is_array($people)) {
+            return false;
+        }
+
+        foreach ($people as $person) {
+            if (! is_array($person)) {
+                continue;
+            }
+
+            $profile = is_array($person['profile'] ?? null) ? $person['profile'] : [];
+            $candidateBusinessKey = $profile['businessKey'] ?? null;
+            if (is_string($candidateBusinessKey) && trim($candidateBusinessKey) === $businessKey) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

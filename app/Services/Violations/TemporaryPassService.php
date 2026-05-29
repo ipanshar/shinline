@@ -368,7 +368,7 @@ class TemporaryPassService
         });
 
         if ($refreshManifest) {
-            $this->refreshManifestSilently();
+            $this->refreshManifestSilently($employee->business_key);
         }
 
         return $employee;
@@ -437,20 +437,33 @@ class TemporaryPassService
         });
 
         if ($refreshManifest) {
-            $this->refreshManifestSilently();
+            $this->refreshManifestSilently($employee->business_key);
         }
 
         return $employee;
     }
 
-    private function refreshManifestSilently(): void
+    private function refreshManifestSilently(?string $businessKey = null): void
     {
         try {
-            $this->faceReferenceManifest->exportActiveManifest();
-            $this->faceIdRecognition->requestRuntimeRebuild();
+            $manifest = $this->faceReferenceManifest->exportActiveManifest();
+            $rebuild = $this->faceIdRecognition->requestRuntimeRebuildAndWait($businessKey);
+
+            if (! ($rebuild['ok'] ?? false)) {
+                Log::warning('Temporary pass runtime rebuild did not finish cleanly', [
+                    'error' => $rebuild['error'] ?? null,
+                    'http_status' => $rebuild['http_status'] ?? null,
+                    'timed_out' => $rebuild['timed_out'] ?? false,
+                    'business_key' => $businessKey,
+                    'business_key_found' => $rebuild['business_key_found'] ?? false,
+                    'manifest_path' => $manifest['path'] ?? null,
+                    'manifest_count' => $manifest['count'] ?? null,
+                ]);
+            }
         } catch (\Throwable $exception) {
             Log::warning('Failed to refresh temporary pass manifest', [
                 'error' => $exception->getMessage(),
+                'business_key' => $businessKey,
             ]);
         }
     }

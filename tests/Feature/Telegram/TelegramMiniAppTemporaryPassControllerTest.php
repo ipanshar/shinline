@@ -42,6 +42,8 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
         $initData = $this->makeInitData(['id' => 7201, 'first_name' => 'Guard']);
         $user = $this->approveSecurityUser('7201', 'Guard One', 'tg7201@example.com', '+77000007201');
 
+        $statusCalls = 0;
+
         Http::fake([
             'http://127.0.0.1:8008/api/search' => Http::response([
                 'matched' => false,
@@ -50,6 +52,30 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
                 'candidates' => [],
             ], 200),
             'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8008/api/status' => function () use (&$statusCalls) {
+                $statusCalls++;
+
+                if ($statusCalls === 1) {
+                    return Http::response([
+                        'loading' => true,
+                        'ready' => false,
+                        'people' => [],
+                    ], 200);
+                }
+
+                $employee = ViolationEmployee::query()->latest('id')->first();
+
+                return Http::response([
+                    'loading' => false,
+                    'ready' => true,
+                    'people' => $employee ? [[
+                        'employeeId' => $employee->id,
+                        'profile' => [
+                            'businessKey' => $employee->business_key,
+                        ],
+                    ]] : [],
+                ], 200);
+            },
         ]);
 
         $response = $this->post('/api/telegram/miniapp/temporary-passes/create', [
@@ -100,6 +126,8 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->url() === 'http://127.0.0.1:8008/api/search');
         Http::assertSent(fn ($request) => $request->url() === 'http://127.0.0.1:8008/api/rebuild');
+        Http::assertSent(fn ($request) => $request->url() === 'http://127.0.0.1:8008/api/status');
+        $this->assertGreaterThanOrEqual(2, $statusCalls);
     }
 
     public function test_recognize_returns_expired_temporary_pass_status(): void
@@ -164,6 +192,17 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
                     ],
                 ],
                 'candidates' => [],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8008/api/status' => Http::response([
+                'loading' => false,
+                'ready' => true,
+                'people' => [[
+                    'employeeId' => $employee->id,
+                    'profile' => [
+                        'businessKey' => $employee->business_key,
+                    ],
+                ]],
             ], 200),
         ]);
 
