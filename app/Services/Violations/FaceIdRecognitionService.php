@@ -281,6 +281,17 @@ class FaceIdRecognitionService
                             'payload' => $payload,
                         ];
                     }
+
+                    if ($businessKey !== null && $loading && $ready && $businessKeyFound) {
+                        return [
+                            'ok' => true,
+                            'error' => null,
+                            'http_status' => $status['http_status'] ?? $httpStatus,
+                            'timed_out' => false,
+                            'business_key_found' => true,
+                            'payload' => $payload,
+                        ];
+                    }
                 }
             } else {
                 $lastError = $status['error'] ?? null;

@@ -222,6 +222,64 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
         $this->assertDatabaseCount('violation_temporary_pass_events', 0);
     }
 
+    public function test_create_succeeds_when_runtime_is_ready_and_new_business_key_is_visible_while_loading(): void
+    {
+        $now = Carbon::create(2026, 5, 29, 12, 0, 0);
+        $this->travelTo($now);
+
+        $initData = $this->makeInitData(['id' => 7210, 'first_name' => 'Guard']);
+        $this->approveSecurityUser('7210', 'Guard Ten', 'tg7210@example.com', '+77000007210');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => false,
+                'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                'bestMatch' => null,
+                'candidates' => [],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8008/api/status' => function () {
+                $employee = ViolationEmployee::query()->latest('id')->first();
+
+                return Http::response([
+                    'loading' => true,
+                    'ready' => true,
+                    'people' => $employee ? [[
+                        'employeeId' => $employee->id,
+                        'profile' => [
+                            'businessKey' => $employee->business_key,
+                        ],
+                    ]] : [],
+                ], 200);
+            },
+        ]);
+
+        $response = $this->post('/api/telegram/miniapp/temporary-passes/create', [
+            'init_data' => $initData,
+            'full_name' => 'Абдыгали Дастан Нурбахытулы',
+            'department' => 'Логистика',
+            'position' => 'Проектный менеджер',
+            'duration_months' => 3,
+            'rejected_all' => 1,
+            'photo' => UploadedFile::fake()->create('dastan.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.action', 'created')
+            ->assertJsonPath('data.employee.full_name', 'Абдыгали Дастан Нурбахытулы')
+            ->assertJsonPath('data.employee.temporary_pass_status', TemporaryPassService::PASS_STATUS_ACTIVE);
+
+        $employee = ViolationEmployee::query()->latest('id')->first();
+        $this->assertNotNull($employee);
+        $this->assertDatabaseHas('violation_temporary_pass_events', [
+            'employee_id' => $employee?->id,
+            'event_type' => TemporaryPassService::EVENT_CREATED,
+            'duration_months' => 3,
+        ]);
+    }
+
     public function test_recognize_returns_expired_temporary_pass_status(): void
     {
         $now = Carbon::create(2026, 5, 22, 13, 0, 0);
