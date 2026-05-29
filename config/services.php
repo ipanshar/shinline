@@ -39,7 +39,7 @@ return [
         'base_url' => env('FACEID_API_URL', 'http://127.0.0.1:8008'),
         'timeout' => env('FACEID_API_TIMEOUT', 12),
         'connect_timeout' => env('FACEID_API_CONNECT_TIMEOUT', 5),
-        'rebuild_wait_timeout_ms' => env('FACEID_REBUILD_WAIT_TIMEOUT_MS', 15000),
+        'rebuild_wait_timeout_ms' => env('FACEID_REBUILD_WAIT_TIMEOUT_MS', 60000),
         'rebuild_wait_poll_interval_ms' => env('FACEID_REBUILD_WAIT_POLL_INTERVAL_MS', 250),
         'sigur_sync_source' => env('FACEID_SIGUR_SYNC_SOURCE', 'dump'),
         'sigur_connection' => env('FACEID_SIGUR_DB_CONNECTION', 'sigur'),

@@ -39,6 +39,7 @@ php artisan violations:sync-faceid-runtime --dump="C:\faceid-data\sigur_20260506
 - `FACEID_IMPORT_MANIFEST_PATH`: временный manifest для импорта;
 - `FACEID_CACHE_DIR`: каталог Python cache;
 - `FACEID_API_URL`: URL Python Face ID backend;
+- `FACEID_REBUILD_WAIT_TIMEOUT_MS`: сколько Laravel ждёт завершения `/api/rebuild` перед ошибкой, по умолчанию 60000 мс;
 - `FACEID_RESTART_SERVICE`: имя NSSM service, если backend должен перезапускаться автоматически после деплоя;
 - `FACEID_NSSM_PATH`: путь до `nssm.exe`, если он не лежит в PATH.
 
