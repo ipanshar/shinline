@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -70,6 +71,15 @@ class FaceServiceErrorHandlingTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Face detection failed while processing the image"):
             FaceSearchService.extract_embedding(service, image)
+
+    def test_load_image_converts_missing_file_to_value_error(self) -> None:
+        service = FaceSearchService.__new__(FaceSearchService)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_path = Path(temp_dir) / "missing-reference.jpg"
+
+            with self.assertRaisesRegex(ValueError, "Cannot read image"):
+                FaceSearchService.load_image(service, missing_path)
 
 
 if __name__ == "__main__":

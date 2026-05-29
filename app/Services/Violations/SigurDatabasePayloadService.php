@@ -392,7 +392,10 @@ class SigurDatabasePayloadService
                 mkdir($targetDirectory, 0777, true);
             }
 
-            file_put_contents($targetPath, $imageBytes);
+            $bytesWritten = @file_put_contents($targetPath, $imageBytes);
+            if ($bytesWritten !== strlen($imageBytes)) {
+                throw new \RuntimeException('Cannot write Face ID reference image: ' . $targetPath);
+            }
         }
 
         return [
