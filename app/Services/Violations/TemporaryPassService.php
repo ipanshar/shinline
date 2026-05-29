@@ -47,18 +47,28 @@ class TemporaryPassService
             return $recognition;
         }
 
-        $payload = is_array($recognition['payload'] ?? null) ? $recognition['payload'] : [];
+        $recognition['payload'] = $this->normalizeRecognitionPayload(
+            is_array($recognition['payload'] ?? null) ? $recognition['payload'] : [],
+            temporaryContractorsOnly: true,
+        );
 
-        $recognition['payload'] = [
-            'matched' => (bool) ($payload['matched'] ?? false),
-            'threshold' => $payload['threshold'] ?? null,
-            'bestMatch' => $this->enrichRecognitionCandidate(is_array($payload['bestMatch'] ?? null) ? $payload['bestMatch'] : null),
-            'candidates' => collect((array) ($payload['candidates'] ?? []))
-                ->map(fn ($candidate) => is_array($candidate) ? $this->enrichRecognitionCandidate($candidate) : null)
-                ->filter()
-                ->values()
-                ->all(),
-        ];
+        if ($this->hasRecognitionCandidates($recognition['payload'])) {
+            return $recognition;
+        }
+
+        $fallback = $this->faceIdRecognition->recognize($file);
+        if (! ($fallback['ok'] ?? false)) {
+            return $recognition;
+        }
+
+        $fallbackPayload = $this->normalizeRecognitionPayload(
+            is_array($fallback['payload'] ?? null) ? $fallback['payload'] : [],
+            temporaryContractorsOnly: true,
+        );
+
+        if ($this->hasRecognitionCandidates($fallbackPayload)) {
+            $recognition['payload'] = $fallbackPayload;
+        }
 
         return $recognition;
     }
@@ -220,6 +230,51 @@ class TemporaryPassService
     }
 
     /**
+     * @param array<string, mixed> $payload
+     * @return array{matched: bool, threshold: mixed, bestMatch: ?array<string, mixed>, candidates: array<int, array<string, mixed>>}
+     */
+    private function normalizeRecognitionPayload(array $payload, bool $temporaryContractorsOnly = false): array
+    {
+        $orderedCandidates = [];
+        $seen = [];
+
+        foreach ([$payload['bestMatch'] ?? null, ...((array) ($payload['candidates'] ?? []))] as $candidate) {
+            if (! is_array($candidate)) {
+                continue;
+            }
+
+            $normalized = $this->enrichRecognitionCandidate($candidate);
+            if ($normalized === null) {
+                continue;
+            }
+
+            if ($temporaryContractorsOnly && ! $this->isTemporaryContractorCandidate($normalized)) {
+                continue;
+            }
+
+            $key = $this->recognitionCandidateKey($normalized);
+            if ($key !== null && isset($seen[$key])) {
+                continue;
+            }
+
+            if ($key !== null) {
+                $seen[$key] = true;
+            }
+
+            $orderedCandidates[] = $normalized;
+        }
+
+        $bestMatch = $orderedCandidates[0] ?? null;
+
+        return [
+            'matched' => $bestMatch !== null && (bool) ($payload['matched'] ?? false),
+            'threshold' => $payload['threshold'] ?? null,
+            'bestMatch' => $bestMatch,
+            'candidates' => array_slice($orderedCandidates, 1),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function requireRecognition(UploadedFile $photo): array
@@ -254,13 +309,12 @@ class TemporaryPassService
                 continue;
             }
 
-            $profile = is_array($candidate['profile'] ?? null) ? $candidate['profile'] : [];
-            if (($profile['personKind'] ?? null) !== self::PERSON_KIND_TEMPORARY_CONTRACTOR) {
+            if (! $this->isTemporaryContractorCandidate($candidate)) {
                 continue;
             }
 
-            $key = (string) ($candidate['referenceKey'] ?? $candidate['groupKey'] ?? $candidate['employeeId'] ?? '');
-            if ($key === '' || isset($candidates[$key])) {
+            $key = $this->recognitionCandidateKey($candidate);
+            if ($key === null || isset($candidates[$key])) {
                 continue;
             }
 
@@ -271,6 +325,51 @@ class TemporaryPassService
         }
 
         return array_values($candidates);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function hasRecognitionCandidates(array $payload): bool
+    {
+        return is_array($payload['bestMatch'] ?? null) || ((array) ($payload['candidates'] ?? [])) !== [];
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function isTemporaryContractorCandidate(array $candidate): bool
+    {
+        $profile = is_array($candidate['profile'] ?? null) ? $candidate['profile'] : [];
+
+        return ($profile['personKind'] ?? null) === self::PERSON_KIND_TEMPORARY_CONTRACTOR;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function recognitionCandidateKey(array $candidate): ?string
+    {
+        foreach (['referenceKey', 'groupKey', 'employeeId'] as $field) {
+            $value = $candidate[$field] ?? null;
+            if ($value === null) {
+                continue;
+            }
+
+            $key = trim((string) $value);
+            if ($key !== '') {
+                return $key;
+            }
+        }
+
+        $name = trim((string) ($candidate['name'] ?? ''));
+        $source = trim((string) ($candidate['source'] ?? ''));
+
+        if ($name === '' && $source === '') {
+            return null;
+        }
+
+        return $name . ':' . $source;
     }
 
     /**

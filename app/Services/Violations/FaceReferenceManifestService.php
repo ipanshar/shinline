@@ -15,7 +15,7 @@ class FaceReferenceManifestService
         $targetPath ??= (string) config('services.faceid.reference_manifest_path');
 
         $references = ViolationEmployeeFaceReference::query()
-            ->with('employee:id,business_key,external_ref,iin,full_name,department,position,employment_status')
+            ->with('employee:id,business_key,external_ref,iin,full_name,department,position,employment_status,person_kind,temporary_pass_status,temporary_pass_expires_at,temporary_pass_issued_at')
             ->where('is_active', true)
             ->orderBy('employee_id')
             ->orderByDesc('is_primary')
