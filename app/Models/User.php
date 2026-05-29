@@ -156,6 +156,12 @@ class User extends Authenticatable
             || $this->hasRole('Служба безопасности');
     }
 
+    public function canManageTemporaryPasses(): bool
+    {
+        return $this->hasPermission('violations.reference')
+            || $this->hasRole('Служба безопасности');
+    }
+
     /**
      * Получить все разрешения пользователя (через его роли)
      */

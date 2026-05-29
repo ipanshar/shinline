@@ -995,6 +995,7 @@ class TelegramMiniAppController extends Controller
             'can_manage_spectech' => $approvedUser?->canManageSpectech() ?? false,
             'can_record_violations' => $approvedUser?->canRecordViolations() ?? false,
             'can_review_violations' => $approvedUser?->canReviewViolations() ?? false,
+            'can_manage_temporary_passes' => $approvedUser?->canManageTemporaryPasses() ?? false,
             'yards' => $chat->yards->map(fn ($y) => ['id' => $y->id, 'name' => $y->name])->values(),
         ];
     }

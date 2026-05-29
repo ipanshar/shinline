@@ -59,7 +59,8 @@ class TelegramMiniAppControllerTest extends TestCase
             ->assertJsonPath('data.approval_status', TelegramBotChat::APPROVAL_NONE)
             ->assertJsonPath('data.chat_id', '7001')
             ->assertJsonPath('data.can_record_violations', false)
-            ->assertJsonPath('data.can_review_violations', false);
+            ->assertJsonPath('data.can_review_violations', false)
+            ->assertJsonPath('data.can_manage_temporary_passes', false);
     }
 
     public function test_session_returns_violations_flags_for_security_service_user(): void
@@ -90,7 +91,8 @@ class TelegramMiniAppControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.approval_status', TelegramBotChat::APPROVAL_APPROVED)
             ->assertJsonPath('data.can_record_violations', true)
-            ->assertJsonPath('data.can_review_violations', true);
+            ->assertJsonPath('data.can_review_violations', true)
+            ->assertJsonPath('data.can_manage_temporary_passes', true);
     }
 
     public function test_register_moves_to_awaiting_review(): void

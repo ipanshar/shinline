@@ -244,6 +244,12 @@ export function AppSidebar() {
                     icon: ClipboardList,
                     permission: 'violations.review',
                 },
+                {
+                    title: 'Временные пропуска',
+                    href: '/violations/temporary-passes',
+                    icon: UserRound,
+                    permission: 'violations.review',
+                },
             ],
         },
     ];

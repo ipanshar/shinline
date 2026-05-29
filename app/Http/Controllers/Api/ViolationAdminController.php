@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ViolationCategory;
+use App\Models\ViolationEmployee;
 use App\Models\ViolationIncident;
 use App\Models\ViolationType;
+use App\Services\Violations\TemporaryPassService;
 use App\Services\Violations\ViolationIncidentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +16,11 @@ use Illuminate\Validation\Rule;
 
 class ViolationAdminController extends Controller
 {
+    public function __construct(
+        private TemporaryPassService $temporaryPasses,
+    ) {
+    }
+
     public function incidents(Request $request): JsonResponse
     {
         $query = ViolationIncident::query()
@@ -73,6 +80,51 @@ class ViolationAdminController extends Controller
     public function catalog(): JsonResponse
     {
         return response()->json(['data' => $this->catalogPayload(false)]);
+    }
+
+    public function temporaryWorkers(Request $request): JsonResponse
+    {
+        $query = ViolationEmployee::query()
+            ->with([
+                'primaryFaceReference:id,employee_id,path,is_primary',
+                'temporaryPassCreator:id,name',
+            ])
+            ->where('person_kind', TemporaryPassService::PERSON_KIND_TEMPORARY_CONTRACTOR)
+            ->orderBy('temporary_pass_expires_at')
+            ->orderBy('full_name');
+
+        if ($request->filled('search')) {
+            $search = '%' . trim((string) $request->query('search')) . '%';
+            $query->where(function ($builder) use ($search) {
+                $builder->where('full_name', 'like', $search)
+                    ->orWhere('department', 'like', $search)
+                    ->orWhere('position', 'like', $search);
+            });
+        }
+
+        $status = trim((string) $request->query('status', ''));
+        $now = now();
+        $expiresSoonUntil = $now->copy()->addDays(TemporaryPassService::EXPIRES_SOON_DAYS);
+
+        if ($status === TemporaryPassService::PASS_STATUS_ACTIVE) {
+            $query->whereNotNull('temporary_pass_expires_at')
+                ->where('temporary_pass_expires_at', '>', $now);
+        } elseif ($status === TemporaryPassService::PASS_STATUS_EXPIRED) {
+            $query->whereNotNull('temporary_pass_expires_at')
+                ->where('temporary_pass_expires_at', '<=', $now);
+        } elseif ($status === 'expires_soon') {
+            $query->whereNotNull('temporary_pass_expires_at')
+                ->where('temporary_pass_expires_at', '>', $now)
+                ->where('temporary_pass_expires_at', '<=', $expiresSoonUntil);
+        }
+
+        $items = $query
+            ->limit((int) $request->query('limit', 100))
+            ->get()
+            ->map(fn (ViolationEmployee $employee) => $this->formatTemporaryWorker($employee))
+            ->values();
+
+        return response()->json(['data' => $items]);
     }
 
     public function upsertCategory(Request $request, ?ViolationCategory $category = null): JsonResponse
@@ -270,5 +322,33 @@ class ViolationAdminController extends Controller
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatTemporaryWorker(ViolationEmployee $employee): array
+    {
+        $this->temporaryPasses->refreshTemporaryPassStatus($employee);
+
+        $referencePath = $employee->primaryFaceReference?->path;
+
+        return [
+            'id' => $employee->id,
+            'full_name' => $employee->full_name,
+            'department' => $employee->department,
+            'position' => $employee->position,
+            'person_kind' => $employee->person_kind,
+            'temporary_pass_status' => $employee->temporary_pass_status,
+            'temporary_pass_issued_at' => $employee->temporary_pass_issued_at?->toIso8601String(),
+            'temporary_pass_expires_at' => $employee->temporary_pass_expires_at?->toIso8601String(),
+            'temporary_pass_duration_months' => $employee->temporary_pass_duration_months,
+            'temporary_pass_created_by_name' => $employee->temporary_pass_created_by_name ?: $employee->temporaryPassCreator?->name,
+            'temporary_pass_last_extended_at' => $employee->temporary_pass_last_extended_at?->toIso8601String(),
+            'face_reference_count' => $employee->face_reference_count,
+            'reference_image_url' => $referencePath
+                ? '/reference-images/' . ltrim(str_replace('\\', '/', $referencePath), '/')
+                : null,
+        ];
     }
 }

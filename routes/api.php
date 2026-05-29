@@ -240,6 +240,11 @@ Route::middleware([\App\Http\Middleware\TelegramMiniAppCors::class])->group(func
     Route::post('/telegram/miniapp/violations/recognize', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'recognize']);
     Route::post('/telegram/miniapp/violations/incidents', [\App\Http\Controllers\Api\TelegramMiniAppViolationsController::class, 'create']);
 
+    // Временные пропуска (Mini App)
+    Route::post('/telegram/miniapp/temporary-passes/recognize', [\App\Http\Controllers\Api\TelegramMiniAppTemporaryPassController::class, 'recognize']);
+    Route::post('/telegram/miniapp/temporary-passes/create', [\App\Http\Controllers\Api\TelegramMiniAppTemporaryPassController::class, 'create']);
+    Route::post('/telegram/miniapp/temporary-passes/extend', [\App\Http\Controllers\Api\TelegramMiniAppTemporaryPassController::class, 'extend']);
+
     // Legacy endpoints (оставлены для обратной совместимости)
     Route::get('/telegram/miniapp/spectech/trucks', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTrucks']);
     Route::get('/telegram/miniapp/spectech/tracking', [\App\Http\Controllers\Api\TelegramMiniAppController::class, 'spectechTracking']);
