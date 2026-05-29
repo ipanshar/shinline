@@ -173,6 +173,7 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
             'photo' => UploadedFile::fake()->create('broken-store.jpg', 64, 'image/jpeg'),
         ], [
             'X-Telegram-Init-Data' => $initData,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertStatus(422)
@@ -210,6 +211,7 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
             'photo' => UploadedFile::fake()->create('rebuild-fail.jpg', 64, 'image/jpeg'),
         ], [
             'X-Telegram-Init-Data' => $initData,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertStatus(422)
@@ -477,6 +479,17 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
                 ],
                 'candidates' => [],
             ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8008/api/status' => Http::response([
+                'loading' => false,
+                'ready' => true,
+                'people' => [[
+                    'employeeId' => $employee->id,
+                    'profile' => [
+                        'businessKey' => $employee->business_key,
+                    ],
+                ]],
+            ], 200),
         ]);
 
         $response = $this->post('/api/telegram/miniapp/temporary-passes/extend', [
@@ -573,6 +586,17 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
                     ],
                 ],
                 'candidates' => [],
+            ], 200),
+            'http://127.0.0.1:8008/api/rebuild' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8008/api/status' => Http::response([
+                'loading' => false,
+                'ready' => true,
+                'people' => [[
+                    'employeeId' => $employee->id,
+                    'profile' => [
+                        'businessKey' => $employee->business_key,
+                    ],
+                ]],
             ], 200),
         ]);
 
