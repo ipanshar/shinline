@@ -69,9 +69,9 @@ class SpectechReportExportService
             'D' => 22,
             'E' => 15,
             'F' => 26,
-            'G' => 28,
-            'H' => 28,
-            'I' => 30,
+            'G' => 34,
+            'H' => 38,
+            'I' => 42,
             'J' => 18,
         ];
 
@@ -539,8 +539,10 @@ class SpectechReportExportService
             $sheet->setCellValue("E{$row}", $item['plate_number'] ?? '—');
             $sheet->setCellValue("F{$row}", $item['period'] ?? '—');
             $sheet->setCellValue("G{$row}", $statusLabel);
-            $sheet->setCellValue("H{$row}", $this->locationWithoutComment($item['location'] ?? '—'));
-            $sheet->setCellValue("I{$row}", $item['comment'] ?? '—');
+            $location = $this->locationWithoutComment($item['location'] ?? '—');
+            $comment = $item['comment'] ?? '—';
+            $sheet->setCellValue("H{$row}", $location);
+            $sheet->setCellValue("I{$row}", $comment);
             $sheet->setCellValue("J{$row}", $item['created_at_label'] ?? '—');
 
             $sheet->getStyle("A{$row}:J{$row}")->applyFromArray([
@@ -581,7 +583,12 @@ class SpectechReportExportService
                 ],
             ]);
 
-            $sheet->getRowDimension($row)->setRowHeight(54);
+            $sheet->getRowDimension($row)->setRowHeight($this->estimateJournalRowHeight([
+                'period' => $item['period'] ?? '—',
+                'status' => $statusLabel,
+                'location' => $location,
+                'comment' => $comment,
+            ]));
             $row++;
         }
 
@@ -617,6 +624,31 @@ class SpectechReportExportService
         );
 
         return implode("\n", $lines) ?: '—';
+    }
+
+    private function estimateJournalRowHeight(array $values): int
+    {
+        $lineCount = max([
+            $this->estimateWrappedLineCount((string) ($values['period'] ?? ''), 28),
+            $this->estimateWrappedLineCount((string) ($values['status'] ?? ''), 34),
+            $this->estimateWrappedLineCount((string) ($values['location'] ?? ''), 38),
+            $this->estimateWrappedLineCount((string) ($values['comment'] ?? ''), 42),
+        ]);
+
+        return max(54, min(360, 12 + ($lineCount * 17)));
+    }
+
+    private function estimateWrappedLineCount(string $value, int $charactersPerLine): int
+    {
+        $lines = preg_split('/\R/u', $value) ?: [''];
+        $count = 0;
+
+        foreach ($lines as $line) {
+            $length = max(1, mb_strlen(trim($line), 'UTF-8'));
+            $count += max(1, (int) ceil($length / $charactersPerLine));
+        }
+
+        return $count;
     }
 
     private function statusFill(string $status): string

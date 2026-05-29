@@ -135,7 +135,7 @@ class SpectechRequestController extends Controller
     {
         $user = Auth::user();
 
-        $query = SpectechRequest::with(['truck', 'user.telegramApprovedChat'])
+        $query = SpectechRequest::with(['truck', 'user.telegramApprovedChat', 'operatorUpdatedBy:id,name'])
             ->orderBy('created_at', 'desc');
 
         // Пользователь без прав управления видит только свои заявки
@@ -246,7 +246,7 @@ class SpectechRequestController extends Controller
             ]);
         });
 
-        $spectechRequest->load(['truck', 'user']);
+        $spectechRequest->load(['truck', 'user', 'operatorUpdatedBy:id,name']);
 
         return response()->json([
             'status'  => true,
@@ -258,7 +258,7 @@ class SpectechRequestController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $spectechRequest = SpectechRequest::query()
-            ->with(['truck', 'user', 'schedule'])
+            ->with(['truck', 'user', 'schedule', 'operatorUpdatedBy:id,name'])
             ->findOrFail($id);
 
         if ($spectechRequest->user_id !== Auth::id() && ! $this->canManageSpectechRequests()) {
@@ -315,10 +315,13 @@ class SpectechRequestController extends Controller
             ? $this->preparePhotoPaths($validated['photos'] ?? [])
             : ($spectechRequest->photos ?? []);
 
-        DB::transaction(function () use ($spectechRequest, $validated, $truck, $startDate, $endDate, $photoPaths, $conflictInfo, $initiatorName, $initiatorPhone) {
+        $hasOperatorUpdateColumns = $this->hasOperatorUpdateColumns();
+        $operatorUpdatePayload = $this->buildOperatorUpdatePayload($this->canManageSpectechRequests(), Auth::id(), $hasOperatorUpdateColumns);
+
+        DB::transaction(function () use ($spectechRequest, $validated, $truck, $startDate, $endDate, $photoPaths, $conflictInfo, $initiatorName, $initiatorPhone, $operatorUpdatePayload) {
             $scheduleId = $this->syncScheduleForRequest($spectechRequest, $truck, $startDate, $endDate, $validated);
 
-            $spectechRequest->update([
+            $spectechRequest->update(array_merge([
                 'truck_id'        => $truck->id,
                 'initiator_name'  => $initiatorName,
                 'initiator_phone' => $initiatorPhone,
@@ -336,10 +339,10 @@ class SpectechRequestController extends Controller
                 'photos'          => $photoPaths,
                 'schedule_id'     => $scheduleId,
                 'conflict_info'    => $conflictInfo,
-            ]);
+            ], $operatorUpdatePayload));
         });
 
-        $spectechRequest->load(['truck', 'user', 'schedule']);
+        $spectechRequest->load(['truck', 'user', 'schedule', 'operatorUpdatedBy:id,name']);
 
         return response()->json([
             'status'  => true,
@@ -391,7 +394,7 @@ class SpectechRequestController extends Controller
             $spectechRequest->syncScheduleStatus();
         });
 
-        $spectechRequest->load(['truck', 'user']);
+        $spectechRequest->load(['truck', 'user', 'operatorUpdatedBy:id,name']);
 
         return response()->json([
             'status'  => true,
@@ -453,7 +456,7 @@ class SpectechRequestController extends Controller
 
         $spectechRequest->syncScheduleStatus();
 
-        $spectechRequest->load(['truck', 'user']);
+        $spectechRequest->load(['truck', 'user', 'operatorUpdatedBy:id,name']);
 
         return response()->json([
             'status'  => true,
@@ -537,6 +540,9 @@ class SpectechRequestController extends Controller
             'conflict_info'  => $conflictInfo,
             'cancellation_reason' => $r->cancellation_reason,
             'cancelled_by'        => $r->cancelled_by,
+            'updated_by_operator' => $this->hasOperatorUpdateColumns() && $r->operator_updated_at !== null,
+            'operator_updated_at' => $r->operator_updated_at?->toIso8601String(),
+            'operator_updated_by_name' => $r->operatorUpdatedBy?->name,
             'created_at'     => $r->created_at?->toIso8601String(),
         ];
     }
@@ -612,7 +618,7 @@ class SpectechRequestController extends Controller
             'from_scheduling' => true,
         ]);
 
-        $spectechRequest->load(['truck', 'user', 'schedule']);
+        $spectechRequest->load(['truck', 'user', 'schedule', 'operatorUpdatedBy:id,name']);
 
         return response()->json([
             'status'  => true,
@@ -806,6 +812,30 @@ class SpectechRequestController extends Controller
         $value = trim($value);
 
         return $value !== '' ? $value : null;
+    }
+
+    private function hasOperatorUpdateColumns(): bool
+    {
+        return Schema::hasColumns('spectech_requests', ['operator_updated_at', 'operator_updated_by_user_id']);
+    }
+
+    private function buildOperatorUpdatePayload(bool $isOperatorUpdate, ?int $actorUserId, bool $hasColumns): array
+    {
+        if (! $hasColumns) {
+            return [];
+        }
+
+        if ($isOperatorUpdate) {
+            return [
+                'operator_updated_at' => now(),
+                'operator_updated_by_user_id' => $actorUserId,
+            ];
+        }
+
+        return [
+            'operator_updated_at' => null,
+            'operator_updated_by_user_id' => null,
+        ];
     }
 
 

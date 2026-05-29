@@ -114,6 +114,85 @@ class SpectechRequestStatusUpdateTest extends TestCase
         $this->assertSame(SpectechRequest::STATUS_COMPLETED, $request->fresh()->status);
     }
 
+    public function test_operator_edit_marks_request_as_updated_by_operator(): void
+    {
+        [$owner, $request] = $this->makeEditableRequest();
+
+        $spectechOperator = User::query()->create([
+            'name' => 'Spectech Operator',
+            'login' => 'spectech-operator-edit',
+            'email' => 'spectech-operator-edit@example.com',
+            'password' => 'secret',
+        ]);
+
+        $this->grantSpectechManagePermission($spectechOperator);
+
+        $this->actingAs($spectechOperator)
+            ->putJson("/spectech/api/requests/{$request->id}", [
+                'truck_id' => $request->truck_id,
+                'initiator_name' => $request->initiator_name,
+                'initiator_phone' => $request->initiator_phone,
+                'driver_name' => 'Новый водитель оператора',
+                'driver_phone' => '+77018887766',
+                'requested_start' => now()->addDays(2)->toIso8601String(),
+                'requested_end' => now()->addDays(2)->addHours(4)->toIso8601String(),
+                'terminal' => 'T2',
+                'zone' => 'Зона B',
+                'gate' => 'G2',
+                'address' => 'Новый адрес оператора',
+                'comment' => 'Изменено оператором',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.updated_by_operator', true)
+            ->assertJsonPath('data.operator_updated_by_name', 'Spectech Operator');
+
+        $request->refresh();
+
+        $this->assertNotNull($request->operator_updated_at);
+        $this->assertSame($spectechOperator->id, $request->operator_updated_by_user_id);
+    }
+
+    public function test_owner_edit_clears_operator_update_marker(): void
+    {
+        [$owner, $request] = $this->makeEditableRequest();
+        $operator = User::query()->create([
+            'name' => 'Marker Operator',
+            'login' => 'marker-operator',
+            'email' => 'marker-operator@example.com',
+            'password' => 'secret',
+        ]);
+
+        $request->update([
+            'operator_updated_at' => now()->subHour(),
+            'operator_updated_by_user_id' => $operator->id,
+        ]);
+
+        $this->actingAs($owner)
+            ->putJson("/spectech/api/requests/{$request->id}", [
+                'truck_id' => $request->truck_id,
+                'initiator_name' => $owner->name,
+                'initiator_phone' => $owner->phone,
+                'driver_name' => 'Водитель заказчика',
+                'driver_phone' => '+77017776655',
+                'requested_start' => now()->addDays(3)->toIso8601String(),
+                'requested_end' => now()->addDays(3)->addHours(2)->toIso8601String(),
+                'terminal' => 'T3',
+                'zone' => 'Зона C',
+                'gate' => 'G3',
+                'address' => 'Адрес заказчика',
+                'comment' => 'Исправлено заказчиком',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.updated_by_operator', false)
+            ->assertJsonPath('data.operator_updated_by_name', null)
+            ->assertJsonPath('data.operator_updated_at', null);
+
+        $request->refresh();
+
+        $this->assertNull($request->operator_updated_at);
+        $this->assertNull($request->operator_updated_by_user_id);
+    }
+
     private function makeFrozenRequest(): array
     {
         $operator = User::query()->create([
@@ -162,6 +241,43 @@ class SpectechRequestStatusUpdateTest extends TestCase
         ]);
 
         return [$operator, $request];
+    }
+
+    private function makeEditableRequest(): array
+    {
+        $owner = User::query()->create([
+            'name' => 'Request Owner',
+            'login' => 'request-owner',
+            'email' => 'request-owner@example.com',
+            'password' => 'secret',
+            'phone' => '+77010000001',
+        ]);
+
+        $category = TruckCategory::query()->create(['name' => 'Спец техника']);
+        $truck = Truck::query()->create([
+            'name' => 'Манипулятор',
+            'truck_category_id' => $category->id,
+        ]);
+
+        $request = SpectechRequest::query()->create([
+            'user_id' => $owner->id,
+            'initiator_name' => $owner->name,
+            'initiator_phone' => $owner->phone,
+            'truck_id' => $truck->id,
+            'driver_name' => 'Старый водитель',
+            'driver_phone' => '+77010000002',
+            'start_date' => now()->addDay()->toDateString(),
+            'end_date' => now()->addDay()->toDateString(),
+            'requested_start' => now()->addDay(),
+            'requested_end' => now()->addDay()->addHours(3),
+            'terminal' => 'T1',
+            'zone' => 'Зона A',
+            'address' => 'Старый адрес',
+            'status' => SpectechRequest::STATUS_NEW,
+            'timeline' => SpectechRequest::buildInitialTimeline(),
+        ]);
+
+        return [$owner, $request];
     }
 
     private function grantSpectechManagePermission(User $user): void

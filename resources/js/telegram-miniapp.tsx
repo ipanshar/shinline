@@ -125,6 +125,26 @@ interface SpectechTruckOption {
     plate_number?: string | null;
 }
 
+interface SpectechTrackingItem {
+    id: number;
+    name?: string | null;
+    plate_number?: string | null;
+    has_active_request: boolean;
+    current_request?: {
+        id: number;
+        status: string;
+        status_label: string;
+        terminal?: string | null;
+        zone?: string | null;
+        gate?: string | null;
+        address?: string | null;
+        requested_start?: string | null;
+        requested_end?: string | null;
+        initiator_name?: string | null;
+        initiator_phone?: string | null;
+    } | null;
+}
+
 interface SpectechConflictDetail {
     id?: number;
     schedule_id?: number;
@@ -174,6 +194,9 @@ interface SpectechRequestItem {
     source_label?: string | null;
     cancellation_reason?: string | null;
     cancelled_by?: string | null;
+    updated_by_operator?: boolean;
+    operator_updated_at?: string | null;
+    operator_updated_by_name?: string | null;
     created_at?: string | null;
 }
 
@@ -369,12 +392,60 @@ const spectechStatusStyles: Record<string, { bg: string; color: string; border: 
     cancelled: { bg: '#fff1f1', color: '#b42318', border: '#f4b8b3' },
 };
 
+function renderSpectechPlanningNotice() {
+    return (
+        <div style={{ marginTop: 8, border: '1px solid #bae6fd', borderRadius: 8, padding: 8, background: '#f0f9ff', color: '#075985', fontSize: 14 }}>
+            <strong>Пока планируем</strong>
+            <div style={{ marginTop: 4 }}>Заявка принята. Диспетчер подбирает технику и планирует выезд.</div>
+        </div>
+    );
+}
+
+function renderSpectechOperatorUpdateNotice(request: SpectechRequestItem) {
+    const details = [
+        request.operator_updated_by_name ? `Оператор: ${request.operator_updated_by_name}` : null,
+        request.operator_updated_at ? `Обновлено: ${formatSpectechDateTime(request.operator_updated_at)}` : null,
+    ].filter(Boolean);
+
+    return (
+        <div style={{ marginTop: 8, border: '1px solid #fcd34d', borderRadius: 8, padding: 8, background: '#fffbeb', color: '#92400e', fontSize: 14 }}>
+            <strong>Заявка обновлена оператором</strong>
+            <div style={{ marginTop: 4 }}>
+                {details.length > 0 ? details.join(' · ') : 'Проверьте время, технику и адрес заявки.'}
+            </div>
+        </div>
+    );
+}
+
 function formatSpectechDateTime(value?: string | null): string {
     if (!value) return '—';
     const date = new Date(value);
     return Number.isNaN(date.getTime())
         ? value
         : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function getSpectechTrackingState(item: SpectechTrackingItem): 'active' | 'planning' | 'idle' {
+    if (!item.current_request) {
+        return 'idle';
+    }
+
+    return item.current_request.status === 'new' ? 'planning' : 'active';
+}
+
+function formatSpectechTrackingPeriod(item: SpectechTrackingItem): string {
+    if (!item.current_request) {
+        return 'Нет активной заявки';
+    }
+
+    const start = item.current_request.requested_start
+        ? formatSpectechDateTime(item.current_request.requested_start)
+        : '—';
+    const end = item.current_request.requested_end
+        ? formatSpectechDateTime(item.current_request.requested_end)
+        : '—';
+
+    return `${start} — ${end}`;
 }
 
 function formatSpectechPeriod(request: SpectechRequestItem): string {
@@ -673,6 +744,7 @@ function Dashboard({
     onViolationsCreate,
     onViolationsList,
     onSpectechCreate,
+    onSpectechTracking,
     onSpectechRequests,
     onUtilizationCreate,
     onUtilizationRequests,
@@ -686,6 +758,7 @@ function Dashboard({
     onViolationsCreate: () => void;
     onViolationsList: () => void;
     onSpectechCreate: () => void;
+    onSpectechTracking: () => void;
     onSpectechRequests: () => void;
     onUtilizationCreate: () => void;
     onUtilizationRequests: () => void;
@@ -712,6 +785,7 @@ function Dashboard({
             )}
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
             <button style={btn} onClick={onSpectechCreate}>Заявка на спецтехнику</button>
+            <button style={btnSecondary} onClick={onSpectechTracking}>Статус спецтехники</button>
             <button style={btnSecondary} onClick={onSpectechRequests}>Мои заявки на спецтехнику</button>
             {session.can_manage_spectech && (
                 <button style={btnSecondary} onClick={onOperatorSpectech}>
@@ -2899,6 +2973,8 @@ function SpectechRequestList({
                                 <div style={{ marginTop: 4 }}>{request.cancellation_reason || 'Причина не указана'}</div>
                             </div>
                         )}
+                        {request.status === 'new' && renderSpectechPlanningNotice()}
+                        {request.updated_by_operator === true && renderSpectechOperatorUpdateNotice(request)}
                         {(request.conflict_info ?? []).length > 0 && renderConflictDetails(request)}
                         {canModify && (
                             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -2914,6 +2990,191 @@ function SpectechRequestList({
                 );
             })}
             <button style={btn} onClick={onCreate}>Создать новую заявку</button>
+            <button style={btnSecondary} onClick={onBack}>← Назад</button>
+        </>
+    );
+}
+
+function SpectechTrackingList({
+    items,
+    loading,
+    error,
+    query,
+    filter,
+    onQueryChange,
+    onFilterChange,
+    onRefresh,
+    onBack,
+}: {
+    items: SpectechTrackingItem[];
+    loading: boolean;
+    error: string | null;
+    query: string;
+    filter: 'all' | 'active' | 'planning' | 'idle';
+    onQueryChange: (value: string) => void;
+    onFilterChange: (value: 'all' | 'active' | 'planning' | 'idle') => void;
+    onRefresh: () => void;
+    onBack: () => void;
+}) {
+    const normalizedQuery = query.trim().toLowerCase();
+    const filteredItems = items.filter((item) => {
+        const trackingState = getSpectechTrackingState(item);
+
+        if (filter !== 'all' && trackingState !== filter) {
+            return false;
+        }
+
+        if (!normalizedQuery) {
+            return true;
+        }
+
+        return [
+            item.name ?? '',
+            item.plate_number ?? '',
+            item.current_request?.terminal ?? '',
+            item.current_request?.zone ?? '',
+            item.current_request?.gate ?? '',
+            item.current_request?.address ?? '',
+        ].some((part) => part.toLowerCase().includes(normalizedQuery));
+    });
+
+    const activeCount = items.filter((item) => getSpectechTrackingState(item) === 'active').length;
+    const planningCount = items.filter((item) => getSpectechTrackingState(item) === 'planning').length;
+    const idleCount = items.filter((item) => getSpectechTrackingState(item) === 'idle').length;
+
+    return (
+        <>
+            <h3>Статус спецтехники</h3>
+            <p style={{ marginTop: 0, color: '#666', fontSize: 14 }}>
+                Текущая локация и статус берутся из активной заявки спецтехники. Обычный транспорт сюда не попадает.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+                <div style={{ border: '1px solid #dbe7f3', borderRadius: 8, padding: 10, background: '#fff' }}>
+                    <div style={{ fontSize: 12, color: '#666' }}>В работе</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>{activeCount}</div>
+                </div>
+                <div style={{ border: '1px solid #b7e4c7', borderRadius: 8, padding: 10, background: '#eefbf3' }}>
+                    <div style={{ fontSize: 12, color: '#2d6a4f' }}>Пока планируем</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#1b4332' }}>{planningCount}</div>
+                </div>
+                <div style={{ border: '1px solid #f5d08a', borderRadius: 8, padding: 10, background: '#fff9ed' }}>
+                    <div style={{ fontSize: 12, color: '#9a6700' }}>Нет активной заявки</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#7a4a00' }}>{idleCount}</div>
+                </div>
+            </div>
+
+            <input
+                type="text"
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="Поиск по названию, номеру или локации"
+                style={{ ...inputStyle, marginBottom: 8 }}
+            />
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {[
+                    { value: 'all' as const, label: 'Вся спецтехника' },
+                    { value: 'active' as const, label: 'В работе' },
+                    { value: 'planning' as const, label: 'Планируем' },
+                    { value: 'idle' as const, label: 'Без заявки' },
+                ].map((option) => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => onFilterChange(option.value)}
+                        style={{
+                            ...smallButtonStyle,
+                            background: filter === option.value ? '#2481cc' : '#e0e0e0',
+                            color: filter === option.value ? '#fff' : '#222',
+                        }}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+
+            <button type="button" style={btnSecondary} onClick={onRefresh} disabled={loading}>
+                {loading ? 'Обновление…' : 'Обновить'}
+            </button>
+
+            {error && (
+                <div style={{ margin: '8px 0', border: '1px solid #f4b8b3', borderRadius: 8, padding: 10, background: '#fff1f1', color: '#9f1f17', fontSize: 14 }}>
+                    {error}
+                </div>
+            )}
+
+            {!loading && filteredItems.length === 0 && <p>Подходящая спецтехника не найдена.</p>}
+
+            {filteredItems.map((item) => {
+                const trackingState = getSpectechTrackingState(item);
+                const request = item.current_request;
+                const borderColor = trackingState === 'active'
+                    ? '#b7e4c7'
+                    : trackingState === 'planning'
+                        ? '#bfdcff'
+                        : '#ddd';
+                const badgeBackground = trackingState === 'active'
+                    ? '#eefbf3'
+                    : trackingState === 'planning'
+                        ? '#eaf4ff'
+                        : '#f5f5f5';
+                const badgeColor = trackingState === 'active'
+                    ? '#1b4332'
+                    : trackingState === 'planning'
+                        ? '#1663b7'
+                        : '#555';
+                const badgeLabel = request
+                    ? (request.status === 'new' ? 'Пока планируем' : request.status_label)
+                    : 'Нет активной заявки';
+                const locationLabel = request
+                    ? [request.terminal, request.zone, request.gate].filter(Boolean).join(' / ')
+                    : 'Сейчас техника не назначена в заявку';
+
+                return (
+                    <div
+                        key={item.id}
+                        style={{
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: 8,
+                            padding: 10,
+                            margin: '8px 0',
+                            background: '#fff',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <strong>{item.name || 'Без названия'}</strong>
+                            <span
+                                style={{
+                                    border: `1px solid ${borderColor}`,
+                                    borderRadius: 999,
+                                    padding: '3px 8px',
+                                    background: badgeBackground,
+                                    color: badgeColor,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                {badgeLabel}
+                            </span>
+                        </div>
+                        {item.plate_number && <div style={{ color: '#666', fontSize: 13, marginTop: 2 }}>Номер: {item.plate_number}</div>}
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 14 }}>
+                            <div><strong>Локация:</strong> {locationLabel}</div>
+                            <div><strong>Адрес:</strong> {request?.address || '—'}</div>
+                            <div><strong>Период:</strong> {formatSpectechTrackingPeriod(item)}</div>
+                            {request?.initiator_name && (
+                                <div>
+                                    <strong>Инициатор:</strong> {request.initiator_name}
+                                    {request.initiator_phone ? ` · ${request.initiator_phone}` : ''}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            })}
+
             <button style={btnSecondary} onClick={onBack}>← Назад</button>
         </>
     );
@@ -3066,8 +3327,9 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests' | 'temporary-passes-home' | 'temporary-passes-check' | 'temporary-passes-create' | 'temporary-passes-extend'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-tracking' | 'spectech-operator' | 'utilization-create' | 'utilization-requests' | 'temporary-passes-home' | 'temporary-passes-check' | 'temporary-passes-create' | 'temporary-passes-extend'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
+    const [spectechTrackingItems, setSpectechTrackingItems] = useState<SpectechTrackingItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
     const [utilizationRequests, setUtilizationRequests] = useState<UtilizationRequestItem[]>([]);
@@ -3082,6 +3344,10 @@ function TelegramMiniApp() {
     const [operatorSpectechLoading, setOperatorSpectechLoading] = useState(false);
     const [operatorSpectechError, setOperatorSpectechError] = useState<string | null>(null);
     const [operatorSpectechStatusFilter, setOperatorSpectechStatusFilter] = useState('');
+    const [spectechTrackingLoading, setSpectechTrackingLoading] = useState(false);
+    const [spectechTrackingError, setSpectechTrackingError] = useState<string | null>(null);
+    const [spectechTrackingQuery, setSpectechTrackingQuery] = useState('');
+    const [spectechTrackingFilter, setSpectechTrackingFilter] = useState<'all' | 'active' | 'planning' | 'idle'>('active');
 
     // ── Cancel modal for spectech requests (Telegram) ──
     const [tgCancelModalOpen, setTgCancelModalOpen] = useState(false);
@@ -3239,6 +3505,31 @@ function TelegramMiniApp() {
         if (view !== 'spectech-requests') return;
         void loadSpectechRequests();
     }, [view, loadSpectechRequests]);
+
+    const loadSpectechTracking = useCallback(async () => {
+        if (!initData) return;
+
+        setSpectechTrackingLoading(true);
+        setSpectechTrackingError(null);
+
+        try {
+            const response = await axios.get<{ data: SpectechTrackingItem[] }>('/api/telegram/miniapp/spectech/tracking', {
+                params: { init_data: initData },
+                headers: { 'X-Telegram-Init-Data': initData },
+            });
+            setSpectechTrackingItems(response.data.data ?? []);
+        } catch {
+            setSpectechTrackingItems([]);
+            setSpectechTrackingError('Не удалось загрузить текущую локацию спецтехники.');
+        } finally {
+            setSpectechTrackingLoading(false);
+        }
+    }, [initData]);
+
+    useEffect(() => {
+        if (view !== 'spectech-tracking') return;
+        void loadSpectechTracking();
+    }, [view, loadSpectechTracking]);
 
     const loadOperatorSpectechRequests = useCallback(async () => {
         if (!initData || !session?.can_manage_spectech) return;
@@ -3423,6 +3714,7 @@ function TelegramMiniApp() {
                     onViolationsCreate={() => setView('violations-create')}
                     onViolationsList={() => setView('violations-list')}
                     onSpectechCreate={() => setView('spectech-create')}
+                    onSpectechTracking={() => setView('spectech-tracking')}
                     onSpectechRequests={() => setView('spectech-requests')}
                     onUtilizationCreate={() => setView('utilization-create')}
                     onUtilizationRequests={() => setView('utilization-requests')}
@@ -3479,6 +3771,19 @@ function TelegramMiniApp() {
                         setView('spectech-edit');
                     }}
                     onCancel={(request) => openTgCancel(request)}
+                    onBack={() => setView('home')}
+                />
+            )}
+            {status === 'approved' && view === 'spectech-tracking' && (
+                <SpectechTrackingList
+                    items={spectechTrackingItems}
+                    loading={spectechTrackingLoading}
+                    error={spectechTrackingError}
+                    query={spectechTrackingQuery}
+                    filter={spectechTrackingFilter}
+                    onQueryChange={setSpectechTrackingQuery}
+                    onFilterChange={setSpectechTrackingFilter}
+                    onRefresh={() => void loadSpectechTracking()}
                     onBack={() => setView('home')}
                 />
             )}
