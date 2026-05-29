@@ -157,7 +157,7 @@ class TemporaryPassService
         $employee = $this->resolveConfirmedTemporaryEmployee($candidate);
         if (! $employee) {
             throw ValidationException::withMessages([
-                'photo' => 'Не удалось найти временный пропуск для продления.',
+                'photo' => 'Временный пропуск больше не найден в базе. Обновите эталоны Face ID и проверьте фото ещё раз.',
             ]);
         }
 
@@ -215,7 +215,7 @@ class TemporaryPassService
             ->find($employeeId);
 
         if (! $employee) {
-            return $candidate;
+            return null;
         }
 
         $this->refreshTemporaryPassStatus($employee);

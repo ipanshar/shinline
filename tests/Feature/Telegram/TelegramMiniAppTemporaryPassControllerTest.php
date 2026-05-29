@@ -316,6 +316,46 @@ class TelegramMiniAppTemporaryPassControllerTest extends TestCase
         );
     }
 
+    public function test_recognize_ignores_runtime_temporary_candidate_missing_in_database(): void
+    {
+        $initData = $this->makeInitData(['id' => 7209, 'first_name' => 'Guard']);
+        $this->approveSecurityUser('7209', 'Guard Nine', 'tg7209@example.com', '+77000007209');
+
+        Http::fake([
+            'http://127.0.0.1:8008/api/search' => Http::response([
+                'matched' => true,
+                'threshold' => TemporaryPassService::CHECK_MATCH_THRESHOLD,
+                'bestMatch' => [
+                    'referenceKey' => 'temporary-pass:6795:1381',
+                    'employeeId' => 6795,
+                    'groupKey' => 'temporary_contractor:01KSS34P3Y1AZCZZFW7TWQ4DKZ',
+                    'name' => 'Абдыгали Дастан Нурбахытулы',
+                    'source' => 'temporary_pass',
+                    'similarity' => 0.97,
+                    'profile' => [
+                        'department' => 'Логистика',
+                        'role' => 'Проектный менеджер',
+                        'sourceLabel' => 'Temporary pass registration',
+                        'personKind' => TemporaryPassService::PERSON_KIND_TEMPORARY_CONTRACTOR,
+                        'temporaryPassStatus' => TemporaryPassService::PASS_STATUS_ACTIVE,
+                    ],
+                ],
+                'candidates' => [],
+            ], 200),
+        ]);
+
+        $this->post('/api/telegram/miniapp/temporary-passes/recognize', [
+            'init_data' => $initData,
+            'photo' => UploadedFile::fake()->create('stale-runtime.jpg', 64, 'image/jpeg'),
+        ], [
+            'X-Telegram-Init-Data' => $initData,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.matched', false)
+            ->assertJsonPath('data.best_match', null)
+            ->assertJsonPath('data.candidates', []);
+    }
+
     public function test_recognize_falls_back_to_unfiltered_search_when_runtime_person_kind_is_stale(): void
     {
         $now = Carbon::create(2026, 5, 22, 13, 30, 0);
