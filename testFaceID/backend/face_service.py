@@ -116,10 +116,28 @@ class FaceSearchService:
             self.clear_reference_dir()
 
         references = self.extract_reference_images()
+        cached_embeddings = self.load_cached_embedding_index()
         indexed_faces: list[ReferenceFace] = []
         skipped: list[dict[str, Any]] = list(self.pre_index_skipped_references)
 
         for reference in references:
+            cached_embedding = self.cached_embedding_for_reference(reference, cached_embeddings)
+            if cached_embedding is not None:
+                indexed_faces.append(
+                    ReferenceFace(
+                        image_id=reference["image_id"],
+                        employee_id=reference["employee_id"],
+                        name=reference["name"],
+                        image_path=reference["image_path"],
+                        embedding=cached_embedding,
+                        source=reference["source"],
+                        profile=reference.get("profile", {}),
+                        image_hash=reference["image_hash"],
+                        reference_url=reference.get("reference_url"),
+                    )
+                )
+                continue
+
             try:
                 image = self.load_image(reference["image_path"])
                 embedding = self.extract_embedding(image)
@@ -378,6 +396,64 @@ class FaceSearchService:
             else None,
             "customImagesMtime": custom_images_signature,
         }
+
+    def load_cached_embedding_index(self) -> dict[tuple[str, int, int, str], np.ndarray]:
+        if not self.cache_file.exists():
+            return {}
+
+        try:
+            cache_data = json.loads(self.cache_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+        if not isinstance(cache_data, dict):
+            return {}
+
+        cache_index: dict[tuple[str, int, int, str], np.ndarray] = {}
+        for entry in cache_data.get("entries", []):
+            if not isinstance(entry, dict):
+                continue
+
+            raw_embedding = entry.get("embedding")
+            if not isinstance(raw_embedding, list) or raw_embedding == []:
+                continue
+
+            try:
+                embedding = np.array(raw_embedding, dtype=np.float32)
+            except (TypeError, ValueError):
+                continue
+
+            key = self.reference_cache_key(
+                str(entry.get("source", "sigur-personalimg")),
+                self.parse_manifest_int(entry.get("image_id")),
+                self.parse_manifest_int(entry.get("employee_id")),
+                str(entry.get("image_hash", "")),
+            )
+            cache_index[key] = embedding
+
+        return cache_index
+
+    def cached_embedding_for_reference(
+        self,
+        reference: dict[str, Any],
+        cache_index: dict[tuple[str, int, int, str], np.ndarray],
+    ) -> np.ndarray | None:
+        key = self.reference_cache_key(
+            str(reference.get("source", "")),
+            self.parse_manifest_int(reference.get("image_id")),
+            self.parse_manifest_int(reference.get("employee_id")),
+            str(reference.get("image_hash", "")),
+        )
+        return cache_index.get(key)
+
+    def reference_cache_key(
+        self,
+        source: str,
+        image_id: int,
+        employee_id: int,
+        image_hash: str,
+    ) -> tuple[str, int, int, str]:
+        return (source.strip(), image_id, employee_id, image_hash.strip())
 
     def clear_reference_dir(self) -> None:
         self.reference_dir.mkdir(parents=True, exist_ok=True)
