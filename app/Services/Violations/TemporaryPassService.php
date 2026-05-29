@@ -637,6 +637,7 @@ class TemporaryPassService
     ): ?ViolationEmployeeFaceReference {
         $sourcePath = $this->resolveUploadedFilePath($file);
         $sha1 = sha1_file($sourcePath) ?: null;
+        $referenceToRepair = null;
 
         if ($sha1) {
             $existing = ViolationEmployeeFaceReference::query()
@@ -656,10 +657,7 @@ class TemporaryPassService
                         'path' => $path,
                     ]);
 
-                    $existing->forceFill([
-                        'is_active' => false,
-                        'is_primary' => false,
-                    ])->save();
+                    $referenceToRepair = $existing;
                 } else {
                     $existing->forceFill([
                         'is_active' => true,
@@ -703,6 +701,42 @@ class TemporaryPassService
         if (! is_int($fileSize) || $fileSize <= 0) {
             $diskSize = @filesize($sourcePath);
             $fileSize = is_int($diskSize) ? $diskSize : null;
+        }
+
+        if ($referenceToRepair instanceof ViolationEmployeeFaceReference) {
+            $isPrimary = (bool) $referenceToRepair->is_primary
+                || ! $employee->faceReferences()
+                    ->where('id', '!=', $referenceToRepair->id)
+                    ->where('is_active', true)
+                    ->exists();
+
+            $referenceToRepair->forceFill([
+                'source_system' => 'manual_security',
+                'source' => 'temporary_pass',
+                'external_ref' => $employee->external_ref,
+                'source_image_id' => null,
+                'group_key' => $employee->business_key,
+                'disk' => 'faceid_references',
+                'path' => $relativePath,
+                'file_name' => basename($relativePath),
+                'mime_type' => (string) ($file->getMimeType() ?: $file->getClientMimeType() ?: 'application/octet-stream'),
+                'file_size' => $fileSize,
+                'is_primary' => $isPrimary,
+                'is_active' => true,
+                'imported_at' => now(),
+                'last_synced_at' => now(),
+                'meta' => [
+                    'source_label' => $sourceLabel,
+                ],
+            ])->save();
+
+            if ($isPrimary) {
+                $employee->faceReferences()
+                    ->where('id', '!=', $referenceToRepair->id)
+                    ->update(['is_primary' => false]);
+            }
+
+            return $referenceToRepair->fresh();
         }
 
         return ViolationEmployeeFaceReference::query()->create([
