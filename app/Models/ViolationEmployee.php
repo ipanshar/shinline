@@ -12,6 +12,7 @@ class ViolationEmployee extends Model
     protected $fillable = [
         'business_key',
         'source_system',
+        'person_kind',
         'external_ref',
         'iin',
         'full_name',
@@ -19,6 +20,13 @@ class ViolationEmployee extends Model
         'department',
         'position',
         'employment_status',
+        'temporary_pass_status',
+        'temporary_pass_issued_at',
+        'temporary_pass_expires_at',
+        'temporary_pass_duration_months',
+        'temporary_pass_created_by_user_id',
+        'temporary_pass_created_by_name',
+        'temporary_pass_last_extended_at',
         'is_active',
         'face_reference_count',
         'face_reference_state',
@@ -29,6 +37,9 @@ class ViolationEmployee extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'temporary_pass_issued_at' => 'datetime',
+        'temporary_pass_expires_at' => 'datetime',
+        'temporary_pass_last_extended_at' => 'datetime',
         'last_face_sync_at' => 'datetime',
         'imported_at' => 'datetime',
         'meta' => 'array',
@@ -55,5 +66,15 @@ class ViolationEmployee extends Model
             ->where('is_active', true)
             ->orderByDesc('is_primary')
             ->orderBy('id');
+    }
+
+    public function temporaryPassCreator()
+    {
+        return $this->belongsTo(User::class, 'temporary_pass_created_by_user_id');
+    }
+
+    public function temporaryPassEvents()
+    {
+        return $this->hasMany(ViolationTemporaryPassEvent::class, 'employee_id')->latest('performed_at')->latest('id');
     }
 }

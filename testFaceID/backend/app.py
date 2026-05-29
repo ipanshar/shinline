@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Any
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -225,7 +225,10 @@ def rebuild_index() -> dict[str, object]:
 
 
 @app.post("/api/search")
-async def search_face(file: UploadFile = File(...)) -> dict[str, object]:
+async def search_face(
+    file: UploadFile = File(...),
+    person_kinds: str = Form(default=""),
+) -> dict[str, object]:
     if controller.is_loading():
         controller.ensure_started()
         return {
@@ -257,7 +260,12 @@ async def search_face(file: UploadFile = File(...)) -> dict[str, object]:
         return {"error": "Файл пустой. Выбери фотографию и попробуй снова."}
 
     try:
-        return service.search(image_bytes)
+        requested_person_kinds = [
+            value.strip()
+            for value in person_kinds.split(",")
+            if value.strip()
+        ]
+        return service.search(image_bytes, person_kinds=requested_person_kinds or None)
     except ValueError as error:
         return {
             "matched": False,

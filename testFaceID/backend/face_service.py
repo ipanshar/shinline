@@ -484,7 +484,7 @@ class FaceSearchService:
             value=(240, 240, 240),
         )
 
-    def search(self, image_bytes: bytes) -> dict[str, Any]:
+    def search(self, image_bytes: bytes, person_kinds: list[str] | None = None) -> dict[str, Any]:
         if not self.reference_faces or self.embedding_matrix.size == 0:
             raise ValueError("Reference index is empty. Rebuild the index first.")
 
@@ -498,8 +498,18 @@ class FaceSearchService:
 
         similarities = self.embedding_matrix @ query_embedding
         grouped_candidates: dict[str, dict[str, Any]] = {}
+        normalized_person_kinds = {
+            str(value).strip()
+            for value in (person_kinds or [])
+            if str(value).strip()
+        }
         for index, similarity_value in enumerate(similarities):
             face = self.reference_faces[index]
+            if normalized_person_kinds:
+                face_person_kind = str(face.profile.get("personKind") or "").strip()
+                if face_person_kind not in normalized_person_kinds:
+                    continue
+
             similarity = float(similarity_value)
             group_key = self.reference_group_key(face)
             existing = grouped_candidates.get(group_key)
@@ -524,7 +534,12 @@ class FaceSearchService:
             candidates.append(candidate)
 
         if not candidates:
-            raise ValueError("No unique reference candidates found.")
+            return {
+                "matched": False,
+                "threshold": COSINE_MATCH_THRESHOLD,
+                "bestMatch": None,
+                "candidates": [],
+            }
 
         best_match = candidates[0]
         return {

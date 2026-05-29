@@ -151,4 +151,8 @@ class RouteController extends Controller
     public function violations(){
         return Inertia::render('violations/index');
     }
+
+    public function temporaryPasses(){
+        return Inertia::render('violations/temporary-passes');
+    }
 }

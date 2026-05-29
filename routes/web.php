@@ -366,6 +366,8 @@ Route::patch('/utilization/api/requests/{id}/status', [UtilizationRequestControl
 Route::get('/violations', [RouteController::class, 'violations'])->middleware('permission:violations.review');
 Route::get('/violations/api/incidents', [\App\Http\Controllers\Api\ViolationAdminController::class, 'incidents'])->middleware('permission:violations.review');
 Route::get('/violations/api/catalog', [\App\Http\Controllers\Api\ViolationAdminController::class, 'catalog'])->middleware('permission:violations.review');
+Route::get('/violations/temporary-passes', [RouteController::class, 'temporaryPasses'])->middleware('permission:violations.review');
+Route::get('/violations/api/temporary-workers', [\App\Http\Controllers\Api\ViolationAdminController::class, 'temporaryWorkers'])->middleware('permission:violations.review');
 Route::post('/violations/api/incidents/{incident}/resolve-identity', [\App\Http\Controllers\Api\ViolationAdminController::class, 'resolveIdentity'])->middleware('permission:violations.review');
 Route::post('/violations/api/categories', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertCategory'])->middleware('permission:violations.settings');
 Route::patch('/violations/api/categories/{category}', [\App\Http\Controllers\Api\ViolationAdminController::class, 'upsertCategory'])->middleware('permission:violations.settings');

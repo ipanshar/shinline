@@ -25,6 +25,32 @@ class ViolationsSchemaTest extends TestCase
         $this->assertTrue(Schema::hasTable('violation_status_histories'));
         $this->assertTrue(Schema::hasTable('violation_categories'));
         $this->assertTrue(Schema::hasTable('violation_types'));
+        $this->assertTrue(Schema::hasTable('violation_temporary_pass_events'));
+        $this->assertTrue(Schema::hasColumns('violation_employees', [
+            'person_kind',
+            'temporary_pass_status',
+            'temporary_pass_issued_at',
+            'temporary_pass_expires_at',
+            'temporary_pass_duration_months',
+            'temporary_pass_created_by_user_id',
+            'temporary_pass_created_by_name',
+            'temporary_pass_last_extended_at',
+        ]));
+        $this->assertTrue(Schema::hasColumns('violation_temporary_pass_events', [
+            'employee_id',
+            'event_type',
+            'duration_months',
+            'matched_reference_key',
+            'matched_similarity',
+            'performed_by_user_id',
+            'performed_by_name',
+            'performed_by_chat_id',
+            'performed_at',
+            'previous_expires_at',
+            'pass_issued_at',
+            'pass_expires_at',
+            'meta',
+        ]));
 
         $reporter = User::create([
             'name' => 'Security Reporter',

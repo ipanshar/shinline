@@ -13,6 +13,12 @@ import {
     MOCK_LOCATIONS,
     TERMINAL_INFO,
 } from '@/components/spectech/MOCK_LOCATIONS';
+import {
+    TemporaryPassCheckView,
+    TemporaryPassCreateView,
+    TemporaryPassExtendView,
+    TemporaryPassesMenu,
+} from '@/components/telegram/temporary-passes';
 // Без CSRF/credentials — Mini App авторизуется через initData
 axios.defaults.withCredentials = false;
 
@@ -74,6 +80,7 @@ interface SessionPayload {
     can_manage_spectech: boolean;
     can_record_violations: boolean;
     can_review_violations: boolean;
+    can_manage_temporary_passes: boolean;
     yards: YardOption[];
 }
 
@@ -670,6 +677,7 @@ function Dashboard({
     onUtilizationCreate,
     onUtilizationRequests,
     onOperatorSpectech,
+    onTemporaryPasses,
 }: {
     session: SessionPayload;
     onCreate: () => void;
@@ -682,6 +690,7 @@ function Dashboard({
     onUtilizationCreate: () => void;
     onUtilizationRequests: () => void;
     onOperatorSpectech: () => void;
+    onTemporaryPasses: () => void;
 }) {
     return (
         <>
@@ -694,6 +703,11 @@ function Dashboard({
                     <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
                     <button style={btnDanger} onClick={onViolationsCreate}>Зафиксировать нарушение</button>
                     <button style={btnSecondary} onClick={onViolationsList}>Мои нарушения</button>
+                </>
+            )}
+            {session.can_manage_temporary_passes && (
+                <>
+                    <button style={btnSecondary} onClick={onTemporaryPasses}>Временные пропуска</button>
                 </>
             )}
             <hr style={{ margin: '8px 0', borderColor: '#ddd' }} />
@@ -3052,7 +3066,7 @@ function TelegramMiniApp() {
     const [session, setSession] = useState<SessionPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests'>('home');
+    const [view, setView] = useState<'home' | 'register' | 'create' | 'edit' | 'visits' | 'exit-permits' | 'violations-create' | 'violations-list' | 'spectech-create' | 'spectech-edit' | 'spectech-requests' | 'spectech-operator' | 'utilization-create' | 'utilization-requests' | 'temporary-passes-home' | 'temporary-passes-check' | 'temporary-passes-create' | 'temporary-passes-extend'>('home');
     const [spectechRequests, setSpectechRequests] = useState<SpectechRequestItem[]>([]);
     const [visits, setVisits] = useState<VisitItem[]>([]);
     const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorItem[]>([]);
@@ -3413,6 +3427,7 @@ function TelegramMiniApp() {
                     onUtilizationCreate={() => setView('utilization-create')}
                     onUtilizationRequests={() => setView('utilization-requests')}
                     onOperatorSpectech={() => setView('spectech-operator')}
+                    onTemporaryPasses={() => setView('temporary-passes-home')}
                 />
             )}
             {status !== 'approved' && status !== 'blocked' && view === 'home' && (
@@ -3549,6 +3564,39 @@ function TelegramMiniApp() {
                     onReload={() => void loadViolationIncidents()}
                     onCreate={() => setView('violations-create')}
                     onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'temporary-passes-home' && session.can_manage_temporary_passes && (
+                <TemporaryPassesMenu
+                    onCheck={() => setView('temporary-passes-check')}
+                    onCreate={() => setView('temporary-passes-create')}
+                    onExtend={() => setView('temporary-passes-extend')}
+                    onBack={() => setView('home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'temporary-passes-check' && session.can_manage_temporary_passes && (
+                <TemporaryPassCheckView
+                    initData={initData}
+                    onGoToExtend={() => setView('temporary-passes-extend')}
+                    onBack={() => setView('temporary-passes-home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'temporary-passes-create' && session.can_manage_temporary_passes && (
+                <TemporaryPassCreateView
+                    initData={initData}
+                    onDone={() => setView('temporary-passes-home')}
+                    onBack={() => setView('temporary-passes-home')}
+                />
+            )}
+
+            {status === 'approved' && view === 'temporary-passes-extend' && session.can_manage_temporary_passes && (
+                <TemporaryPassExtendView
+                    initData={initData}
+                    onDone={() => setView('temporary-passes-home')}
+                    onBack={() => setView('temporary-passes-home')}
                 />
             )}
 

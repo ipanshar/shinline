@@ -10,7 +10,7 @@ class FaceIdRecognitionService
     /**
      * @return array{ok: bool, error: ?string, error_type: ?string, payload: ?array<string, mixed>}
      */
-    public function recognize(UploadedFile $file): array
+    public function recognize(UploadedFile $file, array $options = []): array
     {
         $sourcePath = $this->resolveUploadedFilePath($file);
 
@@ -45,7 +45,7 @@ class FaceIdRecognitionService
                         'Content-Type' => (string) ($file->getMimeType() ?: $file->getClientMimeType() ?: 'application/octet-stream'),
                     ]
                 )
-                ->post($this->searchUrl());
+                ->post($this->searchUrl(), $this->buildSearchPayload($options));
         } catch (\Throwable $exception) {
             return [
                 'ok' => false,
@@ -136,6 +136,28 @@ class FaceIdRecognitionService
     private function rebuildUrl(): string
     {
         return rtrim((string) config('services.faceid.base_url', 'http://127.0.0.1:8008'), '/') . '/api/rebuild';
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function buildSearchPayload(array $options): array
+    {
+        $payload = [];
+        $personKinds = array_values(array_filter(
+            array_map(
+                static fn ($value) => is_string($value) ? trim($value) : '',
+                (array) ($options['person_kinds'] ?? [])
+            ),
+            static fn ($value) => $value !== ''
+        ));
+
+        if ($personKinds !== []) {
+            $payload['person_kinds'] = implode(',', $personKinds);
+        }
+
+        return $payload;
     }
 
     private function resolveUploadedFilePath(UploadedFile $file): ?string
