@@ -20,6 +20,9 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\CleanupGarbageTrucks::class,
         \App\Console\Commands\AutoSkipStaleWeighingCommand::class,
         \App\Console\Commands\AutoClosePendingVisitorsCommand::class,
+        \App\Console\Commands\GreenlogImportPlantRegister::class,
+        \App\Console\Commands\GreenlogDebugScope::class,
+        \App\Console\Commands\GreenlogMoveCompanyScope::class,
     ];
 
     /**

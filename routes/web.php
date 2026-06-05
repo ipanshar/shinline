@@ -26,6 +26,13 @@ use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\TrafficStatsController;
 use App\Http\Controllers\Api\EntryPermitController;
 use App\Http\Controllers\Api\GuestVisitController;
+use App\Http\Controllers\Api\Greenlog\CareTaskController as GreenlogCareTaskController;
+use App\Http\Controllers\Api\Greenlog\DashboardController as GreenlogDashboardController;
+use App\Http\Controllers\Api\Greenlog\ExpenseController as GreenlogExpenseController;
+use App\Http\Controllers\Api\Greenlog\LocationController as GreenlogLocationController;
+use App\Http\Controllers\Api\Greenlog\PlantPhotoController as GreenlogPlantPhotoController;
+use App\Http\Controllers\Api\Greenlog\PlantController as GreenlogPlantController;
+use App\Http\Controllers\Api\Greenlog\ReportController as GreenlogReportController;
 use App\Http\Controllers\Api\PermitImportController;
 use App\Http\Controllers\Api\WeighingController;
 use App\Http\Controllers\WhatsAppController;
@@ -70,6 +77,13 @@ Route::get('/guests', [RouteController::class, 'guests'])->middleware('permissio
 Route::get('/telegram-users', [RouteController::class, 'telegramUsers'])->middleware('permission:telegram_users.view');
 Route::get('/history', [RouteController::class, 'history']);
 Route::get('/warehouses', [RouteController::class, 'warehouses']);
+Route::get('/greenlog', [RouteController::class, 'greenlog'])->middleware('permission:greenlog.view');
+Route::get('/greenlog/plants', [RouteController::class, 'greenlogPlants'])->middleware('permission:greenlog.view');
+Route::get('/greenlog/plants/{plant}', [RouteController::class, 'greenlogPlantShow'])->middleware('permission:greenlog.view');
+Route::get('/greenlog/locations', [RouteController::class, 'greenlogLocations'])->middleware('permission:greenlog.view');
+Route::get('/greenlog/expenses', [RouteController::class, 'greenlogExpenses'])->middleware('permission:greenlog.view');
+Route::get('/greenlog/care-tasks', [RouteController::class, 'greenlogCareTasks'])->middleware('permission:greenlog.view');
+Route::get('/greenlog/reports', [RouteController::class, 'greenlogReports'])->middleware('permission:greenlog.view');
 Route::get('/integration_dss', [RouteController::class, 'integration_dss'])->middleware('permission:integrations.dss');
 Route::get('/chat', [RouteController::class, 'chat']);
 Route::get('/chat/counterparty', [RouteController::class, 'chatCounterparty']);
@@ -80,6 +94,48 @@ route::get('/warehouses/yards', [RouteController::class, 'yards']);
 Route::get('/integration_dss/settings', [RouteController::class, 'dssSettings'])->middleware('permission:integrations.dss');
 Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices'])->middleware('permission:integrations.dss');
 Route::get('/integration_dss/zones', [RouteController::class, 'dssZones'])->middleware('permission:integrations.dss');
+
+// GreenLog API routes for web session auth
+Route::prefix('/api/greenlog')->middleware(['auth', 'permission:greenlog.view'])->group(function () {
+Route::get('/health', static fn () => response()->json([
+    'status' => true,
+    'data' => ['service' => 'greenlog-web-api'],
+]));
+Route::get('/dashboard/summary', [GreenlogDashboardController::class, 'summary']);
+Route::get('/locations', [GreenlogLocationController::class, 'index']);
+Route::get('/locations/{location}', [GreenlogLocationController::class, 'show']);
+Route::get('/locations/{location}/plants', [GreenlogLocationController::class, 'plants']);
+Route::post('/locations', [GreenlogLocationController::class, 'store'])->middleware('permission:greenlog.manage_locations');
+Route::patch('/locations/{location}', [GreenlogLocationController::class, 'update'])->middleware('permission:greenlog.manage_locations');
+Route::delete('/locations/{location}', [GreenlogLocationController::class, 'destroy'])->middleware('permission:greenlog.manage_locations');
+
+Route::get('/plants', [GreenlogPlantController::class, 'index']);
+Route::get('/plants/{plant}', [GreenlogPlantController::class, 'show']);
+Route::get('/plants/{plant}/photos', [GreenlogPlantPhotoController::class, 'index']);
+Route::post('/plants', [GreenlogPlantController::class, 'store'])->middleware('permission:greenlog.manage_plants');
+Route::post('/plants/{plant}/photos', [GreenlogPlantPhotoController::class, 'store'])->middleware('permission:greenlog.upload_photos');
+Route::patch('/plants/{plant}', [GreenlogPlantController::class, 'update'])->middleware('permission:greenlog.manage_plants');
+Route::delete('/plants/{plant}', [GreenlogPlantController::class, 'destroy'])->middleware('permission:greenlog.manage_plants');
+Route::delete('/photos/{photo}', [GreenlogPlantPhotoController::class, 'destroy'])->middleware('permission:greenlog.upload_photos');
+
+Route::get('/expenses', [GreenlogExpenseController::class, 'index']);
+Route::get('/expenses/summary', [GreenlogExpenseController::class, 'summary']);
+Route::post('/expenses', [GreenlogExpenseController::class, 'store'])->middleware('permission:greenlog.manage_expenses');
+Route::patch('/expenses/{expense}', [GreenlogExpenseController::class, 'update'])->middleware('permission:greenlog.manage_expenses');
+Route::delete('/expenses/{expense}', [GreenlogExpenseController::class, 'destroy'])->middleware('permission:greenlog.manage_expenses');
+
+Route::get('/care-tasks', [GreenlogCareTaskController::class, 'index']);
+Route::get('/care-tasks/today', [GreenlogCareTaskController::class, 'today']);
+Route::post('/care-tasks', [GreenlogCareTaskController::class, 'store'])->middleware('permission:greenlog.manage_care_tasks');
+Route::patch('/care-tasks/{careTask}', [GreenlogCareTaskController::class, 'update'])->middleware('permission:greenlog.manage_care_tasks');
+Route::post('/care-tasks/{careTask}/complete', [GreenlogCareTaskController::class, 'complete'])->middleware('permission:greenlog.manage_care_tasks');
+Route::delete('/care-tasks/{careTask}', [GreenlogCareTaskController::class, 'destroy'])->middleware('permission:greenlog.manage_care_tasks');
+
+Route::get('/reports/plants-inventory', [GreenlogReportController::class, 'plantsInventory'])->middleware('permission:greenlog.view_reports');
+Route::get('/reports/expenses-financial', [GreenlogReportController::class, 'expensesFinancial'])->middleware('permission:greenlog.view_reports');
+Route::get('/reports/plants-inventory/export-xlsx', [GreenlogReportController::class, 'exportPlantsInventory'])->middleware('permission:greenlog.view_reports');
+Route::get('/reports/expenses-summary/export-xlsx', [GreenlogReportController::class, 'exportExpensesSummary'])->middleware('permission:greenlog.view_reports');
+});
 
 // Dss routes for web UI (session auth)
 Route::post('/dss/autorization', [DssController::class, 'dssAutorization'])->middleware('permission:integrations.dss');

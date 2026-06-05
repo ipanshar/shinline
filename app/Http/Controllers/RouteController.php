@@ -29,6 +29,29 @@ class RouteController extends Controller
     public function warehouses(){
         return Inertia::render('warehouses');
     }
+    public function greenlog(){
+        return Inertia::render('greenlog/index');
+    }
+    public function greenlogPlants(){
+        return Inertia::render('greenlog/plants/index');
+    }
+    public function greenlogPlantShow(int $plant){
+        return Inertia::render('greenlog/plants/show', [
+            'plantId' => $plant,
+        ]);
+    }
+    public function greenlogLocations(){
+        return Inertia::render('greenlog/locations/index');
+    }
+    public function greenlogExpenses(){
+        return Inertia::render('greenlog/expenses/index');
+    }
+    public function greenlogCareTasks(){
+        return Inertia::render('greenlog/care-tasks/index');
+    }
+    public function greenlogReports(){
+        return Inertia::render('greenlog/reports/index');
+    }
     public function integration_dss(){
         return Inertia::render('integration_dss');
     }

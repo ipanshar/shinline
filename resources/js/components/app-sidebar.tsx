@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin, CalendarRange, FileSpreadsheet, Terminal } from 'lucide-react';
+import { MessageCircle, MessageCircleCodeIcon, LineChart, Boxes, Truck, Warehouse, Scale, History, ListChecks, LayoutGrid, ShieldCheck, BookOpen, Ticket, Users, Cpu, MapPinned, Map, Camera, UserRound, ClipboardList, LayoutDashboard, MapPin, FileSpreadsheet, Terminal, Sprout } from 'lucide-react';
 import AppLogo from './app-logo';
 import { useUser } from '@/components/UserContext';
 import axios from 'axios';
@@ -220,6 +220,48 @@ export function AppSidebar() {
                     permission: 'spectech.view',
                 },
 
+            ],
+        },
+        {
+            title: 'Shin Line Flora',
+            icon: Sprout,
+            items: [
+                {
+                    title: 'Shin Line Flora',
+                    href: '/greenlog',
+                    icon: Sprout,
+                    permission: 'greenlog.view',
+                },
+                {
+                    title: 'Растения',
+                    href: '/greenlog/plants',
+                    icon: BookOpen,
+                    permission: 'greenlog.view',
+                },
+                {
+                    title: 'Локации',
+                    href: '/greenlog/locations',
+                    icon: MapPin,
+                    permission: 'greenlog.view',
+                },
+                {
+                    title: 'Расходы',
+                    href: '/greenlog/expenses',
+                    icon: LineChart,
+                    permission: 'greenlog.view',
+                },
+                {
+                    title: 'Задачи ухода',
+                    href: '/greenlog/care-tasks',
+                    icon: ClipboardList,
+                    permission: 'greenlog.view',
+                },
+                {
+                    title: 'Отчеты',
+                    href: '/greenlog/reports',
+                    icon: FileSpreadsheet,
+                    permission: 'greenlog.view',
+                },
             ],
         },
         {
