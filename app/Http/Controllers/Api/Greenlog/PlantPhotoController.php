@@ -7,8 +7,10 @@ use App\Http\Requests\Greenlog\StorePlantPhotoRequest;
 use App\Models\Greenlog\Plant;
 use App\Models\Greenlog\PlantPhoto;
 use App\Support\Greenlog\ResolvesGreenlogCompany;
+use ValueError;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class PlantPhotoController extends Controller
@@ -36,8 +38,35 @@ class PlantPhotoController extends Controller
         $this->abortIfPlantOutsideCompany($request, $plant);
 
         $disk = 'public';
-        $path = $request->file('photo')->store("greenlog/plants/{$plant->id}", $disk);
         $file = $request->file('photo');
+        $path = "greenlog/plants/{$plant->id}";
+
+        if ($path === '') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Upload path is empty.',
+            ], 422);
+        }
+
+        Log::info('GreenLog upload', [
+            'plant_id' => $plant->id,
+            'path' => $path,
+            'filename' => $file->getClientOriginalName(),
+        ]);
+
+        try {
+            $filePath = $file->store($path, $disk);
+        } catch (ValueError $exception) {
+            if (str_contains($exception->getMessage(), 'Path cannot be empty')) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Upload path is empty.',
+                ], 422);
+            }
+
+            throw $exception;
+        }
+
         $mimeType = $file?->getMimeType();
         $size = $file?->getSize();
 
@@ -46,7 +75,7 @@ class PlantPhotoController extends Controller
             'created_by_user_id' => $request->user()?->id,
             'plant_id' => $plant->id,
             'disk' => $disk,
-            'path' => $path,
+            'path' => $filePath,
             'original_name' => $file?->getClientOriginalName(),
             'mime_type' => $mimeType,
             'size' => is_int($size) ? $size : null,
