@@ -16,7 +16,7 @@ class StorePlantPhotoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'photo' => ['required', 'file', 'max:10240', new ValidPlantPhotoUpload()],
+            'photo' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240', new ValidPlantPhotoUpload()],
             'type' => ['nullable', Rule::in(['plant', 'location'])],
             'description' => ['nullable', 'string', 'max:2000'],
         ];
@@ -27,6 +27,8 @@ class StorePlantPhotoRequest extends FormRequest
         return [
             'photo.required' => 'Выберите файл фотографии.',
             'photo.file' => 'Файл не удалось распознать.',
+            'photo.image' => 'Поддерживаются только изображения.',
+            'photo.mimes' => 'Поддерживаются только JPG, PNG и WEBP до 10 МБ',
             'photo.max' => 'Поддерживаются только JPG, PNG и WEBP до 10 МБ',
         ];
     }
