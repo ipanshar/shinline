@@ -145,7 +145,11 @@ class GreenlogImportPlantRegister extends Command
                 status: 'active',
                 unitCost: Plant::defaultUnitCostForCategory('indoor'),
                 costSource: 'auto',
-                notes: $responsible !== '' ? 'Ответственный: ' . $responsible : 'Импортировано из листа "Реестр по растениям"',
+                notes: 'Импортировано из листа "Реестр по растениям"',
+                branch: 'Головной офис',
+                office: 'Shin Line',
+                room: $locationName,
+                responsiblePerson: $responsible !== '' ? $responsible : null,
             );
         }
     }
@@ -188,6 +192,10 @@ class GreenlogImportPlantRegister extends Command
                 unitCost: Plant::defaultUnitCostForCategory('outdoor'),
                 costSource: 'auto',
                 notes: 'Импортировано из листа "Биологические активы"',
+                branch: null,
+                office: null,
+                room: $currentTerritory,
+                responsiblePerson: null,
             );
         }
     }
@@ -288,6 +296,10 @@ class GreenlogImportPlantRegister extends Command
         string $unitCost,
         string $costSource,
         string $notes,
+        ?string $branch = null,
+        ?string $office = null,
+        ?string $room = null,
+        ?string $responsiblePerson = null,
     ): Plant {
         $plant = Plant::query()->updateOrCreate(
             [
@@ -306,6 +318,10 @@ class GreenlogImportPlantRegister extends Command
                 'unit_cost' => $unitCost,
                 'total_cost' => number_format($quantity * (float) $unitCost, 2, '.', ''),
                 'cost_source' => $costSource,
+                'branch' => $branch,
+                'office' => $office,
+                'room' => $room,
+                'responsible_person' => $responsiblePerson,
                 'watering_frequency_days' => null,
                 'fertilizing_frequency_days' => null,
                 'notes' => $notes,
