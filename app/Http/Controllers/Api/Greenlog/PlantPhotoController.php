@@ -7,7 +7,6 @@ use App\Http\Requests\Greenlog\StorePlantPhotoRequest;
 use App\Models\Greenlog\Plant;
 use App\Models\Greenlog\PlantPhoto;
 use App\Support\Greenlog\ResolvesGreenlogCompany;
-use ValueError;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -37,45 +36,25 @@ class PlantPhotoController extends Controller
     {
         $this->abortIfPlantOutsideCompany($request, $plant);
 
-        $disk = 'public';
         $file = $request->file('photo');
-        $path = "greenlog/plants/{$plant->id}";
-
-        if ($path === '') {
-            return response()->json([
-                'status' => false,
-                'message' => 'Upload path is empty.',
-            ], 422);
-        }
-
-        Log::info('GreenLog upload', [
-            'plant_id' => $plant->id,
-            'path' => $path,
-            'filename' => $file->getClientOriginalName(),
-        ]);
-
-        try {
-            $filePath = $file->store($path, $disk);
-        } catch (ValueError $exception) {
-            if (str_contains($exception->getMessage(), 'Path cannot be empty')) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Upload path is empty.',
-                ], 422);
-            }
-
-            throw $exception;
-        }
+        $directory = 'greenlog/plants/' . $plant->id;
+        $storedPath = $file->store($directory, 'public');
 
         $mimeType = $file?->getMimeType();
         $size = $file?->getSize();
+
+        Log::info('GreenLog photo upload path', [
+            'plant_id' => $plant->id,
+            'directory' => $directory,
+            'stored_path' => $storedPath ?? null,
+        ]);
 
         $photo = PlantPhoto::create([
             'company_key' => $this->companyKey($request),
             'created_by_user_id' => $request->user()?->id,
             'plant_id' => $plant->id,
-            'disk' => $disk,
-            'path' => $filePath,
+            'disk' => 'public',
+            'path' => $storedPath,
             'original_name' => $file?->getClientOriginalName(),
             'mime_type' => $mimeType,
             'size' => is_int($size) ? $size : null,
@@ -85,7 +64,10 @@ class PlantPhotoController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $photo,
+            'data' => [
+                ...$photo->toArray(),
+                'url' => Storage::disk('public')->url($storedPath),
+            ],
         ], 201);
     }
 
