@@ -384,7 +384,7 @@ export async function uploadGreenlogPlantPhoto(plantId: number, formData: FormDa
     try {
         const response = await greenlogApi.post<GreenlogResponse<GreenlogPlantPhoto>>(`/plants/${plantId}/photos`, formData, {
             headers: {
-                'Content-Type': 'multipart/form-data',
+                Accept: 'application/json',
             },
         });
 
