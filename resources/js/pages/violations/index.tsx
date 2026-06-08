@@ -29,10 +29,17 @@ interface ViolationIncident {
     recognition_status: string;
     occurred_at: string | null;
     reported_at: string | null;
+    reviewed_at: string | null;
+    closed_at: string | null;
     reported_by_name: string | null;
     reported_by_user: string | null;
+    category_id: number | null;
     category_name: string | null;
+    category_key: string | null;
+    type_id: number | null;
     type_name: string | null;
+    type_key: string | null;
+    employee_id: number | null;
     employee_full_name: string | null;
     employee_department: string | null;
     employee_position: string | null;
@@ -44,6 +51,7 @@ interface ViolationIncident {
     recognition_similarity: number | null;
     review_note: string | null;
     rejection_reason: string | null;
+    sanction_state: string | null;
     identity_requires_manual_review: boolean;
     employee_reference: ViolationEvidence | null;
     recognition_probe: ViolationEvidence | null;
@@ -70,16 +78,45 @@ interface ViolationCategory {
     types: ViolationType[];
 }
 
+interface IncidentEditForm {
+    occurred_at: string;
+    location_label: string;
+    category_id: string;
+    type_id: string;
+    employee_full_name: string;
+    employee_department: string;
+    employee_position: string;
+    description: string;
+    review_note: string;
+    rejection_reason: string;
+    workflow_status: string;
+    sanction_state: string;
+}
+
 const incidentStatusLabels: Record<string, string> = {
     draft_processing: 'Обработка',
     pending_review: 'На проверке',
+    recognized_confirmed: 'Подтверждено Face ID',
     unknown_manual: 'Ждёт идентификации',
-    recognized_confirmed: 'Личность подтверждена',
-    approved: 'Подтверждено',
-    rejected: 'Отклонено',
-    resolved: 'Рассмотрено',
+    escalated: 'Эскалировано',
     closed: 'Закрыто',
+    rejected: 'Отклонено',
 };
+
+const recognitionStatusLabels: Record<string, string> = {
+    pending: 'Ожидает',
+    matched: 'Совпадение',
+    unknown: 'Не найден',
+    failed: 'Ошибка',
+    manual: 'Вручную',
+};
+
+const quickStatuses = [
+    { value: 'pending_review', label: 'В проверку' },
+    { value: 'escalated', label: 'Эскалировать' },
+    { value: 'closed', label: 'Закрыть' },
+    { value: 'rejected', label: 'Отклонить' },
+] as const;
 
 const formatDateTime = (value?: string | null) => {
     if (!value) {
@@ -93,6 +130,17 @@ const formatDateTime = (value?: string | null) => {
         hour: '2-digit',
         minute: '2-digit',
     });
+};
+
+const toDatetimeLocalValue = (value?: string | null) => {
+    if (!value) {
+        return '';
+    }
+
+    const date = new Date(value);
+    const offsetMs = date.getTimezoneOffset() * 60000;
+
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 };
 
 const getErrorMessage = (error: unknown, fallback: string) => {
@@ -143,6 +191,7 @@ function EvidencePreview({
 export default function ViolationsPage() {
     const { user } = useUser();
     const canReview = Boolean(user?.isAdmin || user?.permissions?.includes('violations.review'));
+    const canManage = Boolean(user?.isAdmin || user?.permissions?.includes('violations.manage'));
     const canManageSettings = Boolean(user?.isAdmin || user?.permissions?.includes('violations.settings'));
 
     const [incidents, setIncidents] = useState<ViolationIncident[]>([]);
@@ -154,11 +203,16 @@ export default function ViolationsPage() {
     const [catalogError, setCatalogError] = useState<string | null>(null);
     const [unknownIncidentsError, setUnknownIncidentsError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState('');
+    const [recognitionStatusFilter, setRecognitionStatusFilter] = useState('');
+    const [occurredFrom, setOccurredFrom] = useState('');
+    const [occurredTo, setOccurredTo] = useState('');
     const [searchDraft, setSearchDraft] = useState('');
     const [search, setSearch] = useState('');
     const [savingCategory, setSavingCategory] = useState(false);
     const [savingType, setSavingType] = useState(false);
     const [toggleBusyKey, setToggleBusyKey] = useState<string | null>(null);
+    const [statusBusyKey, setStatusBusyKey] = useState<string | null>(null);
+    const [refreshing, setRefreshing] = useState(false);
     const [preview, setPreview] = useState<EvidencePreviewState | null>(null);
     const [unknownIncidents, setUnknownIncidents] = useState<ViolationIncident[]>([]);
     const [identityForms, setIdentityForms] = useState<Record<number, {
@@ -168,6 +222,9 @@ export default function ViolationsPage() {
         review_note: string;
     }>>({});
     const [savingIdentityIncidentId, setSavingIdentityIncidentId] = useState<number | null>(null);
+    const [editingIncident, setEditingIncident] = useState<ViolationIncident | null>(null);
+    const [editForm, setEditForm] = useState<IncidentEditForm | null>(null);
+    const [savingEdit, setSavingEdit] = useState(false);
     const [categoryForm, setCategoryForm] = useState({
         name: '',
         description: '',
@@ -202,6 +259,9 @@ export default function ViolationsPage() {
         try {
             const params = {
                 ...(statusFilter ? { status: statusFilter } : {}),
+                ...(recognitionStatusFilter ? { recognition_status: recognitionStatusFilter } : {}),
+                ...(occurredFrom ? { occurred_from: occurredFrom } : {}),
+                ...(occurredTo ? { occurred_to: occurredTo } : {}),
                 ...(search ? { search } : {}),
             };
 
@@ -213,7 +273,7 @@ export default function ViolationsPage() {
         } finally {
             setLoadingIncidents(false);
         }
-    }, [search, statusFilter]);
+    }, [occurredFrom, occurredTo, recognitionStatusFilter, search, statusFilter]);
 
     const loadUnknownIncidents = useCallback(async () => {
         setLoadingUnknownIncidents(true);
@@ -273,7 +333,13 @@ export default function ViolationsPage() {
     }, [catalog, typeForm.category_id]);
 
     const refreshAll = async () => {
-        await Promise.all([loadIncidents(), loadCatalog(), loadUnknownIncidents()]);
+        setRefreshing(true);
+
+        try {
+            await Promise.all([loadIncidents(), loadCatalog(), loadUnknownIncidents()]);
+        } finally {
+            setRefreshing(false);
+        }
     };
 
     const submitCategory = async (event: React.FormEvent) => {
@@ -402,6 +468,129 @@ export default function ViolationsPage() {
         }
     };
 
+    const openEditModal = (incident: ViolationIncident) => {
+        setEditingIncident(incident);
+        setEditForm({
+            occurred_at: toDatetimeLocalValue(incident.occurred_at),
+            location_label: incident.location_label || '',
+            category_id: incident.category_id ? String(incident.category_id) : '',
+            type_id: incident.type_id ? String(incident.type_id) : '',
+            employee_full_name: incident.employee_full_name || '',
+            employee_department: incident.employee_department || '',
+            employee_position: incident.employee_position || '',
+            description: incident.description || '',
+            review_note: incident.review_note || '',
+            rejection_reason: incident.rejection_reason || '',
+            workflow_status: incident.workflow_status,
+            sanction_state: incident.sanction_state || '',
+        });
+    };
+
+    const closeEditModal = () => {
+        if (savingEdit) {
+            return;
+        }
+
+        setEditingIncident(null);
+        setEditForm(null);
+    };
+
+    const updateEditForm = (field: keyof IncidentEditForm, value: string) => {
+        setEditForm((current) => {
+            if (!current) {
+                return current;
+            }
+
+            if (field === 'category_id') {
+                return {
+                    ...current,
+                    category_id: value,
+                    type_id: '',
+                };
+            }
+
+            return {
+                ...current,
+                [field]: value,
+            };
+        });
+    };
+
+    const submitIncidentUpdate = async (event: React.FormEvent) => {
+        event.preventDefault();
+
+        if (!editingIncident || !editForm) {
+            return;
+        }
+
+        if (!editForm.category_id || !editForm.type_id) {
+            alert('Выберите категорию и тип нарушения');
+            return;
+        }
+
+        if (editForm.workflow_status === 'unknown_manual' && !editForm.employee_full_name.trim()) {
+            const confirmed = window.confirm('Статус оставлен в ручной идентификации без ФИО. Сохранить всё равно?');
+            if (!confirmed) {
+                return;
+            }
+        }
+
+        setSavingEdit(true);
+
+        try {
+            const payload = {
+                occurred_at: editForm.occurred_at ? new Date(editForm.occurred_at).toISOString() : undefined,
+                location_label: editForm.location_label.trim() || null,
+                category_id: Number(editForm.category_id),
+                type_id: Number(editForm.type_id),
+                employee_full_name: editForm.employee_full_name.trim() || null,
+                employee_department: editForm.employee_department.trim() || null,
+                employee_position: editForm.employee_position.trim() || null,
+                description: editForm.description.trim() || null,
+                review_note: editForm.review_note.trim() || null,
+                rejection_reason: editForm.rejection_reason.trim() || null,
+                workflow_status: editForm.workflow_status,
+                sanction_state: editForm.sanction_state.trim() || null,
+            };
+
+            await axios.patch(`/violations/api/incidents/${editingIncident.id}`, payload);
+            await Promise.all([loadIncidents(), loadUnknownIncidents()]);
+            closeEditModal();
+        } catch (error: unknown) {
+            alert(getErrorMessage(error, 'Не удалось сохранить инцидент'));
+        } finally {
+            setSavingEdit(false);
+        }
+    };
+
+    const submitQuickStatus = async (incident: ViolationIncident, workflowStatus: string) => {
+        const note = window.prompt('Комментарий к смене статуса', incident.review_note || '');
+        if (note === null) {
+            return;
+        }
+
+        const busyKey = `${incident.id}:${workflowStatus}`;
+        setStatusBusyKey(busyKey);
+
+        try {
+            await axios.patch(`/violations/api/incidents/${incident.id}/status`, {
+                workflow_status: workflowStatus,
+                note: note.trim() || null,
+            });
+
+            await Promise.all([loadIncidents(), loadUnknownIncidents()]);
+        } catch (error: unknown) {
+            alert(getErrorMessage(error, 'Не удалось изменить статус инцидента'));
+        } finally {
+            setStatusBusyKey(null);
+        }
+    };
+
+    const selectedEditCategory = editForm?.category_id
+        ? catalog.find((category) => String(category.id) === editForm.category_id) ?? null
+        : null;
+    const availableEditTypes = selectedEditCategory?.types ?? [];
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Нарушители" />
@@ -412,16 +601,17 @@ export default function ViolationsPage() {
                         <div className="flex flex-col gap-2">
                             <h1 className="text-[15px] font-semibold text-[#1A1A1A]">Нарушители</h1>
                             <p className="text-[12px] text-[#6B6B6B]">
-                                Очередь инцидентов из Telegram Mini App. Здесь охрана видит карточки нарушений, доказательства
-                                и поддерживает справочник категорий и типов без миграций.
+                                Очередь инцидентов из Telegram Mini App c доказательствами, ручной идентификацией и каталогом нарушений.
+                                Для пользователей с правом администрирования доступны корректировка карточки и смена статусов.
                             </p>
                         </div>
                         <button
                             type="button"
                             onClick={() => void refreshAll()}
-                            className="inline-flex h-9 items-center justify-center rounded-md border border-[#D7D7D7] px-4 text-sm font-medium text-[#333] transition hover:bg-[#F7F7F7]"
+                            disabled={refreshing}
+                            className="inline-flex h-9 items-center justify-center rounded-md border border-[#D7D7D7] px-4 text-sm font-medium text-[#333] transition hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            Обновить
+                            {refreshing ? 'Обновление...' : 'Обновить'}
                         </button>
                     </div>
                 </section>
@@ -432,27 +622,46 @@ export default function ViolationsPage() {
                             event.preventDefault();
                             setSearch(searchDraft.trim());
                         }}
-                        className="flex flex-col gap-3 lg:flex-row"
+                        className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_220px_220px_180px_180px_auto]"
                     >
                         <input
                             value={searchDraft}
                             onChange={(event) => setSearchDraft(event.target.value)}
-                            placeholder="Поиск по ФИО, отделу, категории или типу"
-                            className="h-10 flex-1 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                            placeholder="Поиск по ФИО, отделу, должности, типу, категории, автору"
+                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
                         />
                         <select
                             value={statusFilter}
                             onChange={(event) => setStatusFilter(event.target.value)}
-                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500 lg:w-56"
+                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
                         >
                             <option value="">Все статусы</option>
-                            <option value="pending_review">На проверке</option>
-                            <option value="unknown_manual">Ждёт идентификации</option>
-                            <option value="approved">Подтверждено</option>
-                            <option value="rejected">Отклонено</option>
-                            <option value="resolved">Рассмотрено</option>
-                            <option value="closed">Закрыто</option>
+                            {Object.entries(incidentStatusLabels).map(([value, label]) => (
+                                <option key={value} value={value}>{label}</option>
+                            ))}
                         </select>
+                        <select
+                            value={recognitionStatusFilter}
+                            onChange={(event) => setRecognitionStatusFilter(event.target.value)}
+                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                        >
+                            <option value="">Все статусы распознавания</option>
+                            {Object.entries(recognitionStatusLabels).map(([value, label]) => (
+                                <option key={value} value={value}>{label}</option>
+                            ))}
+                        </select>
+                        <input
+                            type="date"
+                            value={occurredFrom}
+                            onChange={(event) => setOccurredFrom(event.target.value)}
+                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                        />
+                        <input
+                            type="date"
+                            value={occurredTo}
+                            onChange={(event) => setOccurredTo(event.target.value)}
+                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 text-sm outline-none transition focus:border-red-500"
+                        />
                         <button
                             type="submit"
                             className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700"
@@ -462,18 +671,18 @@ export default function ViolationsPage() {
                     </form>
                 </section>
 
-                {!canReview && !canManageSettings && (
+                {!canReview && !canManageSettings && !canManage && (
                     <section className="rounded-xl border border-[#F5D0D0] bg-[#FFF5F5] px-5 py-4 text-sm text-[#8B1E1E]">
                         У вашей учётной записи нет прав на просмотр или настройку модуля нарушений.
                     </section>
                 )}
 
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.95fr)]">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.95fr)]">
                     <section className="rounded-xl border border-[#E8E8E8] bg-white px-5 py-4">
                         <div className="mb-3 flex items-center justify-between gap-3">
                             <div>
                                 <h2 className="text-sm font-semibold text-[#1A1A1A]">Очередь инцидентов</h2>
-                                <p className="text-xs text-[#6B6B6B]">Последние зафиксированные нарушения с фото и видео.</p>
+                                <p className="text-xs text-[#6B6B6B]">Карточки нарушений с фото, видео, probe и эталонными изображениями.</p>
                             </div>
                             <div className="text-xs text-[#6B6B6B]">Всего: {incidents.length}</div>
                         </div>
@@ -495,7 +704,8 @@ export default function ViolationsPage() {
                         <div className="space-y-3">
                             {incidents.map((incident) => {
                                 const primaryEvidence = incident.evidences.find((evidence) => evidence.is_primary) ?? incident.evidences[0] ?? null;
-                                const hasVisuals = Boolean(incident.employee_reference?.url || primaryEvidence?.url);
+                                const statusLabel = incidentStatusLabels[incident.workflow_status] || incident.workflow_status;
+                                const recognitionLabel = recognitionStatusLabels[incident.recognition_status] || incident.recognition_status;
 
                                 return (
                                     <article key={incident.id} className="rounded-xl border border-[#ECECEC] bg-[#FCFCFC] p-4">
@@ -503,10 +713,13 @@ export default function ViolationsPage() {
                                             <div className="space-y-1">
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <h3 className="text-sm font-semibold text-[#1A1A1A]">
-                                                        {incident.employee_full_name || 'Не указан нарушитель'}
+                                                        {incident.employee_full_name || 'Нарушитель не указан'}
                                                     </h3>
                                                     <span className="rounded-full bg-[#F3F4F6] px-2.5 py-1 text-[11px] font-medium text-[#374151]">
-                                                        {incidentStatusLabels[incident.workflow_status] || incident.workflow_status}
+                                                        {statusLabel}
+                                                    </span>
+                                                    <span className="rounded-full bg-[#EEF2FF] px-2.5 py-1 text-[11px] font-medium text-[#4338CA]">
+                                                        {recognitionLabel}
                                                     </span>
                                                 </div>
                                                 <div className="text-xs text-[#6B6B6B]">
@@ -516,6 +729,7 @@ export default function ViolationsPage() {
                                             <div className="text-right text-xs text-[#6B6B6B]">
                                                 <div>{formatDateTime(incident.occurred_at)}</div>
                                                 <div>Сообщил: {incident.reported_by_name || incident.reported_by_user || '—'}</div>
+                                                <div>Проверено: {formatDateTime(incident.reviewed_at)}</div>
                                             </div>
                                         </div>
 
@@ -524,41 +738,79 @@ export default function ViolationsPage() {
                                             <div>Должность: {incident.employee_position || '—'}</div>
                                             <div>Локация: {incident.location_label || '—'}</div>
                                             <div>Доказательства: {incident.evidence_photo_count} фото / {incident.evidence_video_count} видео</div>
+                                            <div>Санкция: {incident.sanction_state || '—'}</div>
+                                            <div>Закрыто: {formatDateTime(incident.closed_at)}</div>
                                         </div>
 
                                         {incident.description && (
                                             <p className="mt-3 text-sm leading-6 text-[#444]">{incident.description}</p>
                                         )}
 
-                                        {hasVisuals && (
-                                            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                                                {incident.employee_reference?.url && (
-                                                    <div>
-                                                        <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Эталонное фото нарушителя</div>
-                                                        <EvidencePreview
-                                                            evidence={incident.employee_reference}
-                                                            alt={incident.employee_full_name || 'Эталонное фото нарушителя'}
-                                                            onOpen={(evidence) => setPreview({ evidence, title: incident.employee_full_name ? `Эталонное фото: ${incident.employee_full_name}` : 'Эталонное фото нарушителя' })}
-                                                        />
-                                                    </div>
-                                                )}
+                                        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                                            {incident.employee_reference?.url && (
+                                                <div>
+                                                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Эталон</div>
+                                                    <EvidencePreview
+                                                        evidence={incident.employee_reference}
+                                                        alt={incident.employee_full_name || 'Эталон сотрудника'}
+                                                        onOpen={(evidence) => setPreview({ evidence, title: incident.employee_full_name ? `Эталон: ${incident.employee_full_name}` : 'Эталон сотрудника' })}
+                                                    />
+                                                </div>
+                                            )}
 
-                                                {primaryEvidence?.url && (
-                                                    <div>
-                                                        <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Улика по нарушению</div>
-                                                        <EvidencePreview
-                                                            evidence={primaryEvidence}
-                                                            alt={incident.type_name || 'Доказательство'}
-                                                            onOpen={(evidence) => setPreview({ evidence, title: incident.type_name || 'Доказательство' })}
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                                            {incident.recognition_probe?.url && (
+                                                <div>
+                                                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Recognition probe</div>
+                                                    <EvidencePreview
+                                                        evidence={incident.recognition_probe}
+                                                        alt="Recognition probe"
+                                                        onOpen={(evidence) => setPreview({ evidence, title: 'Recognition probe' })}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {primaryEvidence?.url && (
+                                                <div>
+                                                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Evidence</div>
+                                                    <EvidencePreview
+                                                        evidence={primaryEvidence}
+                                                        alt={incident.type_name || 'Доказательство'}
+                                                        onOpen={(evidence) => setPreview({ evidence, title: incident.type_name || 'Доказательство' })}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
 
                                         {(incident.review_note || incident.rejection_reason) && (
                                             <div className="mt-3 rounded-lg border border-[#E9D8A6] bg-[#FFF8DB] px-3 py-2 text-sm text-[#6B5B1A]">
                                                 {incident.review_note || incident.rejection_reason}
+                                            </div>
+                                        )}
+
+                                        {canManage && (
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openEditModal(incident)}
+                                                    className="inline-flex h-9 items-center justify-center rounded-lg border border-[#111827] px-4 text-sm font-medium text-[#111827] transition hover:bg-[#111827] hover:text-white"
+                                                >
+                                                    Редактировать
+                                                </button>
+                                                {quickStatuses.map((item) => {
+                                                    const busyKey = `${incident.id}:${item.value}`;
+
+                                                    return (
+                                                        <button
+                                                            key={item.value}
+                                                            type="button"
+                                                            disabled={statusBusyKey === busyKey}
+                                                            onClick={() => void submitQuickStatus(incident, item.value)}
+                                                            className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7D7D7] px-3 text-sm font-medium text-[#333] transition hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            {statusBusyKey === busyKey ? 'Сохранение...' : item.label}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </article>
@@ -825,6 +1077,226 @@ export default function ViolationsPage() {
                     </div>
                 </div>
             </div>
+
+            {editingIncident && editForm && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4" onClick={closeEditModal}>
+                    <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5" onClick={(event) => event.stopPropagation()}>
+                        <div className="mb-4 flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-semibold text-[#1A1A1A]">Редактирование нарушения #{editingIncident.id}</h2>
+                                <p className="text-sm text-[#6B6B6B]">
+                                    {editingIncident.category_name || '—'} / {editingIncident.type_name || '—'}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeEditModal}
+                                disabled={savingEdit}
+                                className="rounded-md border border-[#D7D7D7] px-3 py-1.5 text-sm font-medium text-[#333] transition hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                Закрыть
+                            </button>
+                        </div>
+
+                        <form onSubmit={submitIncidentUpdate} className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                            <div className="space-y-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Дата и время нарушения</span>
+                                        <input
+                                            type="datetime-local"
+                                            value={editForm.occurred_at}
+                                            onChange={(event) => updateEditForm('occurred_at', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                            required
+                                        />
+                                    </label>
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Локация</span>
+                                        <input
+                                            value={editForm.location_label}
+                                            onChange={(event) => updateEditForm('location_label', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Категория</span>
+                                        <select
+                                            value={editForm.category_id}
+                                            onChange={(event) => updateEditForm('category_id', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                            required
+                                        >
+                                            <option value="">Выберите категорию</option>
+                                            {catalog.map((category) => (
+                                                <option key={category.id} value={category.id}>{category.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Тип</span>
+                                        <select
+                                            value={editForm.type_id}
+                                            onChange={(event) => updateEditForm('type_id', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                            required
+                                        >
+                                            <option value="">Выберите тип</option>
+                                            {availableEditTypes.map((type) => (
+                                                <option key={type.id} value={type.id}>{type.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>ФИО</span>
+                                        <input
+                                            value={editForm.employee_full_name}
+                                            onChange={(event) => updateEditForm('employee_full_name', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Отдел</span>
+                                        <input
+                                            value={editForm.employee_department}
+                                            onChange={(event) => updateEditForm('employee_department', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Должность</span>
+                                        <input
+                                            value={editForm.employee_position}
+                                            onChange={(event) => updateEditForm('employee_position', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                </div>
+
+                                <label className="grid gap-1 text-sm text-[#333]">
+                                    <span>Описание</span>
+                                    <textarea
+                                        value={editForm.description}
+                                        onChange={(event) => updateEditForm('description', event.target.value)}
+                                        className="min-h-[100px] rounded-lg border border-[#D9D9D9] px-3 py-2 outline-none transition focus:border-red-500"
+                                    />
+                                </label>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Комментарий проверки</span>
+                                        <textarea
+                                            value={editForm.review_note}
+                                            onChange={(event) => updateEditForm('review_note', event.target.value)}
+                                            className="min-h-[92px] rounded-lg border border-[#D9D9D9] px-3 py-2 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Причина отклонения</span>
+                                        <textarea
+                                            value={editForm.rejection_reason}
+                                            onChange={(event) => updateEditForm('rejection_reason', event.target.value)}
+                                            className="min-h-[92px] rounded-lg border border-[#D9D9D9] px-3 py-2 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Статус</span>
+                                        <select
+                                            value={editForm.workflow_status}
+                                            onChange={(event) => updateEditForm('workflow_status', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                        >
+                                            {Object.entries(incidentStatusLabels).map(([value, label]) => (
+                                                <option key={value} value={value}>{label}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="grid gap-1 text-sm text-[#333]">
+                                        <span>Состояние санкции</span>
+                                        <input
+                                            value={editForm.sanction_state}
+                                            onChange={(event) => updateEditForm('sanction_state', event.target.value)}
+                                            className="h-10 rounded-lg border border-[#D9D9D9] px-3 outline-none transition focus:border-red-500"
+                                        />
+                                    </label>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        type="submit"
+                                        disabled={savingEdit}
+                                        className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {savingEdit ? 'Сохранение...' : 'Сохранить изменения'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={closeEditModal}
+                                        disabled={savingEdit}
+                                        className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D7D7D7] px-4 text-sm font-medium text-[#333] transition hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        Отмена
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 rounded-xl border border-[#ECECEC] bg-[#FCFCFC] p-4">
+                                <div>
+                                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Evidence</div>
+                                    {editingIncident.evidences.length === 0 && !editingIncident.recognition_probe && !editingIncident.employee_reference && (
+                                        <div className="mt-2 text-sm text-[#6B6B6B]">Вложений нет.</div>
+                                    )}
+                                </div>
+
+                                {editingIncident.employee_reference?.url && (
+                                    <div>
+                                        <div className="text-sm font-medium text-[#1A1A1A]">Эталонное фото</div>
+                                        <EvidencePreview
+                                            evidence={editingIncident.employee_reference}
+                                            alt="Эталон сотрудника"
+                                            onOpen={(evidence) => setPreview({ evidence, title: 'Эталон сотрудника' })}
+                                        />
+                                    </div>
+                                )}
+
+                                {editingIncident.recognition_probe?.url && (
+                                    <div>
+                                        <div className="text-sm font-medium text-[#1A1A1A]">Recognition probe</div>
+                                        <EvidencePreview
+                                            evidence={editingIncident.recognition_probe}
+                                            alt="Recognition probe"
+                                            onOpen={(evidence) => setPreview({ evidence, title: 'Recognition probe' })}
+                                        />
+                                    </div>
+                                )}
+
+                                {editingIncident.evidences.map((evidence) => (
+                                    <div key={evidence.id}>
+                                        <div className="text-sm font-medium text-[#1A1A1A]">
+                                            {evidence.media_kind === 'video' ? 'Видео' : 'Фото'} {evidence.is_primary ? '(основное)' : ''}
+                                        </div>
+                                        <EvidencePreview
+                                            evidence={evidence}
+                                            alt="Доказательство"
+                                            onOpen={(selected) => setPreview({ evidence: selected, title: evidence.media_kind === 'video' ? 'Видео' : 'Фото' })}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {preview?.evidence.url && (
                 <div
                     className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 p-4"
@@ -841,11 +1313,15 @@ export default function ViolationsPage() {
                                 Закрыть
                             </button>
                         </div>
-                        <img
-                            src={preview.evidence.url}
-                            alt={preview.title}
-                            className="max-h-[86vh] w-full rounded-xl bg-[#111] object-contain"
-                        />
+                        {preview.evidence.media_kind === 'video' ? (
+                            <video src={preview.evidence.url} controls className="max-h-[86vh] w-full rounded-xl bg-[#111]" />
+                        ) : (
+                            <img
+                                src={preview.evidence.url}
+                                alt={preview.title}
+                                className="max-h-[86vh] w-full rounded-xl bg-[#111] object-contain"
+                            />
+                        )}
                     </div>
                 </div>
             )}
