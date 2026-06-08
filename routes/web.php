@@ -96,6 +96,10 @@ Route::get('/integration_dss/devices', [RouteController::class, 'dssDevices'])->
 Route::get('/integration_dss/zones', [RouteController::class, 'dssZones'])->middleware('permission:integrations.dss');
 
 // GreenLog API routes for web session auth
+Route::get('/greenlog/photos/{photo}/file', [GreenlogPlantPhotoController::class, 'file'])
+    ->middleware(['auth', 'permission:greenlog.view'])
+    ->name('greenlog.photos.file');
+
 Route::prefix('/api/greenlog')->middleware(['auth', 'permission:greenlog.view'])->group(function () {
 Route::get('/health', static fn () => response()->json([
     'status' => true,
