@@ -24,7 +24,13 @@ class PlantPhotoController extends Controller
             ->where('company_key', $this->companyKey($request))
             ->where('plant_id', $plant->id)
             ->orderByDesc('created_at')
-            ->get();
+            ->get()
+            ->map(function (PlantPhoto $photo): array {
+                return [
+                    ...$photo->toArray(),
+                    'url' => Storage::disk($photo->disk ?: 'public')->url($photo->path),
+                ];
+            });
 
         return response()->json([
             'status' => true,

@@ -90,6 +90,18 @@ const formatDateTime = (value?: string | null) => {
 const formatLocationLabel = (plant?: GreenlogPlant | null) =>
     [plant?.location?.building, plant?.location?.floor, plant?.location?.room, plant?.location?.factory_zone].filter(Boolean).join(' / ') || 'Без локации';
 
+const resolvePhotoUrl = (photo: Pick<GreenlogPlantPhoto, 'url' | 'path'>): string | null => {
+    if (photo.url && photo.url.trim() !== '') {
+        return photo.url;
+    }
+
+    if (photo.path && photo.path.trim() !== '') {
+        return `/storage/${photo.path.replace(/^\/+/, '')}`;
+    }
+
+    return null;
+};
+
 export default function GreenLogPlantShow() {
     const { plantId } = usePage<PlantPageProps>().props;
     const [plant, setPlant] = useState<GreenlogPlant | null>(null);
@@ -409,18 +421,18 @@ export default function GreenLogPlantShow() {
                                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                                         {plant.photos.map((photo) => (
                                             <div key={photo.id} className="rounded-lg border p-3">
-                                                {photo.url && isPreviewableGreenlogPhoto(photo) && !brokenPhotos[photo.id] ? (
-                                                    <a href={photo.url} rel="noreferrer" target="_blank" className="block">
+                                                {resolvePhotoUrl(photo) && isPreviewableGreenlogPhoto(photo) && !brokenPhotos[photo.id] ? (
+                                                    <a href={resolvePhotoUrl(photo)!} rel="noreferrer" target="_blank" className="block">
                                                         <img
                                                             alt={photo.original_name ?? plant.name}
                                                             className="h-48 w-full rounded-md object-cover"
-                                                            src={photo.url}
+                                                            src={resolvePhotoUrl(photo)!}
                                                             onError={() => setBrokenPhotos((current) => ({ ...current, [photo.id]: true }))}
                                                         />
                                                     </a>
                                                 ) : (
                                                     <div className="flex h-48 w-full items-center justify-center rounded-md border border-dashed bg-muted/30 px-4 text-center text-sm text-muted-foreground">
-                                                        {brokenPhotos[photo.id] ? 'Фото недоступно' : photo.url ? 'Файл загружен, предпросмотр недоступен' : 'Ссылка на фото недоступна'}
+                                                        {brokenPhotos[photo.id] ? 'Фото недоступно' : resolvePhotoUrl(photo) ? 'Файл загружен, предпросмотр недоступен' : 'Ссылка на фото недоступна'}
                                                     </div>
                                                 )}
                                                 <div className="mt-3 flex items-center justify-between gap-3">
