@@ -38,7 +38,35 @@ class PlantPhotoController extends Controller
 
         $file = $request->file('photo');
         $directory = 'greenlog/plants/' . $plant->id;
-        $storedPath = $file->store($directory, 'public');
+        $filename = time() . '_' . $file->getClientOriginalName();
+
+        Log::info('GreenLog photo upload debug', [
+            'has_file' => $request->hasFile('photo'),
+            'original_name' => $file?->getClientOriginalName(),
+            'mime' => $file?->getMimeType(),
+            'size' => $file?->getSize(),
+            'directory' => $directory,
+        ]);
+
+        $storedPath = Storage::disk('public')->putFileAs(
+            $directory,
+            $file,
+            $filename
+        );
+
+        if ($storedPath === false) {
+            return response()->json([
+                'status' => false,
+                'message' => 'GreenLog photo upload failed.',
+                'debug' => [
+                    'has_file' => $request->hasFile('photo'),
+                    'original_name' => $file?->getClientOriginalName(),
+                    'mime' => $file?->getMimeType(),
+                    'size' => $file?->getSize(),
+                    'directory' => $directory,
+                ],
+            ], 500);
+        }
 
         $mimeType = $file?->getMimeType();
         $size = $file?->getSize();
