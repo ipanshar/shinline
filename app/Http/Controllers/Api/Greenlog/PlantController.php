@@ -41,6 +41,11 @@ class PlantController extends Controller
                 $builder->where('name', 'like', "%{$search}%")
                     ->orWhere('inventory_number', 'like', "%{$search}%")
                     ->orWhere('biological_name', 'like', "%{$search}%")
+                    ->orWhere('branch', 'like', "%{$search}%")
+                    ->orWhere('office', 'like', "%{$search}%")
+                    ->orWhere('room', 'like', "%{$search}%")
+                    ->orWhere('responsible_person', 'like', "%{$search}%")
+                    ->orWhere('notes', 'like', "%{$search}%")
                     ->orWhereHas('species', function ($speciesQuery) use ($search) {
                         $speciesQuery->where('name', 'like', "%{$search}%");
                     });
@@ -112,6 +117,21 @@ class PlantController extends Controller
             'location_id' => $validated['location_id'] ?? null,
             'species_id' => $validated['species_id'] ?? null,
             'quantity' => $validated['quantity'] ?? 1,
+            'branch' => $validated['branch'] ?? null,
+            'office' => $validated['office'] ?? null,
+            'room' => $validated['room'] ?? null,
+            'responsible_person' => $validated['responsible_person'] ?? null,
+            'plant_type' => $validated['plant_type'] ?? null,
+            'height_value' => $validated['height_value'] ?? null,
+            'height_unit' => $validated['height_unit'] ?? 'м',
+            'trunk_diameter_value' => $validated['trunk_diameter_value'] ?? null,
+            'trunk_diameter_unit' => $validated['trunk_diameter_unit'] ?? 'см',
+            'condition_text' => $validated['condition_text'] ?? null,
+            'gps_coordinates' => $validated['gps_coordinates'] ?? null,
+            'last_inspection_date' => $validated['last_inspection_date'] ?? null,
+            'condition_notes' => $validated['condition_notes'] ?? null,
+            'acquisition_date' => $validated['acquisition_date'] ?? null,
+            'last_inventory_date' => $validated['last_inventory_date'] ?? null,
             'watering_frequency_days' => $validated['watering_frequency_days'] ?? null,
             'fertilizing_frequency_days' => $validated['fertilizing_frequency_days'] ?? null,
             'notes' => $validated['notes'] ?? null,
