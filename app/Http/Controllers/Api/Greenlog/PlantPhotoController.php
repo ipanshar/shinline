@@ -28,7 +28,7 @@ class PlantPhotoController extends Controller
             ->map(function (PlantPhoto $photo): array {
                 return [
                     ...$photo->toArray(),
-                    'url' => Storage::disk($photo->disk ?: 'public')->url($photo->path),
+                    'url' => route('greenlog.photos.file', ['photo' => $photo->id]),
                 ];
             });
 
@@ -105,9 +105,20 @@ class PlantPhotoController extends Controller
             'status' => true,
             'data' => [
                 ...$photo->toArray(),
-                'url' => Storage::disk('public')->url($storedPath),
+                'url' => route('greenlog.photos.file', ['photo' => $photo->id]),
             ],
         ], 201);
+    }
+
+    public function file(Request $request, PlantPhoto $photo)
+    {
+        $this->abortIfPhotoOutsideCompany($request, $photo);
+
+        $disk = $photo->disk ?: 'public';
+
+        abort_unless(Storage::disk($disk)->exists($photo->path), 404);
+
+        return Storage::disk($disk)->response($photo->path);
     }
 
     public function destroy(Request $request, PlantPhoto $photo): JsonResponse
