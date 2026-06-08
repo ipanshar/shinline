@@ -41,24 +41,24 @@ class PlantPhotoController extends Controller
         $filename = uniqid('plant_', true) . '.' . $extension;
         $directory = 'greenlog/plants/' . $plant->id;
         $storedPath = $directory . '/' . $filename;
-        $realPath = $file->getRealPath();
+        $pathname = $file->getPathname();
 
         Log::info('GreenLog photo upload debug', [
             'has_file' => $request->hasFile('photo'),
-            'original_name' => $file?->getClientOriginalName(),
-            'mime' => $file?->getMimeType(),
-            'size' => $file?->getSize(),
+            'pathname' => $pathname,
+            'original_name' => $file->getClientOriginalName(),
+            'mime' => $file->getMimeType(),
+            'size' => $file->getSize(),
             'directory' => $directory,
-            'real_path' => $realPath,
             'stored_path' => $storedPath,
         ]);
 
-        $contents = file_get_contents($realPath);
+        $contents = $file->get();
 
-        if ($contents === false) {
+        if (! $contents) {
             return response()->json([
                 'status' => false,
-                'message' => 'Не удалось прочитать временный файл.',
+                'message' => 'Cannot read uploaded file.',
             ], 500);
         }
 
@@ -66,7 +66,7 @@ class PlantPhotoController extends Controller
             'plant_id' => $plant->id,
             'directory' => $directory,
             'stored_path' => $storedPath,
-            'real_path' => $realPath,
+            'pathname' => $pathname,
             'contents_size' => strlen($contents),
         ]);
 
