@@ -97,6 +97,15 @@ class PermissionsSeeder extends Seeder
             ['name' => 'utilization.view',   'description' => 'Просмотр заявок на утилизацию', 'group' => 'utilization'],
             ['name' => 'utilization.manage', 'description' => 'Управление заявками на утилизацию', 'group' => 'utilization'],
 
+            // GreenLog
+            ['name' => 'greenlog.view', 'description' => 'Просмотр модуля GreenLog', 'group' => 'greenlog'],
+            ['name' => 'greenlog.manage_plants', 'description' => 'Управление растениями GreenLog', 'group' => 'greenlog'],
+            ['name' => 'greenlog.manage_locations', 'description' => 'Управление локациями GreenLog', 'group' => 'greenlog'],
+            ['name' => 'greenlog.manage_expenses', 'description' => 'Управление расходами GreenLog', 'group' => 'greenlog'],
+            ['name' => 'greenlog.manage_care_tasks', 'description' => 'Управление задачами ухода GreenLog', 'group' => 'greenlog'],
+            ['name' => 'greenlog.view_reports', 'description' => 'Просмотр отчетов GreenLog', 'group' => 'greenlog'],
+            ['name' => 'greenlog.upload_photos', 'description' => 'Загрузка фотографий GreenLog', 'group' => 'greenlog'],
+
             // Нарушители
             ['name' => 'violations.record', 'description' => 'Фиксация нарушений', 'group' => 'violations'],
             ['name' => 'violations.review', 'description' => 'Просмотр и проверка нарушений', 'group' => 'violations'],
@@ -157,6 +166,8 @@ class PermissionsSeeder extends Seeder
                 'statistics.view',
                 'spectech.view', 'spectech.manage', // Спецтехника
                 'utilization.view', 'utilization.manage',
+                'greenlog.view', 'greenlog.manage_plants', 'greenlog.manage_locations', 'greenlog.manage_expenses',
+                'greenlog.manage_care_tasks', 'greenlog.view_reports', 'greenlog.upload_photos',
             ]);
         }
 
@@ -204,6 +215,24 @@ class PermissionsSeeder extends Seeder
         $this->syncPermissions($spectechOperator, [
             'spectech.view',
             'spectech.manage',
+        ]);
+
+        // Управляющий
+        $manager = Role::firstOrCreate(
+            ['name' => 'Управляющий'],
+            [
+                'level' => 65,
+                'description' => 'Управление операционными модулями, включая GreenLog',
+            ]
+        );
+        $this->syncPermissions($manager, [
+            'greenlog.view',
+            'greenlog.manage_plants',
+            'greenlog.manage_locations',
+            'greenlog.manage_expenses',
+            'greenlog.manage_care_tasks',
+            'greenlog.view_reports',
+            'greenlog.upload_photos',
         ]);
 
         // Telegram приглашающий (роль для одобренных пользователей бота)

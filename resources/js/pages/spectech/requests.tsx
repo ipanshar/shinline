@@ -52,6 +52,39 @@ function formatDateTime(v?: string | null): string {
     return isNaN(d.getTime()) ? v : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatDuration(req: SpectechRequestData): string {
+    if (req.requested_start && req.requested_end) {
+        const start = new Date(req.requested_start).getTime();
+        const end = new Date(req.requested_end).getTime();
+
+        if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
+            const totalMinutes = Math.round((end - start) / 60000);
+            const days = Math.floor(totalMinutes / (60 * 24));
+            const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+            const minutes = totalMinutes % 60;
+            const parts: string[] = [];
+
+            if (days > 0) parts.push(`${days} д`);
+            if (hours > 0) parts.push(`${hours} ч`);
+            if (minutes > 0) parts.push(`${minutes} мин`);
+
+            return parts.length > 0 ? parts.join(' ') : 'менее 1 мин';
+        }
+    }
+
+    if (req.start_date && req.end_date) {
+        const start = new Date(req.start_date).getTime();
+        const end = new Date(req.end_date).getTime();
+
+        if (!Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
+            const days = Math.max(1, Math.round((end - start) / 86400000) + 1);
+            return days === 1 ? '1 день' : `${days} дн.`;
+        }
+    }
+
+    return '—';
+}
+
 function buildOperatorUpdateMessage(request: SpectechRequestData): string {
     const parts = [
         request.operator_updated_by_name ? `Оператор: ${request.operator_updated_by_name}` : null,
@@ -139,6 +172,7 @@ const RequestItem: React.FC<{
     const period = req.requested_start && req.requested_end
         ? `${formatDateTime(req.requested_start)} — ${formatDateTime(req.requested_end)}`
         : `${formatDate(req.start_date)} — ${formatDate(req.end_date)}`;
+    const duration = formatDuration(req);
 
     return (
         <div className={`rounded-xl border bg-white shadow-sm hover:shadow-md transition-shadow ${isCancelled ? 'border-red-200' : 'border-[#E8E8E8]'}`}>
@@ -154,14 +188,14 @@ const RequestItem: React.FC<{
 
                 {/* Основная инфо */}
                 <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <div className="mb-1 flex flex-wrap items-start gap-2">
                         <span className="text-[13px] font-semibold text-[#1A1A1A] truncate">{req.equipment_name}</span>
                         {req.plate_number && (
                             <span className="text-[11px] text-[#888] border border-[#E0E0E0] rounded px-1.5 py-0.5 flex-shrink-0">
                                 {req.plate_number}
                             </span>
                         )}
-                        <span className="flex-shrink-0 ml-auto">
+                        <span className="flex-shrink-0 sm:ml-auto">
                             <span
                                 className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold"
                                 style={{ background: st.bg, color: st.text, borderColor: st.border }}
@@ -177,6 +211,10 @@ const RequestItem: React.FC<{
                         <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3 flex-shrink-0" />
                             {period}
+                        </span>
+                        <span className="flex items-center gap-1 rounded-full border border-[#EDEDED] bg-[#FAFAFA] px-2 py-0.5 text-[11px] font-medium text-[#4B5563]">
+                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            Время: {duration}
                         </span>
                         <span className="flex items-center gap-1">
                             <User className="h-3 w-3 flex-shrink-0" />
@@ -238,7 +276,7 @@ const RequestItem: React.FC<{
             </div>
 
             {/* ── Прогресс и ID ── */}
-            <div className="px-4 pb-3 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
                 <span className="text-[11px] text-[#AAA] flex-shrink-0">#{req.id}</span>
                 <div className="flex-1 relative h-1.5 rounded-full bg-[#F0F0F0] overflow-hidden min-w-[60px]">
                     <div
@@ -251,7 +289,7 @@ const RequestItem: React.FC<{
                     <button
                         type="button"
                         onClick={onEdit}
-                        className="flex-shrink-0 flex items-center gap-1 text-[11px] text-[#666] hover:text-[#1A1A1A] border border-[#E8E8E8] rounded-md px-2 py-1 hover:bg-[#FAFAFA]"
+                        className="flex-shrink-0 flex items-center gap-1 text-[11px] text-[#666] hover:text-[#1A1A1A] border border-[#E8E8E8] rounded-md px-2 py-1 hover:bg-[#FAFAFA] max-sm:w-full max-sm:justify-center"
                     >
                         <Pencil className="h-3.5 w-3.5" />
                         Изменить
@@ -280,7 +318,7 @@ const RequestItem: React.FC<{
             {/* ── Раскрытые детали ── */}
             {expanded && (
                 <div className="border-t border-[#F0F0F0] bg-[#FAFAFA] px-4 py-4 rounded-b-xl">
-                    <div className="grid gap-6 sm:grid-cols-2">
+                    <div className="grid gap-6 lg:grid-cols-2">
                         {/* Лента */}
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Этапы выполнения</p>
@@ -313,6 +351,7 @@ const RequestItem: React.FC<{
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#999] mb-2">Детали заявки</p>
                             <div className="mb-3 grid gap-2 text-[12px] text-[#444]">
+                                <div><span className="font-medium">Время:</span> {duration}</div>
                                 <div><span className="font-medium">Инициатор:</span> {req.initiator_name || req.client_name || '—'}{req.initiator_phone ? ` · ${req.initiator_phone}` : ''}</div>
                                 <div><span className="font-medium">Локация:</span> {req.terminal} / {req.zone}{req.gate ? ` / ${req.gate}` : ''}</div>
                                 <div><span className="font-medium">Адрес:</span> {req.address || '—'}</div>
@@ -551,7 +590,7 @@ export default function SpectechRequests() {
                 </section>
 
                 {/* ── Статистика ── */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     {stats.map(s => (
                         <div key={s.label} className={`rounded-xl border border-[#E8E8E8] ${s.bg} p-3`}>
                             <div className="text-[11px] text-[#888] mb-1">{s.label}</div>
@@ -568,8 +607,9 @@ export default function SpectechRequests() {
                 )}
 
                 {/* ── Поиск и фильтры ── */}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="relative flex-1 max-w-sm">
+                <section className="rounded-xl border border-[#E8E8E8] bg-white p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                        <div className="relative w-full lg:max-w-sm">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <input
                             value={searchQuery}
@@ -578,33 +618,34 @@ export default function SpectechRequests() {
                             className="h-9 w-full rounded-lg border border-[#E0E0E0] bg-white pl-9 pr-3 text-sm outline-none focus:border-red-300 focus:ring-2 focus:ring-red-100"
                         />
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                        <button
-                            type="button"
-                            onClick={() => setTelegramOnly((current) => !current)}
-                            className={`px-3 h-7 rounded-full text-xs font-medium border transition-colors ${
-                                telegramOnly
-                                    ? 'bg-blue-600 border-blue-600 text-white'
-                                    : 'border-[#E0E0E0] bg-white text-[#555] hover:bg-[#F5F5F5]'
-                            }`}
-                        >
-                            Telegram Mini App
-                        </button>
-                        {STATUS_FILTERS.map(f => (
+                        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                             <button
-                                key={f.value}
-                                onClick={() => setStatusFilter(f.value)}
+                                type="button"
+                                onClick={() => setTelegramOnly((current) => !current)}
                                 className={`px-3 h-7 rounded-full text-xs font-medium border transition-colors ${
-                                    statusFilter === f.value
-                                        ? 'bg-red-600 border-red-600 text-white'
+                                    telegramOnly
+                                        ? 'bg-blue-600 border-blue-600 text-white'
                                         : 'border-[#E0E0E0] bg-white text-[#555] hover:bg-[#F5F5F5]'
                                 }`}
                             >
-                                {f.label}
+                                Telegram Mini App
                             </button>
-                        ))}
+                            {STATUS_FILTERS.map(f => (
+                                <button
+                                    key={f.value}
+                                    onClick={() => setStatusFilter(f.value)}
+                                    className={`px-3 h-7 rounded-full text-xs font-medium border transition-colors ${
+                                        statusFilter === f.value
+                                            ? 'bg-red-600 border-red-600 text-white'
+                                            : 'border-[#E0E0E0] bg-white text-[#555] hover:bg-[#F5F5F5]'
+                                    }`}
+                                >
+                                    {f.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </section>
 
                 {/* ── Контент ── */}
                 {loading && (
