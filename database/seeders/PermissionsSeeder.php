@@ -105,6 +105,8 @@ class PermissionsSeeder extends Seeder
         ];
 
         // Создаём разрешения
+        $permissions[] = ['name' => 'violations.manage', 'description' => 'Администрирование и редактирование нарушений', 'group' => 'violations'];
+
         foreach ($permissions as $permissionData) {
             Permission::firstOrCreate(
                 ['name' => $permissionData['name']],
@@ -228,6 +230,25 @@ class PermissionsSeeder extends Seeder
             'violations.record',
             'violations.review',
             'violations.reference',
+        ]);
+
+        $violationsAdmin = Role::firstOrCreate(
+            ['name' => 'Администратор нарушений'],
+            [
+                'level' => 65,
+                'description' => 'Просмотр, корректировка и администрирование нарушений',
+            ]
+        );
+        $violationsAdmin->forceFill([
+            'level' => 65,
+            'description' => 'Просмотр, корректировка и администрирование нарушений',
+        ])->save();
+        $this->syncPermissions($violationsAdmin, [
+            'violations.record',
+            'violations.review',
+            'violations.reference',
+            'violations.settings',
+            'violations.manage',
         ]);
     }
 

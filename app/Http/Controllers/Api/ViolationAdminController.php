@@ -6,13 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Models\ViolationCategory;
 use App\Models\ViolationEmployee;
 use App\Models\ViolationIncident;
+use App\Models\ViolationStatusHistory;
 use App\Models\ViolationType;
 use App\Services\Violations\TemporaryPassService;
 use App\Services\Violations\ViolationIncidentService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ViolationAdminController extends Controller
 {
@@ -23,6 +28,15 @@ class ViolationAdminController extends Controller
 
     public function incidents(Request $request): JsonResponse
     {
+        $request->validate([
+            'status' => ['nullable', 'string', Rule::in(ViolationIncident::WORKFLOW_STATUSES)],
+            'recognition_status' => ['nullable', 'string', Rule::in(ViolationIncident::RECOGNITION_STATUSES)],
+            'occurred_from' => ['nullable', 'date'],
+            'occurred_to' => ['nullable', 'date'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'search' => ['nullable', 'string', 'max:255'],
+        ]);
+
         $query = ViolationIncident::query()
             ->with([
                 'reporter:id,name',
@@ -38,14 +52,28 @@ class ViolationAdminController extends Controller
             $query->where('workflow_status', (string) $request->query('status'));
         }
 
+        if ($request->filled('recognition_status')) {
+            $query->where('recognition_status', (string) $request->query('recognition_status'));
+        }
+
+        if ($request->filled('occurred_from')) {
+            $query->where('occurred_at', '>=', $request->date('occurred_from')?->startOfDay());
+        }
+
+        if ($request->filled('occurred_to')) {
+            $query->where('occurred_at', '<=', $request->date('occurred_to')?->endOfDay());
+        }
+
         if ($request->filled('search')) {
             $search = '%' . trim((string) $request->query('search')) . '%';
             $query->where(function ($builder) use ($search) {
                 $builder->where('employee_full_name', 'like', $search)
                     ->orWhere('employee_department', 'like', $search)
+                    ->orWhere('employee_position', 'like', $search)
                     ->orWhere('type_name', 'like', $search)
                     ->orWhere('category_name', 'like', $search)
-                    ->orWhere('reported_by_name', 'like', $search);
+                    ->orWhere('reported_by_name', 'like', $search)
+                    ->orWhereHas('reporter', fn (Builder $reporter) => $reporter->where('name', 'like', $search));
             });
         }
 
@@ -56,6 +84,169 @@ class ViolationAdminController extends Controller
             ->values();
 
         return response()->json(['data' => $items]);
+    }
+
+    public function updateIncident(
+        Request $request,
+        ViolationIncident $incident,
+        ViolationIncidentService $incidentService,
+    ): JsonResponse {
+        $validated = $request->validate([
+            'occurred_at' => ['sometimes', 'date'],
+            'location_label' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'category_id' => ['sometimes', 'integer', 'exists:violation_categories,id'],
+            'type_id' => ['sometimes', 'integer', 'exists:violation_types,id'],
+            'employee_full_name' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'employee_department' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'employee_position' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'review_note' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'rejection_reason' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'sanction_state' => ['sometimes', 'nullable', 'string', 'max:40'],
+            'workflow_status' => ['sometimes', 'string', Rule::in(ViolationIncident::WORKFLOW_STATUSES)],
+        ]);
+
+        $user = $request->user();
+        if (! $user) {
+            abort(401);
+        }
+
+        $typeRequested = array_key_exists('type_id', $validated);
+        $categoryRequested = array_key_exists('category_id', $validated);
+        $categoryId = $categoryRequested ? (int) $validated['category_id'] : ($typeRequested ? null : $incident->category_id);
+        $typeId = $typeRequested ? (int) $validated['type_id'] : $incident->type_id;
+
+        [$category, $type] = $this->resolveCatalogSelection($categoryId, $typeId);
+
+        $updatedIncident = DB::transaction(function () use ($incident, $incidentService, $validated, $user, $category, $type) {
+            $originalStatus = $incident->workflow_status;
+            $payload = [];
+
+            if (array_key_exists('occurred_at', $validated)) {
+                $payload['occurred_at'] = Carbon::parse((string) $validated['occurred_at']);
+            }
+
+            foreach ([
+                'location_label',
+                'description',
+                'review_note',
+                'rejection_reason',
+                'sanction_state',
+            ] as $field) {
+                if (array_key_exists($field, $validated)) {
+                    $payload[$field] = $this->nullableTrim($validated[$field] ?? null);
+                }
+            }
+
+            if (array_key_exists('category_id', $validated) || array_key_exists('type_id', $validated)) {
+                $payload['category_id'] = $category?->id;
+                $payload['category_key'] = $category?->key;
+                $payload['category_name'] = $category?->name;
+                $payload['type_id'] = $type?->id;
+                $payload['type_key'] = $type?->key;
+                $payload['type_name'] = $type?->name;
+            }
+
+            if ($this->employeeSnapshotRequested($validated)) {
+                $employeePayload = [
+                    'employee_full_name' => $validated['employee_full_name'] ?? $incident->employee_full_name,
+                    'employee_department' => $validated['employee_department'] ?? $incident->employee_department,
+                    'employee_position' => $validated['employee_position'] ?? $incident->employee_position,
+                ];
+
+                $employee = null;
+                if ($this->nullableTrim($employeePayload['employee_full_name'] ?? null)) {
+                    $employee = $incidentService->syncAdminReviewedEmployee($incident, $employeePayload);
+                }
+
+                $payload['employee_id'] = $employee?->id ?? $incident->employee_id;
+                $payload['employee_business_key'] = $employee?->business_key ?? $incident->employee_business_key;
+                $payload['employee_iin'] = $employee?->iin ?? $incident->employee_iin;
+                $payload['employee_full_name'] = $employee?->full_name ?? $this->nullableTrim($employeePayload['employee_full_name'] ?? null);
+                $payload['employee_normalized_full_name'] = $employee?->normalized_full_name
+                    ?? $this->normalizedEmployeeFullName($employeePayload['employee_full_name'] ?? null);
+                $payload['employee_department'] = $employee?->department ?? $this->nullableTrim($employeePayload['employee_department'] ?? null);
+                $payload['employee_position'] = $employee?->position ?? $this->nullableTrim($employeePayload['employee_position'] ?? null);
+                $payload['employee_status'] = $employee?->employment_status ?? $incident->employee_status;
+                $payload['is_manual_identity'] = true;
+                $payload['identity_source'] = $incident->employee_id ? 'admin_corrected' : 'manual_admin';
+
+                if ($incident->recognition_status !== ViolationIncident::RECOGNITION_MATCHED) {
+                    $payload['recognition_status'] = ViolationIncident::RECOGNITION_MANUAL;
+                }
+            }
+
+            $statusNote = null;
+            if (array_key_exists('workflow_status', $validated) && $validated['workflow_status'] !== $incident->workflow_status) {
+                $payload['workflow_status'] = $validated['workflow_status'];
+                $payload['closed_at'] = $validated['workflow_status'] === ViolationIncident::STATUS_CLOSED
+                    ? ($incident->closed_at ?? now())
+                    : $incident->closed_at;
+                $statusNote = $this->nullableTrim($validated['review_note'] ?? $validated['rejection_reason'] ?? null);
+            }
+
+            $payload['reviewed_by_user_id'] = $user->id;
+            $payload['reviewed_at'] = now();
+
+            $incident->forceFill($payload)->save();
+
+            if ($statusNote !== null || ($payload['workflow_status'] ?? null) !== null) {
+                $this->recordStatusHistory(
+                    $incident,
+                    $originalStatus,
+                    $incident->workflow_status,
+                    $user->id,
+                    'admin',
+                    $statusNote,
+                    ['action' => 'incident_update']
+                );
+            }
+
+            return $incident->fresh($this->incidentRelations());
+        });
+
+        return response()->json(['data' => $this->formatIncident($updatedIncident)]);
+    }
+
+    public function updateIncidentStatus(Request $request, ViolationIncident $incident): JsonResponse
+    {
+        $validated = $request->validate([
+            'workflow_status' => ['required', 'string', Rule::in(ViolationIncident::WORKFLOW_STATUSES)],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $user = $request->user();
+        if (! $user) {
+            abort(401);
+        }
+
+        $updatedIncident = DB::transaction(function () use ($incident, $validated, $user) {
+            $fromStatus = $incident->workflow_status;
+            $toStatus = (string) $validated['workflow_status'];
+
+            $incident->forceFill([
+                'workflow_status' => $toStatus,
+                'closed_at' => $toStatus === ViolationIncident::STATUS_CLOSED
+                    ? ($incident->closed_at ?? now())
+                    : $incident->closed_at,
+                'reviewed_by_user_id' => $user->id,
+                'reviewed_at' => now(),
+            ])->save();
+
+            $this->recordStatusHistory(
+                $incident,
+                $fromStatus,
+                $toStatus,
+                $user->id,
+                'admin',
+                $this->nullableTrim($validated['note'] ?? null),
+                ['action' => 'status_update']
+            );
+
+            return $incident->fresh($this->incidentRelations());
+        });
+
+        return response()->json(['data' => $this->formatIncident($updatedIncident)]);
     }
 
     public function resolveIdentity(Request $request, ViolationIncident $incident, ViolationIncidentService $incidentService): JsonResponse
@@ -245,10 +436,17 @@ class ViolationAdminController extends Controller
             'recognition_status' => $incident->recognition_status,
             'occurred_at' => $incident->occurred_at?->toIso8601String(),
             'reported_at' => $incident->reported_at?->toIso8601String(),
+            'reviewed_at' => $incident->reviewed_at?->toIso8601String(),
+            'closed_at' => $incident->closed_at?->toIso8601String(),
             'reported_by_name' => $incident->reported_by_name,
             'reported_by_user' => $incident->reporter?->name,
+            'category_id' => $incident->category_id,
             'category_name' => $incident->category_name,
+            'category_key' => $incident->category_key,
+            'type_id' => $incident->type_id,
             'type_name' => $incident->type_name,
+            'type_key' => $incident->type_key,
+            'employee_id' => $incident->employee_id,
             'employee_full_name' => $incident->employee_full_name,
             'employee_department' => $incident->employee_department,
             'employee_position' => $incident->employee_position,
@@ -260,6 +458,7 @@ class ViolationAdminController extends Controller
             'recognition_similarity' => $incident->recognition_similarity,
             'review_note' => $incident->review_note,
             'rejection_reason' => $incident->rejection_reason,
+            'sanction_state' => $incident->sanction_state,
             'identity_requires_manual_review' => $incident->workflow_status === ViolationIncident::STATUS_UNKNOWN_MANUAL,
             'employee_reference' => $employeeReference ? [
                 'id' => $employeeReference->id,
@@ -302,6 +501,79 @@ class ViolationAdminController extends Controller
         $normalized = str_replace('\\', '/', ltrim($path, '/'));
 
         return '/reference-images/' . $normalized;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function incidentRelations(): array
+    {
+        return [
+            'reporter:id,name',
+            'reviewer:id,name',
+            'evidences:id,incident_id,media_role,media_kind,path,is_primary,sort_order',
+            'employee:id,full_name',
+            'employee.primaryFaceReference:id,employee_id,path,is_primary',
+        ];
+    }
+
+    /**
+     * @return array{0: ?ViolationCategory, 1: ?ViolationType}
+     */
+    private function resolveCatalogSelection(?int $categoryId, ?int $typeId): array
+    {
+        $category = $categoryId ? ViolationCategory::query()->find($categoryId) : null;
+        $type = $typeId ? ViolationType::query()->find($typeId) : null;
+
+        if ($type && $category && $type->category_id !== $category->id) {
+            throw ValidationException::withMessages([
+                'type_id' => 'Выбранный тип не принадлежит указанной категории.',
+            ]);
+        }
+
+        if ($type && ! $category) {
+            $category = $type->category;
+        }
+
+        return [$category, $type];
+    }
+
+    private function employeeSnapshotRequested(array $validated): bool
+    {
+        return array_key_exists('employee_full_name', $validated)
+            || array_key_exists('employee_department', $validated)
+            || array_key_exists('employee_position', $validated);
+    }
+
+    private function normalizedEmployeeFullName(mixed $value): ?string
+    {
+        $name = $this->nullableTrim($value);
+
+        return $name ? Str::lower($name) : null;
+    }
+
+    private function recordStatusHistory(
+        ViolationIncident $incident,
+        ?string $fromStatus,
+        ?string $toStatus,
+        ?int $changedByUserId,
+        string $source,
+        ?string $note = null,
+        array $meta = [],
+    ): void {
+        if ($fromStatus === $toStatus) {
+            return;
+        }
+
+        ViolationStatusHistory::query()->create([
+            'incident_id' => $incident->id,
+            'from_status' => $fromStatus,
+            'to_status' => $toStatus,
+            'source' => $source,
+            'changed_by_user_id' => $changedByUserId,
+            'note' => $note,
+            'meta' => $meta ?: null,
+        ]);
     }
 
     private function normalizedKey(mixed $explicitKey, string $fallbackName): string

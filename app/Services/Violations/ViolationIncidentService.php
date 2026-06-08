@@ -324,6 +324,11 @@ class ViolationIncidentService
         return $resolved;
     }
 
+    public function syncAdminReviewedEmployee(ViolationIncident $incident, array $payload): ViolationEmployee
+    {
+        return $this->syncManualReviewedEmployee($incident, $payload);
+    }
+
     private function storeRecognitionAttempt(
         ViolationIncident $incident,
         ?ViolationEmployee $recognizedEmployee,

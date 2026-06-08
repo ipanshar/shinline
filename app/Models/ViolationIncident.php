@@ -18,11 +18,29 @@ class ViolationIncident extends Model
     public const STATUS_CLOSED = 'closed';
     public const STATUS_REJECTED = 'rejected';
 
+    public const WORKFLOW_STATUSES = [
+        self::STATUS_DRAFT_PROCESSING,
+        self::STATUS_PENDING_REVIEW,
+        self::STATUS_RECOGNIZED_CONFIRMED,
+        self::STATUS_UNKNOWN_MANUAL,
+        self::STATUS_ESCALATED,
+        self::STATUS_CLOSED,
+        self::STATUS_REJECTED,
+    ];
+
     public const RECOGNITION_PENDING = 'pending';
     public const RECOGNITION_MATCHED = 'matched';
     public const RECOGNITION_UNKNOWN = 'unknown';
     public const RECOGNITION_FAILED = 'failed';
     public const RECOGNITION_MANUAL = 'manual';
+
+    public const RECOGNITION_STATUSES = [
+        self::RECOGNITION_PENDING,
+        self::RECOGNITION_MATCHED,
+        self::RECOGNITION_UNKNOWN,
+        self::RECOGNITION_FAILED,
+        self::RECOGNITION_MANUAL,
+    ];
 
     protected $fillable = [
         'incident_uid',
