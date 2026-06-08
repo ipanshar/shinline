@@ -143,7 +143,8 @@ export default function GreenLogPlantShow() {
         event.preventDefault();
 
         if (!selectedFile) {
-            toast.error('Выберите файл фотографии.');
+            setFileError('Выберите файл');
+            toast.error('Выберите файл');
             return;
         }
 
@@ -390,7 +391,7 @@ export default function GreenLogPlantShow() {
                                             const file = event.target.files?.[0] ?? null;
 
                                             setSelectedFile(file);
-                                            setFileError(file ? validateGreenlogPlantPhotoFile(file) : null);
+                                            setFileError(file ? validateGreenlogPlantPhotoFile(file) : 'Выберите файл');
                                         }}
                                     />
                                     <Button disabled={uploading} type="submit">

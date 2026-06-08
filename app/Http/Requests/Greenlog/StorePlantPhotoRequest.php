@@ -25,8 +25,8 @@ class StorePlantPhotoRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'photo.required' => 'Выберите файл фотографии.',
-            'photo.file' => 'Файл не удалось распознать.',
+            'photo.required' => 'Выберите файл для загрузки',
+            'photo.file' => 'Выберите файл для загрузки',
             'photo.image' => 'Поддерживаются только изображения.',
             'photo.mimes' => 'Поддерживаются только JPG, PNG и WEBP до 10 МБ',
             'photo.max' => 'Поддерживаются только JPG, PNG и WEBP до 10 МБ',
