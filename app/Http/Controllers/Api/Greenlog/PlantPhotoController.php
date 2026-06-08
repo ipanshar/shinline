@@ -37,8 +37,11 @@ class PlantPhotoController extends Controller
         $this->abortIfPlantOutsideCompany($request, $plant);
 
         $file = $request->file('photo');
+        $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $filename = uniqid('plant_', true) . '.' . $extension;
         $directory = 'greenlog/plants/' . $plant->id;
-        $filename = time() . '_' . $file->getClientOriginalName();
+        $storedPath = $directory . '/' . $filename;
+        $realPath = $file->getRealPath();
 
         Log::info('GreenLog photo upload debug', [
             'has_file' => $request->hasFile('photo'),
@@ -46,36 +49,38 @@ class PlantPhotoController extends Controller
             'mime' => $file?->getMimeType(),
             'size' => $file?->getSize(),
             'directory' => $directory,
+            'real_path' => $realPath,
+            'stored_path' => $storedPath,
         ]);
 
-        $storedPath = Storage::disk('public')->putFileAs(
-            $directory,
-            $file,
-            $filename
-        );
+        $contents = file_get_contents($realPath);
 
-        if ($storedPath === false) {
+        if ($contents === false) {
             return response()->json([
                 'status' => false,
-                'message' => 'GreenLog photo upload failed.',
-                'debug' => [
-                    'has_file' => $request->hasFile('photo'),
-                    'original_name' => $file?->getClientOriginalName(),
-                    'mime' => $file?->getMimeType(),
-                    'size' => $file?->getSize(),
-                    'directory' => $directory,
-                ],
+                'message' => 'Не удалось прочитать временный файл.',
+            ], 500);
+        }
+
+        Log::info('GreenLog photo upload path', [
+            'plant_id' => $plant->id,
+            'directory' => $directory,
+            'stored_path' => $storedPath,
+            'real_path' => $realPath,
+            'contents_size' => strlen($contents),
+        ]);
+
+        $saved = Storage::disk('public')->put($storedPath, $contents);
+
+        if (! $saved) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Не удалось сохранить фото.',
             ], 500);
         }
 
         $mimeType = $file?->getMimeType();
         $size = $file?->getSize();
-
-        Log::info('GreenLog photo upload path', [
-            'plant_id' => $plant->id,
-            'directory' => $directory,
-            'stored_path' => $storedPath ?? null,
-        ]);
 
         $photo = PlantPhoto::create([
             'company_key' => $this->companyKey($request),
