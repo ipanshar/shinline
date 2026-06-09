@@ -261,22 +261,30 @@ class PermissionsSeeder extends Seeder
             'violations.reference',
         ]);
 
-        $violationsAdmin = Role::firstOrCreate(
-            ['name' => 'Администратор нарушений'],
+        $legacyViolationsAdmin = Role::where('name', 'Администратор нарушений')->first();
+        if ($legacyViolationsAdmin) {
+            $legacyViolationsAdmin->forceFill([
+                'name' => 'Служба безопасности модератор',
+                'level' => 65,
+                'description' => 'Служба безопасности с правом корректировки и модерации нарушений',
+            ])->save();
+        }
+
+        $violationsModerator = Role::firstOrCreate(
+            ['name' => 'Служба безопасности модератор'],
             [
                 'level' => 65,
-                'description' => 'Просмотр, корректировка и администрирование нарушений',
+                'description' => 'Служба безопасности с правом корректировки и модерации нарушений',
             ]
         );
-        $violationsAdmin->forceFill([
+        $violationsModerator->forceFill([
             'level' => 65,
-            'description' => 'Просмотр, корректировка и администрирование нарушений',
+            'description' => 'Служба безопасности с правом корректировки и модерации нарушений',
         ])->save();
-        $this->syncPermissions($violationsAdmin, [
+        $this->syncPermissions($violationsModerator, [
             'violations.record',
             'violations.review',
             'violations.reference',
-            'violations.settings',
             'violations.manage',
         ]);
     }

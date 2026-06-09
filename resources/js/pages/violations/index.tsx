@@ -760,11 +760,11 @@ export default function ViolationsPage() {
 
                                             {incident.recognition_probe?.url && (
                                                 <div>
-                                                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Recognition probe</div>
+                                                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-[#6B6B6B]">Фото распознавания</div>
                                                     <EvidencePreview
                                                         evidence={incident.recognition_probe}
-                                                        alt="Recognition probe"
-                                                        onOpen={(evidence) => setPreview({ evidence, title: 'Recognition probe' })}
+                                                        alt="Фото распознавания"
+                                                        onOpen={(evidence) => setPreview({ evidence, title: 'Фото распознавания' })}
                                                     />
                                                 </div>
                                             )}
@@ -1270,11 +1270,11 @@ export default function ViolationsPage() {
 
                                 {editingIncident.recognition_probe?.url && (
                                     <div>
-                                        <div className="text-sm font-medium text-[#1A1A1A]">Recognition probe</div>
+                                        <div className="text-sm font-medium text-[#1A1A1A]">Фото распознавания</div>
                                         <EvidencePreview
                                             evidence={editingIncident.recognition_probe}
-                                            alt="Recognition probe"
-                                            onOpen={(evidence) => setPreview({ evidence, title: 'Recognition probe' })}
+                                            alt="Фото распознавания"
+                                            onOpen={(evidence) => setPreview({ evidence, title: 'Фото распознавания' })}
                                         />
                                     </div>
                                 )}
