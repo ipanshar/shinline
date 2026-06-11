@@ -92,6 +92,10 @@ class LocationController extends Controller
             'type' => $validated['type'] ?? null,
             'map_image_path' => $validated['map_image_path'] ?? null,
             'marker_size' => $validated['marker_size'] ?? null,
+            'map_shape' => $validated['map_shape'] ?? 'point',
+            'map_width' => $validated['map_width'] ?? null,
+            'map_height' => $validated['map_height'] ?? null,
+            'map_polygon' => $validated['map_polygon'] ?? null,
             'parent_id' => $validated['parent_id'] ?? null,
         ]);
 

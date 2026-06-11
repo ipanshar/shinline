@@ -20,11 +20,13 @@ import { Textarea } from '@/components/ui/textarea';
 import {
     buildGreenlogLocationMeta,
     buildGreenlogLocationSearchValue,
-    buildGreenlogLocationSubtitle,
     buildGreenlogLocationTitle,
     clampGreenlogMarkerSize,
 } from '@/components/greenlog/GREENLOG_LOCATIONS';
-import { GreenlogTerminalScheme } from '@/components/greenlog/GreenlogTerminalScheme';
+import { LocationDetailsPanel } from '@/components/greenlog/map/LocationDetailsPanel';
+import { MapToolbar } from '@/components/greenlog/map/MapToolbar';
+import { ShinLineFloraKonvaMap } from '@/components/greenlog/map/ShinLineFloraKonvaMap';
+import { UnplacedLocationsPanel } from '@/components/greenlog/map/UnplacedLocationsPanel';
 import {
     createGreenlogLocation,
     deleteGreenlogLocation,
@@ -34,14 +36,25 @@ import {
     type GreenlogPlant,
     updateGreenlogLocation,
 } from '@/lib/greenlog-api';
-import { greenlogMoneyLabel, plantCategoryLabel, plantCostSourceLabel, plantStatusLabel } from '@/lib/greenlog-labels';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link } from '@inertiajs/react';
-import { Building2, Crosshair, Leaf, MapPinned, Pencil, Plus, Search, Trash2, Trees } from 'lucide-react';
+import { Head } from '@inertiajs/react';
+import { Leaf, Plus, Search, Trash2 } from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-
-const SHIN_LINE_FLORA_MAP_PATH = '/images/shin-line-flora-map.png';
+import {
+    clampMapPercent,
+    clampRectangleOrigin,
+    DEFAULT_RECTANGLE_HEIGHT,
+    DEFAULT_RECTANGLE_WIDTH,
+    clampZoom,
+    getLocationShape,
+    getPolygonAnchor,
+    hasMapPoint,
+    hasRenderableShape,
+    normalizePolygonPoints,
+    type GreenlogPolygonPoint,
+    type GreenlogMapShape,
+} from '@/components/greenlog/map/map-utils';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Shin Line Flora', href: '/greenlog' },
@@ -77,12 +90,6 @@ const emptyForm: LocationForm = {
     type: 'office',
 };
 
-const buildLocationAddress = (location?: Partial<GreenlogLocation> | null) => (
-    location ? buildGreenlogLocationSubtitle(location as GreenlogLocation) : 'Локация без точного адреса'
-);
-
-const buildPlantTitle = (plant: GreenlogPlant) => plant.species?.name || plant.name || `Растение #${plant.id}`;
-
 const locationTypeLabel = (value?: string | null) => locationTypes.find((item) => item.value === value)?.label ?? value ?? '—';
 
 export default function GreenLogLocationsIndex() {
@@ -95,11 +102,21 @@ export default function GreenLogLocationsIndex() {
     const [saving, setSaving] = useState(false);
     const [placementSaving, setPlacementSaving] = useState(false);
     const [markerSizeSaving, setMarkerSizeSaving] = useState(false);
+    const [shapeSaving, setShapeSaving] = useState(false);
+    const [dimensionsSaving, setDimensionsSaving] = useState(false);
+    const [polygonSaving, setPolygonSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [plantsError, setPlantsError] = useState<string | null>(null);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingLocation, setEditingLocation] = useState<GreenlogLocation | null>(null);
     const [placementLocationId, setPlacementLocationId] = useState<number | null>(null);
+    const [polygonDraftLocationId, setPolygonDraftLocationId] = useState<number | null>(null);
+    const [polygonDraftPoints, setPolygonDraftPoints] = useState<GreenlogPolygonPoint[]>([]);
+    const [gridEnabled, setGridEnabled] = useState(true);
+    const [panEnabled, setPanEnabled] = useState(false);
+    const [editMode, setEditMode] = useState(false);
+    const [mapZoom, setMapZoom] = useState(1);
+    const [mapViewport, setMapViewport] = useState({ x: 0, y: 0 });
     const [form, setForm] = useState<LocationForm>(emptyForm);
 
     const filteredLocations = useMemo(() => {
@@ -123,6 +140,16 @@ export default function GreenLogLocationsIndex() {
     const placementLocation = useMemo(
         () => locations.find((location) => location.id === placementLocationId) ?? null,
         [locations, placementLocationId],
+    );
+
+    const polygonDraftLocation = useMemo(
+        () => locations.find((location) => location.id === polygonDraftLocationId) ?? null,
+        [locations, polygonDraftLocationId],
+    );
+
+    const unplacedLocations = useMemo(
+        () => filteredLocations.filter((location) => !hasRenderableShape(location)),
+        [filteredLocations],
     );
 
     const applyLocationUpdate = (locationId: number, updates: Partial<GreenlogLocation>) => {
@@ -259,9 +286,19 @@ export default function GreenLogLocationsIndex() {
     };
 
     const startPlacement = (location: GreenlogLocation) => {
+        if (getLocationShape(location) === 'polygon') {
+            toast.info('Для полигона используйте режим построения вершин.');
+            return;
+        }
+
+        setPolygonDraftLocationId(null);
+        setPolygonDraftPoints([]);
         setSelectedLocationId(location.id);
         setPlacementLocationId(location.id);
-        toast.info('Кликните по карте, чтобы сохранить точку локации.');
+        setPanEnabled(false);
+        toast.info(getLocationShape(location) === 'rectangle'
+            ? 'Кликните по карте, чтобы сохранить верхний левый угол зоны.'
+            : 'Кликните по карте, чтобы сохранить точку локации.');
     };
 
     const handlePlaceLocation = async ({ map_x, map_y }: { map_x: number; map_y: number }) => {
@@ -271,9 +308,14 @@ export default function GreenLogLocationsIndex() {
 
         try {
             setPlacementSaving(true);
+            const shape = getLocationShape(placementLocation);
             const updatedLocation = await updateGreenlogLocation(placementLocation.id, {
                 map_x,
                 map_y,
+                ...(shape === 'rectangle' ? {
+                    map_width: placementLocation.map_width ?? DEFAULT_RECTANGLE_WIDTH,
+                    map_height: placementLocation.map_height ?? DEFAULT_RECTANGLE_HEIGHT,
+                } : {}),
             });
 
             applyLocationUpdate(placementLocation.id, updatedLocation);
@@ -285,6 +327,63 @@ export default function GreenLogLocationsIndex() {
             await loadLocations(placementLocation.id);
         } finally {
             setPlacementSaving(false);
+        }
+    };
+
+    const startPolygonEditing = (location: GreenlogLocation) => {
+        setPlacementLocationId(null);
+        setPanEnabled(false);
+        setSelectedLocationId(location.id);
+        setPolygonDraftLocationId(location.id);
+        setPolygonDraftPoints(normalizePolygonPoints(location));
+        toast.info('Кликайте по карте, чтобы добавить вершины полигона.');
+    };
+
+    const addPolygonPoint = (point: GreenlogPolygonPoint) => {
+        setPolygonDraftPoints((current) => [...current, point]);
+    };
+
+    const cancelPolygonEditing = () => {
+        setPolygonDraftLocationId(null);
+        setPolygonDraftPoints([]);
+    };
+
+    const removeLastPolygonPoint = () => {
+        setPolygonDraftPoints((current) => current.slice(0, -1));
+    };
+
+    const savePolygon = async () => {
+        if (!polygonDraftLocation) {
+            return;
+        }
+
+        if (polygonDraftPoints.length < 3) {
+            toast.error('Для полигона нужно передать минимум 3 точки.');
+            return;
+        }
+
+        const anchor = getPolygonAnchor(polygonDraftPoints);
+        const payload: Partial<GreenlogLocation> = {
+            map_shape: 'polygon',
+            map_polygon: polygonDraftPoints,
+            map_x: anchor?.x ?? null,
+            map_y: anchor?.y ?? null,
+        };
+
+        applyLocationUpdate(polygonDraftLocation.id, payload);
+
+        try {
+            setPolygonSaving(true);
+            const updatedLocation = await updateGreenlogLocation(polygonDraftLocation.id, payload);
+            applyLocationUpdate(polygonDraftLocation.id, updatedLocation);
+            setPolygonDraftLocationId(null);
+            setPolygonDraftPoints([]);
+            toast.success('Полигон сохранён');
+        } catch (polygonError) {
+            toast.error(polygonError instanceof Error ? polygonError.message : 'Не удалось сохранить полигон.');
+            await loadLocations(polygonDraftLocation.id);
+        } finally {
+            setPolygonSaving(false);
         }
     };
 
@@ -312,6 +411,120 @@ export default function GreenLogLocationsIndex() {
         }
     };
 
+    const handleMoveLocation = async (
+        location: GreenlogLocation,
+        { map_x, map_y }: { map_x: number; map_y: number; map_width?: number; map_height?: number },
+    ) => {
+        applyLocationUpdate(location.id, { map_x, map_y });
+
+        try {
+            const updatedLocation = await updateGreenlogLocation(location.id, {
+                map_x,
+                map_y,
+            });
+
+            applyLocationUpdate(location.id, updatedLocation);
+            toast.success('Координаты локации обновлены');
+        } catch (moveError) {
+            toast.error(moveError instanceof Error ? moveError.message : 'Не удалось сохранить новые координаты.');
+            await loadLocations(location.id);
+        }
+    };
+
+    const handleMovePolygon = async (
+        location: GreenlogLocation,
+        { map_x, map_y, map_polygon }: { map_x: number; map_y: number; map_polygon: GreenlogPolygonPoint[] },
+    ) => {
+        const payload: Partial<GreenlogLocation> = {
+            map_shape: 'polygon',
+            map_x,
+            map_y,
+            map_polygon,
+        };
+
+        applyLocationUpdate(location.id, payload);
+
+        try {
+            const updatedLocation = await updateGreenlogLocation(location.id, payload);
+            applyLocationUpdate(location.id, updatedLocation);
+            toast.success('Полигон перемещён');
+        } catch (moveError) {
+            toast.error(moveError instanceof Error ? moveError.message : 'Не удалось переместить полигон.');
+            await loadLocations(location.id);
+        }
+    };
+
+    const handleShapeChange = async (location: GreenlogLocation, shape: GreenlogMapShape) => {
+        const payload: Partial<GreenlogLocation> = {
+            map_shape: shape,
+        };
+
+        if (shape === 'rectangle') {
+            const nextWidth = location.map_width ?? DEFAULT_RECTANGLE_WIDTH;
+            const nextHeight = location.map_height ?? DEFAULT_RECTANGLE_HEIGHT;
+            const centerX = location.map_x ?? 0;
+            const centerY = location.map_y ?? 0;
+
+            payload.map_width = nextWidth;
+            payload.map_height = nextHeight;
+            payload.map_x = clampRectangleOrigin(centerX - (nextWidth / 2), nextWidth);
+            payload.map_y = clampRectangleOrigin(centerY - (nextHeight / 2), nextHeight);
+        }
+
+        applyLocationUpdate(location.id, payload);
+
+        try {
+            setShapeSaving(true);
+            const updatedLocation = await updateGreenlogLocation(location.id, payload);
+            applyLocationUpdate(location.id, updatedLocation);
+            toast.success('Форма локации обновлена');
+        } catch (shapeError) {
+            toast.error(shapeError instanceof Error ? shapeError.message : 'Не удалось сохранить форму локации.');
+            await loadLocations(location.id);
+        } finally {
+            setShapeSaving(false);
+        }
+    };
+
+    const handleRectangleSizeChange = async (
+        location: GreenlogLocation,
+        nextSize: { map_width: number; map_height: number },
+    ) => {
+        const currentWidth = location.map_width ?? DEFAULT_RECTANGLE_WIDTH;
+        const currentHeight = location.map_height ?? DEFAULT_RECTANGLE_HEIGHT;
+        const currentX = location.map_x ?? 0;
+        const currentY = location.map_y ?? 0;
+        const centerX = currentX + (currentWidth / 2);
+        const centerY = currentY + (currentHeight / 2);
+
+        const payload = {
+            map_width: nextSize.map_width,
+            map_height: nextSize.map_height,
+            map_x: clampRectangleOrigin(centerX - (nextSize.map_width / 2), nextSize.map_width),
+            map_y: clampRectangleOrigin(centerY - (nextSize.map_height / 2), nextSize.map_height),
+        };
+
+        applyLocationUpdate(location.id, payload);
+
+        try {
+            setDimensionsSaving(true);
+            const updatedLocation = await updateGreenlogLocation(location.id, payload);
+            applyLocationUpdate(location.id, updatedLocation);
+            toast.success('Размер зоны обновлён');
+        } catch (dimensionsError) {
+            toast.error(dimensionsError instanceof Error ? dimensionsError.message : 'Не удалось сохранить размеры зоны.');
+            await loadLocations(location.id);
+        } finally {
+            setDimensionsSaving(false);
+        }
+    };
+
+    const resetMapView = () => {
+        setMapZoom(1);
+        setMapViewport({ x: 0, y: 0 });
+        setPanEnabled(false);
+    };
+
     const removeLocation = async (location: GreenlogLocation) => {
         if (!window.confirm(`Удалить локацию "${buildGreenlogLocationTitle(location)}"?`)) {
             return;
@@ -321,6 +534,8 @@ export default function GreenLogLocationsIndex() {
             await deleteGreenlogLocation(location.id);
             toast.success('Локация удалена');
             setPlacementLocationId((current) => current === location.id ? null : current);
+            setPolygonDraftLocationId((current) => current === location.id ? null : current);
+            setPolygonDraftPoints((current) => polygonDraftLocationId === location.id ? [] : current);
 
             const nextLocationId = selectedLocationId === location.id
                 ? filteredLocations.find((item) => item.id !== location.id)?.id ?? null
@@ -338,12 +553,9 @@ export default function GreenLogLocationsIndex() {
             <div className="flex h-full flex-1 flex-col gap-4 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
-                        <h1 className="flex items-center gap-2 text-lg font-semibold">
-                            <MapPinned className="h-5 w-5 text-green-700" />
-                            Локации
-                        </h1>
+                        <h1 className="text-lg font-semibold">Локации</h1>
                         <p className="text-muted-foreground text-sm">
-                            Общая карта Shin Line Flora, точки локаций и список растений по выбранной зоне.
+                            Общая карта Shin Line Flora на `react-konva`, точки локаций и привязка растений к местам завода.
                         </p>
                     </div>
                     <Button onClick={openCreateDialog}>
@@ -368,7 +580,7 @@ export default function GreenLogLocationsIndex() {
                                     Карта Shin Line Flora
                                 </CardTitle>
                                 <CardDescription>
-                                    PNG-карта компании из `public/images/shin-line-flora-map.png` с точками поверх изображения.
+                                    Приоритетный путь карты: `public/images/shin-line-flora-map.jpeg`, fallback: `public/images/shin-line-flora-map.png`.
                                 </CardDescription>
                             </div>
                             <div className="flex w-full flex-col gap-3 sm:flex-row xl:max-w-[520px] xl:justify-end">
@@ -388,27 +600,56 @@ export default function GreenLogLocationsIndex() {
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-4 pb-6">
+                        <MapToolbar
+                            canEdit
+                            gridEnabled={gridEnabled}
+                            panEnabled={panEnabled}
+                            zoom={mapZoom}
+                            mappedCount={locations.filter((location) => hasRenderableShape(location)).length}
+                            placementMode={Boolean(placementLocation)}
+                            editMode={editMode}
+                            onToggleGrid={setGridEnabled}
+                            onTogglePan={setPanEnabled}
+                            onToggleEditMode={setEditMode}
+                            onZoomIn={() => setMapZoom((current) => clampZoom(current + 0.2))}
+                            onZoomOut={() => setMapZoom((current) => clampZoom(current - 0.2))}
+                            onResetView={resetMapView}
+                        />
+
                         {loading ? (
                             <Skeleton className="h-[720px] w-full rounded-3xl" />
                         ) : (
-                            <GreenlogTerminalScheme
+                            <ShinLineFloraKonvaMap
                                 locations={locations}
-                                mapAssetPath={SHIN_LINE_FLORA_MAP_PATH}
                                 selectedLocationId={selectedLocationId}
-                                onSelectLocation={setSelectedLocationId}
                                 placementLocation={placementLocation}
-                                onPlaceLocation={placementLocation ? handlePlaceLocation : undefined}
+                                polygonDraft={polygonDraftLocationId ? { locationId: polygonDraftLocationId, points: polygonDraftPoints } : null}
+                                gridEnabled={gridEnabled}
+                                panEnabled={panEnabled}
+                                editMode={editMode}
+                                zoom={mapZoom}
+                                viewport={mapViewport}
+                                canEdit
+                                onSelectLocation={setSelectedLocationId}
+                                onPlaceLocation={handlePlaceLocation}
+                                onAddPolygonPoint={addPolygonPoint}
+                                onMovePolygon={handleMovePolygon}
+                                onMoveLocation={handleMoveLocation}
+                                onViewportChange={setMapViewport}
                             />
                         )}
 
-                        {placementLocation ? (
+                        {placementLocation || polygonDraftLocationId ? (
                             <div className="flex justify-end">
                                 <Button
                                     variant="outline"
-                                    onClick={() => setPlacementLocationId(null)}
-                                    disabled={placementSaving}
+                                    onClick={() => {
+                                        setPlacementLocationId(null);
+                                        cancelPolygonEditing();
+                                    }}
+                                    disabled={placementSaving || polygonSaving}
                                 >
-                                    Отменить выбор точки
+                                    Отменить режим карты
                                 </Button>
                             </div>
                         ) : null}
@@ -420,7 +661,7 @@ export default function GreenLogLocationsIndex() {
                         <CardHeader className="pb-3">
                             <CardTitle>Список локаций</CardTitle>
                             <CardDescription>
-                                Выберите локацию из списка и задайте для нее точку на общей карте компании.
+                                Выберите локацию для просмотра, удаления или установки точки на карте.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="pb-6">
@@ -443,7 +684,7 @@ export default function GreenLogLocationsIndex() {
                                     <div className="space-y-3">
                                         {filteredLocations.map((location) => {
                                             const isSelected = selectedLocationId === location.id;
-                                            const hasPoint = location.map_x !== null && location.map_y !== null;
+                                            const hasPoint = hasRenderableShape(location);
 
                                             return (
                                                 <button
@@ -459,14 +700,16 @@ export default function GreenLogLocationsIndex() {
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div className="min-w-0">
                                                             <div className="text-sm font-semibold">{buildGreenlogLocationTitle(location)}</div>
-                                                            <div className="text-muted-foreground mt-1 text-xs">{buildLocationAddress(location)}</div>
+                                                            <div className="text-muted-foreground mt-1 text-xs">
+                                                                {buildGreenlogLocationMeta(location) || location.description || 'Без уточнения'}
+                                                            </div>
                                                         </div>
                                                         <Badge variant="secondary" className="shrink-0">
                                                             {location.plants_count ?? 0}
                                                         </Badge>
                                                     </div>
                                                     <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-2 text-xs">
-                                                        <span>{buildGreenlogLocationMeta(location) || location.description || locationTypeLabel(location.type)}</span>
+                                                        <span>{locationTypeLabel(location.type)}</span>
                                                         <span className={`rounded-full px-2 py-0.5 ${hasPoint ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-700'}`}>
                                                             {hasPoint ? 'Точка выбрана' : 'Без точки'}
                                                         </span>
@@ -484,191 +727,45 @@ export default function GreenLogLocationsIndex() {
                         <CardHeader className="pb-3">
                             <CardTitle>Выбранная локация</CardTitle>
                             <CardDescription>
-                                Карточка локации, растения внутри нее и управление точкой на карте.
+                                Детальная карточка локации, размер точки и список растений.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4 pb-6">
-                            {!selectedLocation && !loading ? (
-                                <div className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center">
-                                    Выберите локацию из списка или кликните по точке на карте.
-                                </div>
-                            ) : null}
+                            <LocationDetailsPanel
+                                location={selectedLocation}
+                                plants={selectedPlants}
+                                plantsLoading={plantsLoading}
+                                plantsError={plantsError}
+                                markerSizeSaving={markerSizeSaving}
+                                shapeSaving={shapeSaving}
+                                dimensionsSaving={dimensionsSaving}
+                                polygonEditing={polygonDraftLocationId === selectedLocation?.id}
+                                polygonSaving={polygonSaving}
+                                polygonDraftPoints={polygonDraftLocationId === selectedLocation?.id ? polygonDraftPoints : []}
+                                onEditLocation={openEditDialog}
+                                onStartPlacement={startPlacement}
+                                onCommitMarkerSize={handleMarkerSizeChange}
+                                onCommitShape={handleShapeChange}
+                                onCommitRectangleSize={handleRectangleSizeChange}
+                                onStartPolygonEditing={startPolygonEditing}
+                                onSavePolygon={savePolygon}
+                                onCancelPolygon={cancelPolygonEditing}
+                                onRemoveLastPolygonPoint={removeLastPolygonPoint}
+                            />
 
                             {selectedLocation ? (
-                                <>
-                                    <div className="rounded-2xl border p-4">
-                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                            <div>
-                                                <div className="flex items-center gap-2 text-base font-semibold">
-                                                    <Building2 className="h-4 w-4 text-green-700" />
-                                                    {buildGreenlogLocationTitle(selectedLocation)}
-                                                </div>
-                                                <div className="text-muted-foreground mt-1 text-sm">
-                                                    {buildLocationAddress(selectedLocation)}
-                                                </div>
-                                            </div>
-                                            <Badge variant="outline">
-                                                {selectedLocation.plants_count ?? selectedPlants.length} растений
-                                            </Badge>
-                                        </div>
-
-                                        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                            <div className="rounded-lg border bg-muted/20 p-3">
-                                                <div className="text-muted-foreground text-xs">Тип</div>
-                                                <div className="font-medium">{locationTypeLabel(selectedLocation.type)}</div>
-                                            </div>
-                                            <div className="rounded-lg border bg-muted/20 p-3">
-                                                <div className="text-muted-foreground text-xs">Корпус</div>
-                                                <div className="font-medium">{selectedLocation.building || '—'}</div>
-                                            </div>
-                                            <div className="rounded-lg border bg-muted/20 p-3">
-                                                <div className="text-muted-foreground text-xs">Комната</div>
-                                                <div className="font-medium">{selectedLocation.room || '—'}</div>
-                                            </div>
-                                            <div className="rounded-lg border bg-muted/20 p-3">
-                                                <div className="text-muted-foreground text-xs">Зона</div>
-                                                <div className="font-medium">{selectedLocation.factory_zone || '—'}</div>
-                                            </div>
-                                            <div className="rounded-lg border bg-muted/20 p-3">
-                                                <div className="text-muted-foreground text-xs">Сектор</div>
-                                                <div className="font-medium">{selectedLocation.sector || '—'}</div>
-                                            </div>
-                                            <div className="rounded-lg border bg-muted/20 p-3">
-                                                <div className="text-muted-foreground text-xs">Точка на карте</div>
-                                                <div className="font-medium">
-                                                    {selectedLocation.map_x !== null && selectedLocation.map_y !== null
-                                                        ? `${selectedLocation.map_x}% / ${selectedLocation.map_y}%`
-                                                        : 'Не выбрана'}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="mt-4 text-sm">
-                                            <div className="font-medium">Описание</div>
-                                            <div className="text-muted-foreground mt-1">
-                                                {selectedLocation.description || 'Описание для этой локации пока не заполнено.'}
-                                            </div>
-                                        </div>
-
-                                        <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_220px]">
-                                            <div className="space-y-3">
-                                                <Label htmlFor="marker_size">Размер точки</Label>
-                                                <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                                                    <Input
-                                                        id="marker_size"
-                                                        type="range"
-                                                        min="6"
-                                                        max="32"
-                                                        value={clampGreenlogMarkerSize(selectedLocation.marker_size)}
-                                                        onChange={(event) => void handleMarkerSizeChange(selectedLocation, event.currentTarget.valueAsNumber)}
-                                                    />
-                                                    <Input
-                                                        className="w-full md:w-24"
-                                                        type="number"
-                                                        min="6"
-                                                        max="32"
-                                                        value={clampGreenlogMarkerSize(selectedLocation.marker_size)}
-                                                        onChange={(event) => {
-                                                            const nextValue = event.currentTarget.valueAsNumber;
-
-                                                            if (!Number.isNaN(nextValue)) {
-                                                                void handleMarkerSizeChange(selectedLocation, nextValue);
-                                                            }
-                                                        }}
-                                                    />
-                                                </div>
-                                                <div className="text-muted-foreground text-xs">
-                                                    {markerSizeSaving ? 'Сохраняем размер точки...' : 'Минимум 6px, максимум 32px. По умолчанию используется 10px.'}
-                                                </div>
-                                            </div>
-
-                                            <div className="flex flex-col gap-2">
-                                                <Button variant="outline" onClick={() => openEditDialog(selectedLocation)}>
-                                                    <Pencil className="h-4 w-4" />
-                                                    Изменить
-                                                </Button>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => startPlacement(selectedLocation)}
-                                                    disabled={placementSaving}
-                                                >
-                                                    <Crosshair className="h-4 w-4" />
-                                                    Изменить точку
-                                                </Button>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => startPlacement(selectedLocation)}
-                                                    disabled={placementSaving}
-                                                >
-                                                    <MapPinned className="h-4 w-4" />
-                                                    Выбрать точку на карте
-                                                </Button>
-                                                <Button variant="destructive" onClick={() => void removeLocation(selectedLocation)}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                    Удалить
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {plantsError ? (
-                                        <Alert variant="destructive">
-                                            <AlertTitle>Ошибка загрузки растений</AlertTitle>
-                                            <AlertDescription>{plantsError}</AlertDescription>
-                                        </Alert>
-                                    ) : null}
-
-                                    <div className="rounded-2xl border p-4">
-                                        <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-                                            <Trees className="h-4 w-4 text-green-700" />
-                                            Растения в локации
-                                        </div>
-
-                                        {plantsLoading ? (
-                                            <div className="space-y-2">
-                                                <Skeleton className="h-16 w-full" />
-                                                <Skeleton className="h-16 w-full" />
-                                            </div>
-                                        ) : null}
-
-                                        {!plantsLoading && selectedPlants.length === 0 ? (
-                                            <div className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center">
-                                                В этой локации пока нет растений.
-                                            </div>
-                                        ) : null}
-
-                                        {!plantsLoading && selectedPlants.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {selectedPlants.map((plant) => (
-                                                    <div key={plant.id} className="rounded-xl border p-3">
-                                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                                            <div>
-                                                                <div className="font-medium">{buildPlantTitle(plant)}</div>
-                                                                <div className="text-muted-foreground text-xs">{plant.inventory_number}</div>
-                                                            </div>
-                                                            <div className="text-right text-xs">
-                                                                <div>Кол-во: {plant.quantity ?? 1}</div>
-                                                                <div>Цена: {greenlogMoneyLabel(plant.unit_cost)}</div>
-                                                                <div>Сумма: {greenlogMoneyLabel(plant.total_cost)}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-muted-foreground mt-2 flex flex-wrap gap-3 text-xs">
-                                                            <span>{plantStatusLabel(plant.status)}</span>
-                                                            <span>{plantCategoryLabel(plant.category)}</span>
-                                                            <span>{plantCostSourceLabel(plant.cost_source)}</span>
-                                                        </div>
-                                                        <div className="mt-3">
-                                                            <Button asChild size="sm" variant="outline">
-                                                                <Link href={`/greenlog/plants/${plant.id}`}>Открыть растение</Link>
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                </>
+                                <Button variant="destructive" onClick={() => void removeLocation(selectedLocation)}>
+                                    <Trash2 className="h-4 w-4" />
+                                    Удалить локацию
+                                </Button>
                             ) : null}
+
+                            <UnplacedLocationsPanel
+                                locations={unplacedLocations}
+                                selectedLocationId={selectedLocationId}
+                                onSelectLocation={setSelectedLocationId}
+                                onStartPlacement={startPlacement}
+                            />
                         </CardContent>
                     </Card>
                 </div>
@@ -679,7 +776,7 @@ export default function GreenLogLocationsIndex() {
                     <DialogHeader>
                         <DialogTitle>{editingLocation ? 'Редактирование локации' : 'Новая локация'}</DialogTitle>
                         <DialogDescription>
-                            Сначала сохраните параметры локации. Точку на общей карте Shin Line Flora можно выбрать отдельным кликом по PNG-карте.
+                            Сначала сохраните параметры локации. Затем установите точку на карте завода отдельным кликом по Konva-карте.
                         </DialogDescription>
                     </DialogHeader>
                     <form className="space-y-4" onSubmit={submitForm}>
