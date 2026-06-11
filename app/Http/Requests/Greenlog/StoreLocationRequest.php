@@ -28,6 +28,12 @@ class StoreLocationRequest extends FormRequest
             'type' => ['nullable', Rule::in(['office', 'factory_zone', 'sector', 'room'])],
             'map_image_path' => ['nullable', 'string', 'max:1000'],
             'marker_size' => ['nullable', 'integer', 'min:6', 'max:32'],
+            'map_shape' => ['nullable', Rule::in(['point', 'rectangle', 'polygon'])],
+            'map_width' => ['nullable', 'numeric', 'min:1', 'max:100'],
+            'map_height' => ['nullable', 'numeric', 'min:1', 'max:100'],
+            'map_polygon' => ['nullable', 'array'],
+            'map_polygon.*.x' => ['required_with:map_polygon', 'numeric', 'min:0', 'max:100'],
+            'map_polygon.*.y' => ['required_with:map_polygon', 'numeric', 'min:0', 'max:100'],
             'parent_id' => ['nullable', 'integer', 'exists:greenlog_locations,id'],
         ];
     }
@@ -45,6 +51,13 @@ class StoreLocationRequest extends FormRequest
                 && ! $this->filled('description')
             ) {
                 $validator->errors()->add('building', 'Заполните хотя бы одно поле локации.');
+            }
+
+            $shape = $this->input('map_shape');
+            $polygon = $this->input('map_polygon');
+
+            if ($shape === 'polygon' && (! is_array($polygon) || count($polygon) < 3)) {
+                $validator->errors()->add('map_polygon', 'Для полигона нужно передать минимум 3 точки.');
             }
         });
     }

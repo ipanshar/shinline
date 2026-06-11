@@ -37,7 +37,7 @@ export function buildGreenlogLocationMeta(location: GreenlogLocation): string {
 
 export function clampGreenlogMarkerSize(value?: number | null): number {
     if (typeof value !== 'number' || Number.isNaN(value)) {
-        return 10;
+        return 8;
     }
 
     return Math.min(32, Math.max(6, Math.round(value)));

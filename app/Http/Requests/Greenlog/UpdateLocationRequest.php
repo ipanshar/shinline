@@ -28,6 +28,12 @@ class UpdateLocationRequest extends FormRequest
             'type' => ['sometimes', 'nullable', Rule::in(['office', 'factory_zone', 'sector', 'room'])],
             'map_image_path' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'marker_size' => ['sometimes', 'nullable', 'integer', 'min:6', 'max:32'],
+            'map_shape' => ['sometimes', 'nullable', Rule::in(['point', 'rectangle', 'polygon'])],
+            'map_width' => ['sometimes', 'nullable', 'numeric', 'min:1', 'max:100'],
+            'map_height' => ['sometimes', 'nullable', 'numeric', 'min:1', 'max:100'],
+            'map_polygon' => ['sometimes', 'nullable', 'array'],
+            'map_polygon.*.x' => ['required_with:map_polygon', 'numeric', 'min:0', 'max:100'],
+            'map_polygon.*.y' => ['required_with:map_polygon', 'numeric', 'min:0', 'max:100'],
             'parent_id' => ['sometimes', 'nullable', 'integer', 'exists:greenlog_locations,id'],
         ];
     }
@@ -37,6 +43,13 @@ class UpdateLocationRequest extends FormRequest
         $validator->after(function ($validator) {
             if ($this->all() === []) {
                 $validator->errors()->add('payload', 'Для обновления нужно передать хотя бы одно поле.');
+            }
+
+            $shape = $this->input('map_shape');
+            $polygon = $this->input('map_polygon');
+
+            if ($shape === 'polygon' && (! is_array($polygon) || count($polygon) < 3)) {
+                $validator->errors()->add('map_polygon', 'Для полигона нужно передать минимум 3 точки.');
             }
         });
     }

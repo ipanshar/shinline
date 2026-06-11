@@ -32,6 +32,10 @@ class Location extends Model
         'type',
         'map_image_path',
         'marker_size',
+        'map_shape',
+        'map_width',
+        'map_height',
+        'map_polygon',
         'parent_id',
     ];
 
@@ -41,6 +45,9 @@ class Location extends Model
             'position_x' => 'float',
             'position_y' => 'float',
             'marker_size' => 'integer',
+            'map_width' => 'float',
+            'map_height' => 'float',
+            'map_polygon' => 'array',
         ];
     }
 
