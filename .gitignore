@@ -24,3 +24,7 @@ yarn-error.log
 /.zed
 /20260507.sql
 
+# LLM Wiki raw sources are curated local inputs; commit generated wiki/schema files.
+/knowledge/raw/*
+!/knowledge/raw/README.md
+/.obsidian
