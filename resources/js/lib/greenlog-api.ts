@@ -51,7 +51,16 @@ export interface GreenlogLocation {
     map_x: number | null;
     map_y: number | null;
     marker_size: number | null;
-    map_shape: 'point' | 'rectangle' | 'polygon' | null;
+    map_shape: 'point' | 'circle' | 'square' | 'rectangle' | 'polygon' | 'line' | 'flower_bed' | 'checkpoint' | null;
+    map_style: {
+        fill?: string;
+        stroke?: string;
+        strokeWidth?: number;
+        opacity?: number;
+        radius?: number;
+        width?: number;
+        height?: number;
+    } | null;
     map_width: number | null;
     map_height: number | null;
     map_polygon: Array<{ x: number; y: number }> | null;
