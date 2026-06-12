@@ -3,12 +3,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { type GreenlogLocation, type GreenlogPlant } from '@/lib/greenlog-api';
 import { Link } from '@inertiajs/react';
 import { Building2, Crosshair, Pencil, Shapes, Trees } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
 import {
     buildGreenlogLocationMeta,
     buildGreenlogLocationSubtitle,
@@ -20,17 +18,22 @@ import {
     DEFAULT_GREENLOG_MARKER_SIZE,
     DEFAULT_RECTANGLE_HEIGHT,
     DEFAULT_RECTANGLE_WIDTH,
+    GREENLOG_PATH_SHAPES,
     MAX_GREENLOG_MARKER_SIZE,
     MIN_GREENLOG_MARKER_SIZE,
     getLocationShape,
+    getLocationStyle,
     getPlantSpeciesCount,
     getRectangleHeight,
     getRectangleWidth,
     getTotalPlantsQuantity,
+    isBoxShape,
+    isPathShape,
     normalizePolygonPoints,
     type GreenlogPolygonPoint,
     type GreenlogMapShape,
 } from './map-utils';
+import { ShapeLibrary } from './ShapeLibrary';
 
 interface LocationDetailsPanelProps {
     location: GreenlogLocation | null;
@@ -40,21 +43,21 @@ interface LocationDetailsPanelProps {
     markerSizeSaving: boolean;
     shapeSaving: boolean;
     dimensionsSaving: boolean;
+    shapeEditing: boolean;
     polygonEditing: boolean;
     polygonSaving: boolean;
     polygonDraftPoints: GreenlogPolygonPoint[];
+    selectedPolygonPointIndex: number | null;
     onEditLocation: (location: GreenlogLocation) => void;
     onStartPlacement: (location: GreenlogLocation) => void;
+    onToggleShapeEditing: (location: GreenlogLocation) => void;
     onCommitMarkerSize: (location: GreenlogLocation, nextSize: number) => Promise<void>;
     onCommitShape: (location: GreenlogLocation, shape: GreenlogMapShape) => Promise<void>;
     onCommitRectangleSize: (
         location: GreenlogLocation,
         nextSize: { map_width: number; map_height: number },
     ) => Promise<void>;
-    onStartPolygonEditing: (location: GreenlogLocation) => void;
-    onSavePolygon: () => Promise<void>;
-    onCancelPolygon: () => void;
-    onRemoveLastPolygonPoint: () => void;
+    onSelectShape: (location: GreenlogLocation, shape: GreenlogMapShape) => Promise<void>;
 }
 
 const buildPlantTitle = (plant: GreenlogPlant) => plant.species?.name || plant.name || `Растение #${plant.id}`;
@@ -67,18 +70,18 @@ export function LocationDetailsPanel({
     markerSizeSaving,
     shapeSaving,
     dimensionsSaving,
+    shapeEditing,
     polygonEditing,
     polygonSaving,
     polygonDraftPoints,
+    selectedPolygonPointIndex,
     onEditLocation,
     onStartPlacement,
+    onToggleShapeEditing,
     onCommitMarkerSize,
     onCommitShape,
     onCommitRectangleSize,
-    onStartPolygonEditing,
-    onSavePolygon,
-    onCancelPolygon,
-    onRemoveLastPolygonPoint,
+    onSelectShape,
 }: LocationDetailsPanelProps) {
     const [draftMarkerSize, setDraftMarkerSize] = useState(DEFAULT_GREENLOG_MARKER_SIZE);
     const [draftShape, setDraftShape] = useState<GreenlogMapShape>('point');
@@ -103,10 +106,13 @@ export function LocationDetailsPanel({
     const speciesCount = getPlantSpeciesCount(plants);
     const totalPlants = getTotalPlantsQuantity(plants);
     const shape = getLocationShape(location);
-    const displayShape: GreenlogMapShape = polygonEditing || draftShape === 'polygon' ? 'polygon' : shape;
+    const displayShape: GreenlogMapShape = polygonEditing || isPathShape(draftShape) ? draftShape : shape;
     const polygonPoints = normalizePolygonPoints(location);
     const hasPolygonData = polygonPoints.length >= 3;
     const activePolygonPoints = polygonEditing ? polygonDraftPoints : polygonPoints;
+    const isPathEditingShape = GREENLOG_PATH_SHAPES.includes(shape);
+    const isLine = shape === 'line';
+    const locationStyle = getLocationStyle(location);
 
     const commitMarkerSize = async () => {
         const nextValue = Math.min(MAX_GREENLOG_MARKER_SIZE, Math.max(MIN_GREENLOG_MARKER_SIZE, draftMarkerSize));
@@ -187,39 +193,28 @@ export function LocationDetailsPanel({
                 <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label>Форма локации</Label>
-                            <Select
-                                value={draftShape}
-                                onValueChange={(value) => {
-                                    const nextShape = value as GreenlogMapShape;
-
-                                    if (nextShape === 'polygon') {
-                                        setDraftShape(nextShape);
-                                        onStartPolygonEditing(location);
-                                        return;
-                                    }
-
+                            <ShapeLibrary
+                                selectedShape={draftShape}
+                                selectedStyle={locationStyle}
+                                disabled={shapeSaving}
+                                saving={shapeSaving}
+                                onSelectShape={(nextShape) => {
                                     setDraftShape(nextShape);
-                                    void onCommitShape(location, nextShape);
+                                    void onSelectShape(location, nextShape);
                                 }}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="point">Точка</SelectItem>
-                                    <SelectItem value="rectangle">Прямоугольник</SelectItem>
-                                    <SelectItem value="polygon">Полигон</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            />
                             <div className="text-muted-foreground text-xs">
                                 {shapeSaving
                                     ? 'Сохраняем форму локации...'
-                                    : polygonEditing
-                                        ? 'Режим построения полигона активен. Кликайте по карте, чтобы добавлять вершины.'
-                                        : hasPolygonData
-                                            ? 'Polygon доступен для просмотра и редактирования вершин через карту.'
-                                            : 'Можно переключиться в polygon и нарисовать его кликами по карте.'}
+                                    : polygonEditing && isLine
+                                        ? 'Режим редактирования линии активен. Перетаскивайте начало и конец линии.'
+                                        : polygonEditing
+                                            ? 'Режим редактирования полигона активен. Перетаскивайте вершины и добавляйте точки на карте.'
+                                            : isLine
+                                                ? 'Линия редактируется через две контрольные точки на карте.'
+                                                : hasPolygonData
+                                                    ? 'Polygon доступен для просмотра и редактирования вершин через карту.'
+                                                    : 'Выберите фигуру из библиотеки и при необходимости отредактируйте её на карте.'}
                             </div>
                         </div>
 
@@ -259,12 +254,12 @@ export function LocationDetailsPanel({
                             </div>
                         ) : null}
 
-                        {displayShape === 'rectangle' ? (
+                        {isBoxShape(displayShape) ? (
                             <div className="space-y-3">
-                                <Label>Размер прямоугольника</Label>
+                                <Label>Размер фигуры</Label>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="map-width">Ширина зоны, %</Label>
+                                        <Label htmlFor="map-width">Ширина, %</Label>
                                         <Input
                                             id="map-width"
                                             type="number"
@@ -280,7 +275,7 @@ export function LocationDetailsPanel({
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="map-height">Высота зоны, %</Label>
+                                        <Label htmlFor="map-height">Высота, %</Label>
                                         <Input
                                             id="map-height"
                                             type="number"
@@ -303,69 +298,41 @@ export function LocationDetailsPanel({
                                         onClick={() => void commitRectangleSize()}
                                         disabled={dimensionsSaving}
                                     >
-                                        Сохранить размер зоны
+                                        Сохранить размер фигуры
                                     </Button>
                                 </div>
                                 <div className="text-muted-foreground text-xs">
-                                    {dimensionsSaving ? 'Сохраняем размеры зоны...' : 'Размеры хранятся в процентах от карты.'}
+                                    {dimensionsSaving ? 'Сохраняем размеры фигуры...' : 'Размеры хранятся в процентах от карты.'}
                                 </div>
                             </div>
                         ) : null}
 
-                        {displayShape === 'polygon' ? (
+                        {isPathShape(displayShape) ? (
                             <div className="space-y-3 rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm">
-                                <div className="font-medium">{polygonEditing ? 'Построение полигона' : 'Полигон'}</div>
+                                <div className="font-medium">{isLine ? 'Линия' : polygonEditing ? 'Построение полигона' : 'Полигон'}</div>
                                 <div className="text-muted-foreground">
-                                    {polygonEditing
+                                    {isLine
+                                        ? `Контрольных точек: ${activePolygonPoints.length}. Для линии нужны ровно 2 точки.`
+                                        : polygonEditing
                                         ? `Добавлено вершин: ${activePolygonPoints.length}. Минимум для сохранения: 3.`
                                         : `Вершин: ${activePolygonPoints.length}.`}
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {!polygonEditing ? (
-                                        <Button type="button" variant="outline" onClick={() => onStartPolygonEditing(location)}>
-                                            Начать/редактировать полигон
-                                        </Button>
-                                    ) : null}
-                                    {polygonEditing ? (
-                                        <>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={() => onRemoveLastPolygonPoint()}
-                                                disabled={polygonDraftPoints.length === 0 || polygonSaving}
-                                            >
-                                                Удалить последнюю точку
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={() => onCancelPolygon()}
-                                                disabled={polygonSaving}
-                                            >
-                                                Отменить
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                onClick={() => void onSavePolygon()}
-                                                disabled={polygonDraftPoints.length < 3 || polygonSaving}
-                                            >
-                                                {polygonSaving ? 'Сохраняем...' : 'Сохранить полигон'}
-                                            </Button>
-                                        </>
-                                    ) : null}
                                 </div>
                             </div>
                         ) : null}
                     </div>
 
                     <div className="flex flex-col gap-2">
+                        <Button variant={shapeEditing ? 'default' : 'outline'} onClick={() => onToggleShapeEditing(location)}>
+                            <Shapes className="h-4 w-4" />
+                            {shapeEditing ? 'Завершить редактирование формы' : 'Редактировать форму'}
+                        </Button>
                         <Button variant="outline" onClick={() => onEditLocation(location)}>
                             <Pencil className="h-4 w-4" />
                             Изменить
                         </Button>
-                        <Button variant="outline" onClick={() => onStartPlacement(location)} disabled={displayShape === 'polygon' || polygonEditing}>
+                        <Button variant="outline" onClick={() => onStartPlacement(location)} disabled={isPathShape(displayShape) || polygonEditing}>
                             <Crosshair className="h-4 w-4" />
-                            {displayShape === 'rectangle' ? 'Установить зону' : displayShape === 'polygon' ? 'Polygon через клики' : 'Установить точку'}
+                            {isPathEditingShape ? 'Форма через точки' : displayShape === 'point' ? 'Установить точку' : 'Установить фигуру'}
                         </Button>
                         <Badge variant="secondary" className="justify-center gap-1 py-2">
                             <Shapes className="h-4 w-4" />

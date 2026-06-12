@@ -42,15 +42,20 @@ import { Leaf, Plus, Search, Trash2 } from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-    clampMapPercent,
+    buildDefaultPathPoints,
     clampRectangleOrigin,
     DEFAULT_RECTANGLE_HEIGHT,
     DEFAULT_RECTANGLE_WIDTH,
+    getDefaultShapeStyle,
+    getLocationAnchor,
     clampZoom,
     getLocationShape,
     getPolygonAnchor,
-    hasMapPoint,
+    getRectangleHeight,
+    getRectangleWidth,
     hasRenderableShape,
+    isBoxShape,
+    isPathShape,
     normalizePolygonPoints,
     type GreenlogPolygonPoint,
     type GreenlogMapShape,
@@ -110,8 +115,11 @@ export default function GreenLogLocationsIndex() {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingLocation, setEditingLocation] = useState<GreenlogLocation | null>(null);
     const [placementLocationId, setPlacementLocationId] = useState<number | null>(null);
+    const [shapeEditLocationId, setShapeEditLocationId] = useState<number | null>(null);
     const [polygonDraftLocationId, setPolygonDraftLocationId] = useState<number | null>(null);
     const [polygonDraftPoints, setPolygonDraftPoints] = useState<GreenlogPolygonPoint[]>([]);
+    const [selectedPolygonPointIndex, setSelectedPolygonPointIndex] = useState<number | null>(null);
+    const [polygonAddPointMode, setPolygonAddPointMode] = useState(false);
     const [gridEnabled, setGridEnabled] = useState(true);
     const [panEnabled, setPanEnabled] = useState(false);
     const [editMode, setEditMode] = useState(false);
@@ -158,6 +166,59 @@ export default function GreenLogLocationsIndex() {
         )));
     };
 
+    const buildShapePayload = (location: GreenlogLocation, shape: GreenlogMapShape): Partial<GreenlogLocation> => {
+        const anchor = getLocationAnchor(location);
+        const style = getDefaultShapeStyle(shape);
+        const payload: Partial<GreenlogLocation> = {
+            map_shape: shape,
+            map_style: style,
+        };
+
+        if (shape === 'point') {
+            payload.map_x = anchor.x;
+            payload.map_y = anchor.y;
+            payload.map_width = null;
+            payload.map_height = null;
+            payload.map_polygon = null;
+            return payload;
+        }
+
+        if (isPathShape(shape)) {
+            const currentPoints = normalizePolygonPoints(location);
+            const points = shape === 'polygon'
+                ? currentPoints.length >= 3 ? currentPoints : buildDefaultPathPoints(shape, anchor)
+                : currentPoints.length === 2 ? currentPoints : buildDefaultPathPoints(shape, anchor);
+            const nextAnchor = shape === 'line'
+                ? {
+                    x: Number((((points[0]?.x ?? anchor.x) + (points[1]?.x ?? anchor.x)) / 2).toFixed(2)),
+                    y: Number((((points[0]?.y ?? anchor.y) + (points[1]?.y ?? anchor.y)) / 2).toFixed(2)),
+                }
+                : getPolygonAnchor(points) ?? anchor;
+
+            payload.map_polygon = points;
+            payload.map_x = nextAnchor.x;
+            payload.map_y = nextAnchor.y;
+            payload.map_width = null;
+            payload.map_height = null;
+            return payload;
+        }
+
+        const nextWidth = shape === 'square' || shape === 'circle' || shape === 'checkpoint'
+            ? style.width
+            : location.map_width ?? style.width ?? DEFAULT_RECTANGLE_WIDTH;
+        const nextHeight = shape === 'square' || shape === 'circle' || shape === 'checkpoint'
+            ? nextWidth
+            : location.map_height ?? style.height ?? DEFAULT_RECTANGLE_HEIGHT;
+
+        payload.map_width = Number(nextWidth.toFixed(2));
+        payload.map_height = Number(nextHeight.toFixed(2));
+        payload.map_x = clampRectangleOrigin(anchor.x - (nextWidth / 2), nextWidth);
+        payload.map_y = clampRectangleOrigin(anchor.y - (nextHeight / 2), nextHeight);
+        payload.map_polygon = null;
+
+        return payload;
+    };
+
     const loadLocations = async (nextSelectedLocationId?: number | null) => {
         try {
             setLoading(true);
@@ -184,6 +245,12 @@ export default function GreenLogLocationsIndex() {
             setSelectedLocationId(filteredLocations[0].id);
         }
     }, [filteredLocations, selectedLocationId]);
+
+    useEffect(() => {
+        if (shapeEditLocationId !== null && !locations.some((location) => location.id === shapeEditLocationId)) {
+            setShapeEditLocationId(null);
+        }
+    }, [locations, shapeEditLocationId]);
 
     useEffect(() => {
         if (!selectedLocationId) {
@@ -286,18 +353,21 @@ export default function GreenLogLocationsIndex() {
     };
 
     const startPlacement = (location: GreenlogLocation) => {
-        if (getLocationShape(location) === 'polygon') {
-            toast.info('Для полигона используйте режим построения вершин.');
+        if (isPathShape(getLocationShape(location))) {
+            toast.info('Для линии и полигона используйте режим редактирования точек.');
             return;
         }
 
         setPolygonDraftLocationId(null);
         setPolygonDraftPoints([]);
+        setSelectedPolygonPointIndex(null);
+        setPolygonAddPointMode(false);
         setSelectedLocationId(location.id);
         setPlacementLocationId(location.id);
+        setShapeEditLocationId(null);
         setPanEnabled(false);
-        toast.info(getLocationShape(location) === 'rectangle'
-            ? 'Кликните по карте, чтобы сохранить верхний левый угол зоны.'
+        toast.info(isBoxShape(getLocationShape(location))
+            ? 'Кликните по карте, чтобы сохранить верхний левый угол фигуры.'
             : 'Кликните по карте, чтобы сохранить точку локации.');
     };
 
@@ -312,9 +382,9 @@ export default function GreenLogLocationsIndex() {
             const updatedLocation = await updateGreenlogLocation(placementLocation.id, {
                 map_x,
                 map_y,
-                ...(shape === 'rectangle' ? {
-                    map_width: placementLocation.map_width ?? DEFAULT_RECTANGLE_WIDTH,
-                    map_height: placementLocation.map_height ?? DEFAULT_RECTANGLE_HEIGHT,
+                ...(isBoxShape(shape) ? {
+                    map_width: placementLocation.map_width ?? getRectangleWidth(placementLocation),
+                    map_height: placementLocation.map_height ?? getRectangleHeight(placementLocation),
                 } : {}),
             });
 
@@ -333,23 +403,112 @@ export default function GreenLogLocationsIndex() {
     const startPolygonEditing = (location: GreenlogLocation) => {
         setPlacementLocationId(null);
         setPanEnabled(false);
+        setEditMode(true);
+        setShapeEditLocationId(location.id);
         setSelectedLocationId(location.id);
         setPolygonDraftLocationId(location.id);
-        setPolygonDraftPoints(normalizePolygonPoints(location));
-        toast.info('Кликайте по карте, чтобы добавить вершины полигона.');
+        const shape = getLocationShape(location);
+        const points = normalizePolygonPoints(location);
+
+        setPolygonDraftPoints(
+            shape === 'line'
+                ? (points.length === 2 ? points : buildDefaultPathPoints('line', getLocationAnchor(location)))
+                : (points.length >= 3 ? points : buildDefaultPathPoints('polygon', getLocationAnchor(location))),
+        );
+        setSelectedPolygonPointIndex(null);
+        setPolygonAddPointMode(false);
+        toast.info(shape === 'line'
+            ? 'Перетаскивайте начальную и конечную точки линии.'
+            : 'Перетаскивайте вершины полигона или добавляйте новые точки.');
     };
 
     const addPolygonPoint = (point: GreenlogPolygonPoint) => {
-        setPolygonDraftPoints((current) => [...current, point]);
+        setPolygonDraftPoints((current) => {
+            const nextPoints = [...current, point];
+            setSelectedPolygonPointIndex(nextPoints.length - 1);
+            return nextPoints;
+        });
+        setPolygonAddPointMode(false);
     };
 
     const cancelPolygonEditing = () => {
         setPolygonDraftLocationId(null);
         setPolygonDraftPoints([]);
+        setSelectedPolygonPointIndex(null);
+        setPolygonAddPointMode(false);
     };
 
-    const removeLastPolygonPoint = () => {
-        setPolygonDraftPoints((current) => current.slice(0, -1));
+    const removeSelectedPolygonPoint = () => {
+        const draftShape = getLocationShape(polygonDraftLocation);
+
+        setPolygonDraftPoints((current) => {
+            if (selectedPolygonPointIndex === null) {
+                return current;
+            }
+
+            if (draftShape === 'line' && current.length <= 2) {
+                return current;
+            }
+
+            if (draftShape !== 'line' && current.length <= 3) {
+                return current;
+            }
+
+            return current.filter((_, index) => index !== selectedPolygonPointIndex);
+        });
+        setSelectedPolygonPointIndex(null);
+        setPolygonAddPointMode(false);
+    };
+
+    const updatePolygonDraftPoint = (pointIndex: number, point: GreenlogPolygonPoint) => {
+        setPolygonDraftPoints((current) => current.map((item, index) => (
+            index === pointIndex ? point : item
+        )));
+    };
+
+    const movePathShapeDraft = (location: GreenlogLocation, points: GreenlogPolygonPoint[]) => {
+        if (polygonDraftLocationId !== location.id) {
+            return;
+        }
+
+        setPolygonDraftPoints(points);
+    };
+
+    const toggleShapeEditing = (location: GreenlogLocation) => {
+        const isActive = shapeEditLocationId === location.id;
+
+        if (isActive) {
+            setShapeEditLocationId(null);
+            cancelPolygonEditing();
+            return;
+        }
+
+        setEditMode(true);
+        setPlacementLocationId(null);
+        setSelectedLocationId(location.id);
+        setShapeEditLocationId(location.id);
+        const shape = getLocationShape(location);
+
+        if (isPathShape(shape)) {
+            setPolygonDraftLocationId(location.id);
+            const points = normalizePolygonPoints(location);
+
+            setPolygonDraftPoints(
+                shape === 'line'
+                    ? (points.length === 2 ? points : buildDefaultPathPoints('line', getLocationAnchor(location)))
+                    : (points.length >= 3 ? points : buildDefaultPathPoints('polygon', getLocationAnchor(location))),
+            );
+            setSelectedPolygonPointIndex(null);
+            setPolygonAddPointMode(false);
+        } else {
+            cancelPolygonEditing();
+        }
+    };
+
+    const enablePolygonAddPointMode = () => {
+        setPolygonAddPointMode(true);
+        setSelectedPolygonPointIndex(null);
+        toast.info('Кликните по карте, чтобы добавить новую вершину полигона.');
     };
 
     const savePolygon = async () => {
@@ -357,14 +516,24 @@ export default function GreenLogLocationsIndex() {
             return;
         }
 
-        if (polygonDraftPoints.length < 3) {
-            toast.error('Для полигона нужно передать минимум 3 точки.');
+        const shape = getLocationShape(polygonDraftLocation);
+        const invalidDraft = shape === 'line' ? polygonDraftPoints.length !== 2 : polygonDraftPoints.length < 3;
+
+        if (invalidDraft) {
+            toast.error(shape === 'line'
+                ? 'Для линии нужно передать ровно 2 точки.'
+                : 'Для полигона нужно передать минимум 3 точки.');
             return;
         }
 
-        const anchor = getPolygonAnchor(polygonDraftPoints);
+        const anchor = shape === 'line'
+            ? {
+                x: Number((((polygonDraftPoints[0]?.x ?? 0) + (polygonDraftPoints[1]?.x ?? 0)) / 2).toFixed(2)),
+                y: Number((((polygonDraftPoints[0]?.y ?? 0) + (polygonDraftPoints[1]?.y ?? 0)) / 2).toFixed(2)),
+            }
+            : getPolygonAnchor(polygonDraftPoints);
         const payload: Partial<GreenlogLocation> = {
-            map_shape: 'polygon',
+            map_shape: shape,
             map_polygon: polygonDraftPoints,
             map_x: anchor?.x ?? null,
             map_y: anchor?.y ?? null,
@@ -378,7 +547,9 @@ export default function GreenLogLocationsIndex() {
             applyLocationUpdate(polygonDraftLocation.id, updatedLocation);
             setPolygonDraftLocationId(null);
             setPolygonDraftPoints([]);
-            toast.success('Полигон сохранён');
+            setSelectedPolygonPointIndex(null);
+            setPolygonAddPointMode(false);
+            toast.success('Форма локации сохранена');
         } catch (polygonError) {
             toast.error(polygonError instanceof Error ? polygonError.message : 'Не удалось сохранить полигон.');
             await loadLocations(polygonDraftLocation.id);
@@ -413,71 +584,56 @@ export default function GreenLogLocationsIndex() {
 
     const handleMoveLocation = async (
         location: GreenlogLocation,
-        { map_x, map_y }: { map_x: number; map_y: number; map_width?: number; map_height?: number },
+        { map_x, map_y, map_width, map_height }: { map_x: number; map_y: number; map_width?: number; map_height?: number },
     ) => {
-        applyLocationUpdate(location.id, { map_x, map_y });
+        const shape = getLocationShape(location);
+        const nextWidth = map_width;
+        const nextHeight = map_height;
+
+        const nextStyle = isBoxShape(shape) && (typeof nextWidth === 'number' || typeof nextHeight === 'number')
+            ? {
+                ...(location.map_style ?? {}),
+                width: nextWidth ?? location.map_style?.width ?? location.map_width ?? getRectangleWidth(location),
+                height: nextHeight ?? location.map_style?.height ?? location.map_height ?? getRectangleHeight(location),
+                ...(shape === 'circle' ? { radius: Number((((nextWidth ?? getRectangleWidth(location)) / 2)).toFixed(2)) } : {}),
+            }
+            : undefined;
+
+        const payload = {
+            map_x,
+            map_y,
+            ...(typeof nextWidth === 'number' ? { map_width: nextWidth } : {}),
+            ...(typeof nextHeight === 'number' ? { map_height: nextHeight } : {}),
+            ...(nextStyle ? { map_style: nextStyle } : {}),
+        };
+
+        applyLocationUpdate(location.id, payload);
 
         try {
-            const updatedLocation = await updateGreenlogLocation(location.id, {
-                map_x,
-                map_y,
-            });
+            const updatedLocation = await updateGreenlogLocation(location.id, payload);
 
             applyLocationUpdate(location.id, updatedLocation);
-            toast.success('Координаты локации обновлены');
+            toast.success('Форма локации сохранена');
         } catch (moveError) {
             toast.error(moveError instanceof Error ? moveError.message : 'Не удалось сохранить новые координаты.');
             await loadLocations(location.id);
         }
     };
 
-    const handleMovePolygon = async (
-        location: GreenlogLocation,
-        { map_x, map_y, map_polygon }: { map_x: number; map_y: number; map_polygon: GreenlogPolygonPoint[] },
-    ) => {
-        const payload: Partial<GreenlogLocation> = {
-            map_shape: 'polygon',
-            map_x,
-            map_y,
-            map_polygon,
-        };
-
-        applyLocationUpdate(location.id, payload);
-
-        try {
-            const updatedLocation = await updateGreenlogLocation(location.id, payload);
-            applyLocationUpdate(location.id, updatedLocation);
-            toast.success('Полигон перемещён');
-        } catch (moveError) {
-            toast.error(moveError instanceof Error ? moveError.message : 'Не удалось переместить полигон.');
-            await loadLocations(location.id);
-        }
-    };
-
     const handleShapeChange = async (location: GreenlogLocation, shape: GreenlogMapShape) => {
-        const payload: Partial<GreenlogLocation> = {
-            map_shape: shape,
-        };
-
-        if (shape === 'rectangle') {
-            const nextWidth = location.map_width ?? DEFAULT_RECTANGLE_WIDTH;
-            const nextHeight = location.map_height ?? DEFAULT_RECTANGLE_HEIGHT;
-            const centerX = location.map_x ?? 0;
-            const centerY = location.map_y ?? 0;
-
-            payload.map_width = nextWidth;
-            payload.map_height = nextHeight;
-            payload.map_x = clampRectangleOrigin(centerX - (nextWidth / 2), nextWidth);
-            payload.map_y = clampRectangleOrigin(centerY - (nextHeight / 2), nextHeight);
-        }
-
+        const payload = buildShapePayload(location, shape);
         applyLocationUpdate(location.id, payload);
 
         try {
             setShapeSaving(true);
             const updatedLocation = await updateGreenlogLocation(location.id, payload);
             applyLocationUpdate(location.id, updatedLocation);
-            toast.success('Форма локации обновлена');
+            if (isPathShape(shape)) {
+                startPolygonEditing(updatedLocation);
+            } else {
+                cancelPolygonEditing();
+            }
+            toast.success('Форма локации сохранена');
         } catch (shapeError) {
             toast.error(shapeError instanceof Error ? shapeError.message : 'Не удалось сохранить форму локации.');
             await loadLocations(location.id);
@@ -502,6 +658,11 @@ export default function GreenLogLocationsIndex() {
             map_height: nextSize.map_height,
             map_x: clampRectangleOrigin(centerX - (nextSize.map_width / 2), nextSize.map_width),
             map_y: clampRectangleOrigin(centerY - (nextSize.map_height / 2), nextSize.map_height),
+            map_style: {
+                ...(location.map_style ?? {}),
+                width: nextSize.map_width,
+                height: nextSize.map_height,
+            },
         };
 
         applyLocationUpdate(location.id, payload);
@@ -627,13 +788,18 @@ export default function GreenLogLocationsIndex() {
                                 gridEnabled={gridEnabled}
                                 panEnabled={panEnabled}
                                 editMode={editMode}
+                                shapeEditing={shapeEditLocationId === selectedLocationId}
                                 zoom={mapZoom}
                                 viewport={mapViewport}
                                 canEdit
                                 onSelectLocation={setSelectedLocationId}
                                 onPlaceLocation={handlePlaceLocation}
                                 onAddPolygonPoint={addPolygonPoint}
-                                onMovePolygon={handleMovePolygon}
+                                selectedPolygonPointIndex={selectedPolygonPointIndex}
+                                polygonAddPointMode={polygonAddPointMode}
+                                onSelectPolygonPoint={setSelectedPolygonPointIndex}
+                                onMovePolygonPoint={updatePolygonDraftPoint}
+                                onMovePathShape={movePathShapeDraft}
                                 onMoveLocation={handleMoveLocation}
                                 onViewportChange={setMapViewport}
                             />
@@ -739,18 +905,18 @@ export default function GreenLogLocationsIndex() {
                                 markerSizeSaving={markerSizeSaving}
                                 shapeSaving={shapeSaving}
                                 dimensionsSaving={dimensionsSaving}
+                                shapeEditing={shapeEditLocationId === selectedLocation?.id}
                                 polygonEditing={polygonDraftLocationId === selectedLocation?.id}
                                 polygonSaving={polygonSaving}
                                 polygonDraftPoints={polygonDraftLocationId === selectedLocation?.id ? polygonDraftPoints : []}
+                                selectedPolygonPointIndex={polygonDraftLocationId === selectedLocation?.id ? selectedPolygonPointIndex : null}
                                 onEditLocation={openEditDialog}
                                 onStartPlacement={startPlacement}
+                                onToggleShapeEditing={toggleShapeEditing}
                                 onCommitMarkerSize={handleMarkerSizeChange}
                                 onCommitShape={handleShapeChange}
                                 onCommitRectangleSize={handleRectangleSizeChange}
-                                onStartPolygonEditing={startPolygonEditing}
-                                onSavePolygon={savePolygon}
-                                onCancelPolygon={cancelPolygonEditing}
-                                onRemoveLastPolygonPoint={removeLastPolygonPoint}
+                                onSelectShape={handleShapeChange}
                             />
 
                             {selectedLocation ? (

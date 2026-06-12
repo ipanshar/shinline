@@ -7,6 +7,17 @@ use Illuminate\Validation\Rule;
 
 class UpdateLocationRequest extends FormRequest
 {
+    private const MAP_SHAPES = [
+        'point',
+        'circle',
+        'square',
+        'rectangle',
+        'polygon',
+        'line',
+        'flower_bed',
+        'checkpoint',
+    ];
+
     public function authorize(): bool
     {
         return $this->user()?->hasPermission('greenlog.manage_locations') ?? false;
@@ -28,7 +39,15 @@ class UpdateLocationRequest extends FormRequest
             'type' => ['sometimes', 'nullable', Rule::in(['office', 'factory_zone', 'sector', 'room'])],
             'map_image_path' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'marker_size' => ['sometimes', 'nullable', 'integer', 'min:6', 'max:32'],
-            'map_shape' => ['sometimes', 'nullable', Rule::in(['point', 'rectangle', 'polygon'])],
+            'map_shape' => ['sometimes', 'nullable', Rule::in(self::MAP_SHAPES)],
+            'map_style' => ['sometimes', 'nullable', 'array'],
+            'map_style.fill' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'map_style.stroke' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'map_style.strokeWidth' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:20'],
+            'map_style.opacity' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:1'],
+            'map_style.radius' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'map_style.width' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'map_style.height' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
             'map_width' => ['sometimes', 'nullable', 'numeric', 'min:1', 'max:100'],
             'map_height' => ['sometimes', 'nullable', 'numeric', 'min:1', 'max:100'],
             'map_polygon' => ['sometimes', 'nullable', 'array'],
@@ -50,6 +69,10 @@ class UpdateLocationRequest extends FormRequest
 
             if ($shape === 'polygon' && (! is_array($polygon) || count($polygon) < 3)) {
                 $validator->errors()->add('map_polygon', 'Для полигона нужно передать минимум 3 точки.');
+            }
+
+            if ($shape === 'line' && (! is_array($polygon) || count($polygon) !== 2)) {
+                $validator->errors()->add('map_polygon', 'Для линии нужно передать ровно 2 точки.');
             }
         });
     }
